@@ -1,8 +1,15 @@
 import os
-import glob
 import sys
+
+# CUDA environment configuration
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+import glob
+import gc
 import subprocess
 import nibabel as nib
+import torch
 
 def main():
     array_id = int(sys.argv[1]) if len(sys.argv) > 1 else 0
@@ -55,10 +62,11 @@ def main():
                 print(f"[{case_id}] File partial/locked, skipping for next iteration: {e}")
                 continue
 
-            print(f"[{case_id}] Running TotalSegmentator on GPU...")
+            print(f"[{case_id}] Running TotalSegmentator...")
             from totalsegmentator.python_api import totalsegmentator
 
             try:
+                # Try GPU first
                 totalsegmentator(
                     input=ct_path,
                     output=out_mask_path,
@@ -66,10 +74,30 @@ def main():
                     ml=True,
                     device="gpu"
                 )
-                print(f"[{case_id}] Mask saved: {out_mask_path}")
+                print(f"[{case_id}] Mask saved (GPU): {out_mask_path}")
                 processed_something = True
             except Exception as e:
-                print(f"[{case_id}] TotalSegmentator error: {e}")
+                err_str = str(e)
+                if "CUDA" in err_str or "kernel image" in err_str:
+                    print(f"[{case_id}] GPU architecture mismatch detected, running on CPU fallback...")
+                    try:
+                        totalsegmentator(
+                            input=ct_path,
+                            output=out_mask_path,
+                            fast=True,
+                            ml=True,
+                            device="cpu"
+                        )
+                        print(f"[{case_id}] Mask saved (CPU): {out_mask_path}")
+                        processed_something = True
+                    except Exception as cpu_e:
+                        print(f"[{case_id}] TotalSegmentator CPU error: {cpu_e}")
+                else:
+                    print(f"[{case_id}] TotalSegmentator error: {e}")
+            finally:
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
         # Sleep briefly before rescanning for newly downloaded batches
         if not processed_something:
