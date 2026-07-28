@@ -55,22 +55,20 @@ def main():
                 print(f"[{case_id}] File partial/locked, skipping for next iteration: {e}")
                 continue
 
-            print(f"[{case_id}] Running TotalSegmentator...")
-            cmd = [
-                "TotalSegmentator",
-                "-i", ct_path,
-                "-o", out_mask_path,
-                "--task", "total",
-                "--fast",
-                "--ml",
-                "--quiet"
-            ]
+            print(f"[{case_id}] Running TotalSegmentator on GPU...")
+            from totalsegmentator.python_api import totalsegmentator
 
             try:
-                subprocess.run(cmd, check=True)
+                totalsegmentator(
+                    input=ct_path,
+                    output=out_mask_path,
+                    fast=True,
+                    ml=True,
+                    device="gpu"
+                )
                 print(f"[{case_id}] Mask saved: {out_mask_path}")
                 processed_something = True
-            except subprocess.CalledProcessError as e:
+            except Exception as e:
                 print(f"[{case_id}] TotalSegmentator error: {e}")
 
         # Sleep briefly before rescanning for newly downloaded batches
