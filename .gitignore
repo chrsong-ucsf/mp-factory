@@ -1,0 +1,15 @@
+# Medical data & volumes
+*.nii.gz
+*.nii
+datasets/
+CancerVerse/
+CancerVerse_data/
+
+# Environments & Caches
+envs/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+wandb/
+results/
+logs/
