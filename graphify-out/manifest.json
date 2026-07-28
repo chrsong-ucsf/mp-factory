@@ -1,0 +1,37 @@
+{
+  "code/evaluate_gi_masks.py": {
+    "mtime": 1785228553.2632039,
+    "ast_hash": "d78c7b97eb10582a50415ef9b056d7df",
+    "semantic_hash": "d78c7b97eb10582a50415ef9b056d7df"
+  },
+  "code/run_totalseg.py": {
+    "mtime": 1785228553.2633843,
+    "ast_hash": "6ec5b0933eaaa1d090b405a8e7030d25",
+    "semantic_hash": "6ec5b0933eaaa1d090b405a8e7030d25"
+  },
+  "code/run_totalseg_bdmap.py": {
+    "mtime": 1785228553.2635622,
+    "ast_hash": "c2a25e13a78933c3fe5a50ef7e63e8b3",
+    "semantic_hash": "c2a25e13a78933c3fe5a50ef7e63e8b3"
+  },
+  "code/run_totalseg_gi_array.py": {
+    "mtime": 1785228553.2637515,
+    "ast_hash": "27ef0730765b352c2bf1c51b6fa589a1",
+    "semantic_hash": "27ef0730765b352c2bf1c51b6fa589a1"
+  },
+  "code/run_totalsegmentator_batch.py": {
+    "mtime": 1785228553.2639287,
+    "ast_hash": "baaf36a0f7d94a97a4ee1ab4fbd8e63d",
+    "semantic_hash": "baaf36a0f7d94a97a4ee1ab4fbd8e63d"
+  },
+  "code/submit_audit.sh": {
+    "mtime": 1785228553.2641087,
+    "ast_hash": "2930033959683a7dde7e666752b5d301",
+    "semantic_hash": "2930033959683a7dde7e666752b5d301"
+  },
+  "AGENTS.md": {
+    "mtime": 1785228553.262887,
+    "ast_hash": "1a5ae5cd3f7cf82d2f481784c507ae3e",
+    "semantic_hash": "1a5ae5cd3f7cf82d2f481784c507ae3e"
+  }
+}

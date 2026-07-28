@@ -1,0 +1,602 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {
+    "hyperedges": [
+      {
+        "id": "agents_automated_3d_segmentation_workflows",
+        "label": "Automated 3D Segmentation Workflows",
+        "nodes": [
+          "agents_run_totalsegmentator_batch_py",
+          "agents_run_totalseg_py",
+          "agents_run_totalseg_bdmap_py",
+          "agents_run_totalseg_gi_array_py",
+          "agents_totalsegmentator"
+        ],
+        "relation": "participate_in",
+        "confidence": "EXTRACTED",
+        "confidence_score": 1.0,
+        "source_file": "AGENTS.md"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "label": "evaluate_gi_masks.py",
+      "file_type": "code",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "code_evaluate_gi_masks",
+      "community": 1,
+      "norm_label": "evaluate_gi_masks.py"
+    },
+    {
+      "label": "compute_betti_0()",
+      "file_type": "code",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L19",
+      "_origin": "ast",
+      "id": "code_evaluate_gi_masks_compute_betti_0",
+      "community": 1,
+      "norm_label": "compute_betti_0()"
+    },
+    {
+      "label": "compute_hd95()",
+      "file_type": "code",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L26",
+      "_origin": "ast",
+      "id": "code_evaluate_gi_masks_compute_hd95",
+      "community": 1,
+      "norm_label": "compute_hd95()"
+    },
+    {
+      "label": "evaluate_single_subject()",
+      "file_type": "code",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L39",
+      "_origin": "ast",
+      "id": "code_evaluate_gi_masks_evaluate_single_subject",
+      "community": 1,
+      "norm_label": "evaluate_single_subject()"
+    },
+    {
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L82",
+      "_origin": "ast",
+      "id": "code_evaluate_gi_masks_main",
+      "community": 1,
+      "norm_label": "main()"
+    },
+    {
+      "label": "Compute Betti-0 (number of connected components).",
+      "file_type": "rationale",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L20",
+      "_origin": "ast",
+      "id": "code_evaluate_gi_masks_rationale_20",
+      "community": 1,
+      "norm_label": "compute betti-0 (number of connected components)."
+    },
+    {
+      "label": "Compute 95th percentile Hausdorff Distance (HD95).",
+      "file_type": "rationale",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L27",
+      "_origin": "ast",
+      "id": "code_evaluate_gi_masks_rationale_27",
+      "community": 1,
+      "norm_label": "compute 95th percentile hausdorff distance (hd95)."
+    },
+    {
+      "label": "run_totalseg.py",
+      "file_type": "code",
+      "source_file": "code/run_totalseg.py",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "code_run_totalseg",
+      "community": 7,
+      "norm_label": "run_totalseg.py"
+    },
+    {
+      "label": "run_totalseg_bdmap.py",
+      "file_type": "code",
+      "source_file": "code/run_totalseg_bdmap.py",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "code_run_totalseg_bdmap",
+      "community": 3,
+      "norm_label": "run_totalseg_bdmap.py"
+    },
+    {
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "code/run_totalseg_bdmap.py",
+      "source_location": "L7",
+      "_origin": "ast",
+      "id": "code_run_totalseg_bdmap_main",
+      "community": 3,
+      "norm_label": "main()"
+    },
+    {
+      "label": "run_totalseg_gi_array.py",
+      "file_type": "code",
+      "source_file": "code/run_totalseg_gi_array.py",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "code_run_totalseg_gi_array",
+      "community": 4,
+      "norm_label": "run_totalseg_gi_array.py"
+    },
+    {
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "code/run_totalseg_gi_array.py",
+      "source_location": "L14",
+      "_origin": "ast",
+      "id": "code_run_totalseg_gi_array_main",
+      "community": 4,
+      "norm_label": "main()"
+    },
+    {
+      "label": "run_totalsegmentator_batch.py",
+      "file_type": "code",
+      "source_file": "code/run_totalsegmentator_batch.py",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "code_run_totalsegmentator_batch",
+      "community": 5,
+      "norm_label": "run_totalsegmentator_batch.py"
+    },
+    {
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "code/run_totalsegmentator_batch.py",
+      "source_location": "L25",
+      "_origin": "ast",
+      "id": "code_run_totalsegmentator_batch_main",
+      "community": 5,
+      "norm_label": "main()"
+    },
+    {
+      "label": "submit_audit.sh",
+      "file_type": "code",
+      "source_file": "code/submit_audit.sh",
+      "source_location": "L1",
+      "metadata": {
+        "language": "bash",
+        "kind": "file"
+      },
+      "_origin": "ast",
+      "id": "code_submit_audit",
+      "community": 6,
+      "norm_label": "submit_audit.sh"
+    },
+    {
+      "label": "submit_audit.sh script",
+      "file_type": "code",
+      "source_file": "code/submit_audit.sh",
+      "source_location": "L1",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_entrypoint"
+      },
+      "_origin": "ast",
+      "id": "code_submit_audit_sh__entry",
+      "community": 6,
+      "norm_label": "submit_audit.sh script"
+    },
+    {
+      "label": "mp-factory",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_mp_factory",
+      "community": 2,
+      "norm_label": "mp-factory"
+    },
+    {
+      "label": "CancerVerse",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_cancerverse",
+      "community": 2,
+      "norm_label": "cancerverse"
+    },
+    {
+      "label": "BodyMaps",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_bodymaps",
+      "community": 2,
+      "norm_label": "bodymaps"
+    },
+    {
+      "label": "TotalSegmentator",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_totalsegmentator",
+      "community": 0,
+      "norm_label": "totalsegmentator"
+    },
+    {
+      "label": "SyntheticTumors",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_synthetictumors",
+      "community": 2,
+      "norm_label": "synthetictumors"
+    },
+    {
+      "label": "evaluate_gi_masks.py",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_evaluate_gi_masks_py",
+      "community": 0,
+      "norm_label": "evaluate_gi_masks.py"
+    },
+    {
+      "label": "submit_audit.sh",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_submit_audit_sh",
+      "community": 0,
+      "norm_label": "submit_audit.sh"
+    },
+    {
+      "label": "run_totalsegmentator_batch.py",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_run_totalsegmentator_batch_py",
+      "community": 0,
+      "norm_label": "run_totalsegmentator_batch.py"
+    },
+    {
+      "label": "run_totalseg.py",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_run_totalseg_py",
+      "community": 0,
+      "norm_label": "run_totalseg.py"
+    },
+    {
+      "label": "run_totalseg_bdmap.py",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_run_totalseg_bdmap_py",
+      "community": 0,
+      "norm_label": "run_totalseg_bdmap.py"
+    },
+    {
+      "label": "run_totalseg_gi_array.py",
+      "file_type": "concept",
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "agents_run_totalseg_gi_array_py",
+      "community": 0,
+      "norm_label": "run_totalseg_gi_array.py"
+    }
+  ],
+  "links": [
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L19",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_evaluate_gi_masks",
+      "target": "code_evaluate_gi_masks_compute_betti_0",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L26",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_evaluate_gi_masks",
+      "target": "code_evaluate_gi_masks_compute_hd95",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L39",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_evaluate_gi_masks",
+      "target": "code_evaluate_gi_masks_evaluate_single_subject",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L82",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_evaluate_gi_masks",
+      "target": "code_evaluate_gi_masks_main",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L66",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_evaluate_gi_masks_evaluate_single_subject",
+      "target": "code_evaluate_gi_masks_compute_betti_0",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L20",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_evaluate_gi_masks_rationale_20",
+      "target": "code_evaluate_gi_masks_compute_betti_0",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L65",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_evaluate_gi_masks_evaluate_single_subject",
+      "target": "code_evaluate_gi_masks_compute_hd95",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L27",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_evaluate_gi_masks_rationale_27",
+      "target": "code_evaluate_gi_masks_compute_hd95",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "indirect_call",
+      "context": "argument",
+      "confidence": "INFERRED",
+      "source_file": "code/evaluate_gi_masks.py",
+      "source_location": "L99",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_evaluate_gi_masks_main",
+      "target": "code_evaluate_gi_masks_evaluate_single_subject",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "code/run_totalseg_bdmap.py",
+      "source_location": "L7",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_run_totalseg_bdmap",
+      "target": "code_run_totalseg_bdmap_main",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "code/run_totalseg_gi_array.py",
+      "source_location": "L14",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_run_totalseg_gi_array",
+      "target": "code_run_totalseg_gi_array_main",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "code/run_totalsegmentator_batch.py",
+      "source_location": "L25",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_run_totalsegmentator_batch",
+      "target": "code_run_totalsegmentator_batch_main",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "code/submit_audit.sh",
+      "source_location": "L1",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "code_submit_audit",
+      "target": "code_submit_audit_sh__entry",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "agents_mp_factory",
+      "target": "agents_bodymaps"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "agents_mp_factory",
+      "target": "agents_cancerverse"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "agents_mp_factory",
+      "target": "agents_synthetictumors"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "agents_mp_factory",
+      "target": "agents_totalsegmentator"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "agents_evaluate_gi_masks_py",
+      "target": "agents_totalsegmentator"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "agents_run_totalseg_bdmap_py",
+      "target": "agents_totalsegmentator"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "agents_run_totalseg_gi_array_py",
+      "target": "agents_totalsegmentator"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "agents_run_totalseg_py",
+      "target": "agents_totalsegmentator"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "agents_run_totalsegmentator_batch_py",
+      "target": "agents_totalsegmentator"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md",
+      "source_location": null,
+      "weight": 1.0,
+      "source": "agents_submit_audit_sh",
+      "target": "agents_evaluate_gi_masks_py"
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "agents_automated_3d_segmentation_workflows",
+      "label": "Automated 3D Segmentation Workflows",
+      "nodes": [
+        "agents_run_totalsegmentator_batch_py",
+        "agents_run_totalseg_py",
+        "agents_run_totalseg_bdmap_py",
+        "agents_run_totalseg_gi_array_py",
+        "agents_totalsegmentator"
+      ],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "AGENTS.md"
+    }
+  ],
+  "built_at_commit": "585a52c1f6a2652d74b3136164d5cd900fb6fcc5"
+}
