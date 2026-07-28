@@ -73,12 +73,25 @@ def evaluate_case_pair(args):
     result = {'subject_id': subject_id, 'gt_path': gt_path, 'pred_path': pred_path}
 
     try:
-        gt_nifti = nib.load(gt_path)
         pred_nifti = nib.load(pred_path)
-
-        gt_arr = np.asanyarray(gt_nifti.dataobj).astype(np.uint8)
         pred_arr = np.asanyarray(pred_nifti.dataobj).astype(np.uint8)
-        spacing = gt_nifti.header.get_zooms()[:3]
+        spacing = pred_nifti.header.get_zooms()[:3]
+
+        # Load GT array (either single NIfTI or assemble from subfolder segmentations)
+        if os.path.isdir(gt_path):
+            gt_arr = np.zeros_like(pred_arr, dtype=np.uint8)
+            seg_dir = os.path.join(gt_path, "segmentations")
+            search_dir = seg_dir if os.path.exists(seg_dir) else gt_path
+            
+            for organ_id, organ_name in ORGAN_MAP.items():
+                organ_file = os.path.join(search_dir, f"{organ_name}.nii.gz")
+                if os.path.exists(organ_file):
+                    o_nii = nib.load(organ_file)
+                    o_arr = np.asanyarray(o_nii.dataobj) > 0
+                    gt_arr[o_arr] = organ_id
+        else:
+            gt_nifti = nib.load(gt_path)
+            gt_arr = np.asanyarray(gt_nifti.dataobj).astype(np.uint8)
 
         # Multi-organ global clustering metrics
         ari, voi = compute_clustering_metrics(gt_arr, pred_arr)
@@ -123,33 +136,43 @@ def evaluate_case_pair(args):
     return result
 
 def discover_pairs(gt_dir, totalseg_dir):
-    gt_files = sorted(glob.glob(os.path.join(gt_dir, "**", "*.nii.gz"), recursive=True))
-    if not gt_files:
-        gt_files = sorted(glob.glob(os.path.join(gt_dir, "*.nii.gz")))
-
-    totalseg_files = glob.glob(os.path.join(totalseg_dir, "**", "*.nii.gz"), recursive=True) + \
-                     glob.glob(os.path.join(totalseg_dir, "*.nii.gz"))
-    
+    totalseg_files = glob.glob(os.path.join(totalseg_dir, "*.nii.gz"))
     totalseg_map = {}
     for p in totalseg_files:
         filename = os.path.basename(p)
-        match = re.search(r'(\d{6,8}|CV_\d+|BDMAP_\d+)', filename)
+        case_id = filename.replace('_gi_mask.nii.gz', '').replace('_gi_mask.nii', '')
+        totalseg_map[case_id] = p
+        # Backup numerical key
+        match = re.search(r'(\d{6,8})', case_id)
         if match:
-            key = match.group(1).replace('BDMAP_', '').replace('CV_', '')
-            totalseg_map[key] = p
-        else:
-            totalseg_map[filename] = p
+            totalseg_map[match.group(1)] = p
 
     pairs = []
-    for gt_f in gt_files:
-        filename = os.path.basename(gt_f)
-        match = re.search(r'(\d{6,8}|CV_\d+|BDMAP_\d+)', filename)
-        if match:
-            key = match.group(1).replace('BDMAP_', '').replace('CV_', '')
-            if key in totalseg_map:
-                pairs.append((gt_f, totalseg_map[key]))
-        elif filename in totalseg_map:
-            pairs.append((gt_f, totalseg_map[filename]))
+    # Check for direct case subfolders in gt_dir (e.g. CancerVerse_dbox/BDMAP_XXXXXX)
+    subfolders = [os.path.join(gt_dir, d) for d in os.listdir(gt_dir) if os.path.isdir(os.path.join(gt_dir, d))]
+    
+    if subfolders:
+        for sub in subfolders:
+            cid = os.path.basename(sub)
+            match = re.search(r'(\d{6,8})', cid)
+            num_key = match.group(1) if match else cid
+            
+            if cid in totalseg_map:
+                pairs.append((sub, totalseg_map[cid]))
+            elif num_key in totalseg_map:
+                pairs.append((sub, totalseg_map[num_key]))
+    else:
+        # Fallback to direct GT NIfTI files
+        gt_files = sorted(glob.glob(os.path.join(gt_dir, "**", "*.nii.gz"), recursive=True))
+        for gt_f in gt_files:
+            fn = os.path.basename(gt_f)
+            cid = fn.replace('.nii.gz', '')
+            match = re.search(r'(\d{6,8})', cid)
+            num_key = match.group(1) if match else cid
+            if cid in totalseg_map:
+                pairs.append((gt_f, totalseg_map[cid]))
+            elif num_key in totalseg_map:
+                pairs.append((gt_f, totalseg_map[num_key]))
 
     return pairs
 
