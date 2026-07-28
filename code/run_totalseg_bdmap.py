@@ -62,6 +62,7 @@ def main():
                 "-o", out_mask_path,
                 "--task", "total",
                 "--fast",
+                "--ml",
                 "--quiet"
             ]
 
