@@ -18,9 +18,10 @@ def main():
 
     # Run continuous processing loop while files are being transferred
     while True:
-        all_cases = sorted(glob.glob(os.path.join(input_base, "**", "*.nii.gz"), recursive=True))
+        # Find primary CT scan per subfolder
+        all_cases = sorted(glob.glob(os.path.join(input_base, "*", "ct.nii.gz")))
         if not all_cases:
-            all_cases = sorted(glob.glob(os.path.join(input_base, "**", "*.nii"), recursive=True))
+            all_cases = sorted(glob.glob(os.path.join(input_base, "**", "*.nii.gz"), recursive=True))
 
         if len(all_cases) == 0:
             print(f"[Worker {array_id}] No scan cases found in {input_base} yet. Sleeping for 30s...")
