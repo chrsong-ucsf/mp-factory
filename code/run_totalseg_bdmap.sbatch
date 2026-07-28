@@ -3,7 +3,7 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/totalseg_bdmap_%A_%a.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/totalseg_bdmap_%A_%a.err
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00
