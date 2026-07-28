@@ -155,7 +155,7 @@ def discover_pairs(gt_dir, totalseg_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Audit GI Mask Quality against TotalSegmentator Consensus")
-    parser.add_argument("--gt_dir", type=str, required=True, help="Path to new/external database annotations")
+    parser.add_argument("--gt_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox", help="Path to new/external database annotations")
     parser.add_argument("--totalseg_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks_bdmap")
     parser.add_argument("--out_csv", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/phase1_audit_summary.csv")
     parser.add_argument("--num_workers", type=int, default=32)

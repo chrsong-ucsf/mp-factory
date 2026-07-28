@@ -16,7 +16,7 @@ eval "$(mamba shell hook --shell bash)"
 mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 
 # Set GT_DIR to the location of the external masks
-GT_DIR="/mnt/scratch/user/chrsong/CancerVerse/external_gi_masks"
+GT_DIR="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox"
 TOTALSEG_DIR="/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks_bdmap"
 OUT_CSV="/mnt/scratch/user/chrsong/mp-factory/results/phase1_audit_summary.csv"
 
