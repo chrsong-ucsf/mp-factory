@@ -13,6 +13,7 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import monai
+from monai.inferers import sliding_window_inference
 from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
 from monai.transforms import (
@@ -278,7 +279,12 @@ def main():
                 for val_data in val_loader:
                     val_inputs, val_labels = val_data["image"].to(device), val_data["label"].to(device)
                     with torch.cuda.amp.autocast():
-                        val_outputs = model(val_inputs)
+                        val_outputs = sliding_window_inference(
+                            inputs=val_inputs,
+                            roi_size=(96, 96, 96),
+                            sw_batch_size=4,
+                            predictor=model
+                        )
 
                     val_outputs = [post_pred(i) for i in decollate_batch(val_outputs)]
                     val_labels = [post_label(i) for i in decollate_batch(val_labels)]
