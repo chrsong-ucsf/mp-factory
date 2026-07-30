@@ -166,14 +166,15 @@ def main():
     parser.add_argument("--out_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_models")
     parser.add_argument("--ssl_pretrained_path", type=str, default="", help="Path to MONAI SSL pre-trained weights file")
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=4, help="Total batch size across all available GPUs")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--val_interval", type=int, default=2)
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
+    num_gpus = torch.cuda.device_count()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using compute device: {device}")
+    print(f"Using compute device: {device} | Total GPU Cores Detected: {num_gpus}")
 
     # Discover Dataset
     data_pairs = discover_dataset(args.data_dir)
@@ -196,8 +197,9 @@ def main():
     train_ds = GIDataset(train_pairs, transform=train_tf)
     val_ds = GIDataset(val_pairs, transform=val_tf)
 
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=1, num_workers=2)
+    num_workers = min(16, 4 * max(1, num_gpus))
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=max(1, num_gpus), num_workers=4)
 
     # Initialize Swin-UNETR
     model = SwinUNETR(
@@ -206,15 +208,22 @@ def main():
         feature_size=48,
         use_checkpoint=True,
         spatial_dims=3,
-    ).to(device)
+    )
 
     # Load SSL pre-trained weights if specified
     if args.ssl_pretrained_path and os.path.exists(args.ssl_pretrained_path):
         print(f"Loading MONAI Swin-UNETR SSL pre-trained weights from: {args.ssl_pretrained_path}")
-        ssl_weights = torch.load(args.ssl_pretrained_path, map_location=device)
+        ssl_weights = torch.load(args.ssl_pretrained_path, map_location="cpu")
         if "state_dict" in ssl_weights:
             ssl_weights = ssl_weights["state_dict"]
         model.load_from(weights=ssl_weights)
+
+    model = model.to(device)
+
+    # Wrap model with DataParallel if multiple GPUs are present
+    if num_gpus > 1:
+        print(f"[Multi-GPU] Wrapping model with DataParallel across {num_gpus} GPUs!")
+        model = nn.DataParallel(model)
 
     loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
@@ -271,7 +280,8 @@ def main():
 
                 if mean_val_dice > best_val_dice:
                     best_val_dice = mean_val_dice
-                    torch.save(model.state_dict(), best_model_path)
+                    raw_model = model.module if hasattr(model, "module") else model
+                    torch.save(raw_model.state_dict(), best_model_path)
                     print(f"  [+] New Best Model Saved! Dice: {best_val_dice:.4f} -> {best_model_path}")
 
     print(f"\nTraining Complete! Best Validation Dice: {best_val_dice:.4f}")
