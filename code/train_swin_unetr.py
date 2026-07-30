@@ -167,6 +167,10 @@ def main():
     parser.add_argument("--ssl_pretrained_path", type=str, default="", help="Path to MONAI SSL pre-trained weights file")
     parser.add_argument("--fold", type=int, default=-1, help="Specific fold index (0..num_folds-1) for parallel SLURM array jobs")
     parser.add_argument("--num_folds", type=int, default=4, help="Total number of cross-validation folds")
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--val_interval", type=int, default=2)
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
