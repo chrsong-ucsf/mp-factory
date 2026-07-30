@@ -30,7 +30,7 @@ from monai.transforms import (
     RandFlipd,
     RandGaussianNoised,
     EnsureTyped,
-    AsDiscreted
+    AsDiscrete
 )
 from monai.data import Dataset, DataLoader, decollate_batch
 
@@ -201,11 +201,11 @@ def main():
 
     # Initialize Swin-UNETR
     model = SwinUNETR(
-        img_size=(96, 96, 96),
         in_channels=1,
         out_channels=5,  # Background + 4 GI organs
         feature_size=48,
         use_checkpoint=True,
+        spatial_dims=3,
     ).to(device)
 
     # Load SSL pre-trained weights if specified
@@ -221,8 +221,8 @@ def main():
     scaler = torch.cuda.amp.GradScaler()
 
     dice_metric = DiceMetric(include_background=False, reduction="mean")
-    post_pred = AsDiscreted(argmax=True, to_onehot=5)
-    post_label = AsDiscreted(to_onehot=5)
+    post_pred = AsDiscrete(argmax=True, to_onehot=5)
+    post_label = AsDiscrete(to_onehot=5)
 
     best_val_dice = -1.0
     best_model_path = os.path.join(args.out_dir, "best_swin_unetr_gi.pt")
