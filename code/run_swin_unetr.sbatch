@@ -3,9 +3,9 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/swin_unetr_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/swin_unetr_%j.err
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:nvidia_l40s:4
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=128G
+#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=64G
 #SBATCH --time=12:00:00
 
 # Load modules and activate environment
