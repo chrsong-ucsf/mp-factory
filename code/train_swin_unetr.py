@@ -35,27 +35,25 @@ from monai.transforms import (
 )
 from monai.data import Dataset, DataLoader, decollate_batch
 
-ORGAN_MAP = {
-    1: 'stomach',
-    2: 'duodenum',
-    3: 'small_bowel',
-    4: 'colon'
+ORGAN_ALIASES = {
+    1: ['stomach'],
+    2: ['duodenum'],
+    3: ['small_bowel', 'intestine', 'small_intestine'],
+    4: ['colon']
 }
 
 def discover_dataset(data_dir):
-    """Find scans and assemble image/label pairs from CancerVerse subfolder structure or paired files."""
+    """Find scans and assemble image/label pairs from CancerVerse subfolder structure strictly using ct.nii.gz as input."""
     data_pairs = []
     
-    # Method 1: Subfolder per subject with ct.nii.gz and segmentations/ organ files
+    # Subfolder per subject with ct.nii.gz as the input image
     subfolders = [os.path.join(data_dir, d) for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
     
     for sub in sorted(subfolders):
         ct_file = os.path.join(sub, "ct.nii.gz")
+        
+        # STRICT REQUIREMENT: Input image must be ct.nii.gz
         if not os.path.exists(ct_file):
-            ct_candidates = glob.glob(os.path.join(sub, "*.nii.gz"))
-            ct_file = ct_candidates[0] if ct_candidates else None
-            
-        if not ct_file or not os.path.exists(ct_file):
             continue
             
         # Check for multi-label mask or individual organ segmentations
@@ -67,19 +65,15 @@ def discover_dataset(data_dir):
         if os.path.exists(combined_mask):
             data_pairs.append({"image": ct_file, "label": combined_mask})
         else:
-            # Check if individual organ files exist
-            has_organs = any(os.path.exists(os.path.join(search_dir, f"{name}.nii.gz")) for name in ORGAN_MAP.values())
+            # Check if individual organ files exist using aliases
+            has_organs = False
+            for organ_id, aliases in ORGAN_ALIASES.items():
+                if any(os.path.exists(os.path.join(search_dir, f"{alias}.nii.gz")) for alias in aliases):
+                    has_organs = True
+                    break
             if has_organs:
                 data_pairs.append({"image": ct_file, "label_dir": search_dir})
 
-    # Method 2: Direct paired image/mask files in directory
-    if not data_pairs:
-        ct_files = sorted(glob.glob(os.path.join(data_dir, "**", "*_ct.nii.gz"), recursive=True))
-        for ct_f in ct_files:
-            mask_f = ct_f.replace("_ct.nii.gz", "_mask.nii.gz")
-            if os.path.exists(mask_f):
-                data_pairs.append({"image": ct_f, "label": mask_f})
-                
     return data_pairs
 
 class GIDataset(Dataset):
@@ -105,15 +99,17 @@ class GIDataset(Dataset):
             gt_arr = np.zeros_like(ct_arr, dtype=np.uint8)
 
             search_dir = item["label_dir"]
-            for organ_id, organ_name in ORGAN_MAP.items():
-                organ_file = os.path.join(search_dir, f"{organ_name}.nii.gz")
-                if os.path.exists(organ_file):
-                    o_nii = nib.load(organ_file)
-                    o_arr = np.asanyarray(o_nii.dataobj) > 0
-                    gt_arr[o_arr] = organ_id
+            for organ_id, aliases in ORGAN_ALIASES.items():
+                for alias in aliases:
+                    organ_file = os.path.join(search_dir, f"{alias}.nii.gz")
+                    if os.path.exists(organ_file):
+                        o_nii = nib.load(organ_file)
+                        o_arr = np.asanyarray(o_nii.dataobj) > 0
+                        gt_arr[o_arr] = organ_id
+                        break
 
             # Save temporary merged mask in memory or pass as volume
-            temp_lbl_path = img_path.replace("ct.nii.gz", "gi_mask_temp.nii.gz")
+            temp_lbl_path = os.path.join(os.path.dirname(img_path), "gi_mask_temp.nii.gz")
             if not os.path.exists(temp_lbl_path):
                 lbl_nii = nib.Nifti1Image(gt_arr, ct_nii.affine, ct_nii.header)
                 nib.save(lbl_nii, temp_lbl_path)
