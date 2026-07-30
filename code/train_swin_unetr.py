@@ -165,10 +165,8 @@ def main():
     parser.add_argument("--data_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox")
     parser.add_argument("--out_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_models")
     parser.add_argument("--ssl_pretrained_path", type=str, default="", help="Path to MONAI SSL pre-trained weights file")
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch_size", type=int, default=4, help="Total batch size across all available GPUs")
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--val_interval", type=int, default=2)
+    parser.add_argument("--fold", type=int, default=-1, help="Specific fold index (0..num_folds-1) for parallel SLURM array jobs")
+    parser.add_argument("--num_folds", type=int, default=4, help="Total number of cross-validation folds")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -184,13 +182,23 @@ def main():
         print("Error: No data pairs found!")
         return
 
-    # Train / Val Split (80% Train, 20% Val)
+    # Train / Val Split
     np.random.seed(42)
     indices = np.arange(len(data_pairs))
     np.random.shuffle(indices)
-    split_idx = int(0.8 * len(data_pairs))
-    train_pairs = [data_pairs[i] for i in indices[:split_idx]]
-    val_pairs = [data_pairs[i] for i in indices[split_idx:]]
+
+    if args.fold >= 0:
+        folds = np.array_split(indices, args.num_folds)
+        val_indices = folds[args.fold]
+        train_indices = np.setdiff1d(indices, val_indices)
+        train_pairs = [data_pairs[i] for i in train_indices]
+        val_pairs = [data_pairs[i] for i in val_indices]
+        print(f"[Fold {args.fold}/{args.num_folds}] Train scans: {len(train_pairs)} | Val scans: {len(val_pairs)}")
+    else:
+        split_idx = int(0.8 * len(data_pairs))
+        train_pairs = [data_pairs[i] for i in indices[:split_idx]]
+        val_pairs = [data_pairs[i] for i in indices[split_idx:]]
+        print(f"[Standard 80/20 Split] Train scans: {len(train_pairs)} | Val scans: {len(val_pairs)}")
 
     train_tf, val_tf = get_transforms(roi_size=(96, 96, 96))
 
