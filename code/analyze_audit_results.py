@@ -8,7 +8,7 @@ def generate_audit_report(csv_path):
         return
 
     df = pd.read_csv(csv_path)
-    df_valid = df[df['status'] == 'SUCCESS'].copy()
+    df_valid = df[df['status'].astype(str).str.upper() == 'SUCCESS'].copy()
     
     total_cases = len(df)
     valid_cases = len(df_valid)
@@ -26,18 +26,19 @@ def generate_audit_report(csv_path):
         print("-" * 70)
 
     organs = ['stomach', 'duodenum', 'small_bowel', 'colon']
-    print(f"{'Organ':<15} | {'Mean Dice':<10} | {'Median Dice':<10} | {'Mean HD95 (mm)':<15}")
+    print(f"{'Organ':<15} | {'Mean Dice':<10} | {'Mean IoU':<10} | {'Mean HD95 (mm)':<15}")
     print("-" * 70)
 
     for o in organs:
         dice_col = f'{o}_dice'
+        iou_col = f'{o}_iou'
         hd_col = f'{o}_hd95'
         
         m_dice = df_valid[dice_col].mean() if dice_col in df_valid else np.nan
-        med_dice = df_valid[dice_col].median() if dice_col in df_valid else np.nan
+        m_iou = df_valid[iou_col].mean() if iou_col in df_valid else np.nan
         m_hd = df_valid[hd_col].mean() if hd_col in df_valid else np.nan
 
-        print(f"{o:<15} | {m_dice:<10.4f} | {med_dice:<10.4f} | {m_hd:<15.2f}")
+        print(f"{o:<15} | {m_dice:<10.4f} | {m_iou:<10.4f} | {m_hd:<15.2f}")
 
     overall_mean_dice = df_valid['mean_gi_dice'].mean()
     print("-" * 70)

@@ -6,7 +6,8 @@ import nibabel as nib
 from multiprocessing import Pool, cpu_count
 from scipy.spatial.distance import directed_hausdorff
 from skimage.measure import label, euler_number
-from sklearn.metrics import adjusted_rand_score, v_measure_score
+from sklearn.metrics import adjusted_rand_score
+from skimage.metrics import variation_of_information, adapted_rand_error
 
 # Organ label mapping for GI tract
 ORGAN_MAP = {
@@ -22,6 +23,17 @@ def compute_betti_0(mask):
         return 0
     labeled_array, num_features = label(mask, return_num=True)
     return num_features
+
+def compute_clustering_metrics(gt_arr, pred_arr):
+    gt_flat = gt_arr.ravel()
+    pred_flat = pred_arr.ravel()
+    subsample_idx = slice(None, None, 50)
+    gt_sub = gt_flat[subsample_idx]
+    pred_sub = pred_flat[subsample_idx]
+    ari = adjusted_rand_score(gt_sub, pred_sub)
+    split, merge = variation_of_information(gt_sub, pred_sub)
+    voi = split + merge
+    return float(ari), float(voi)
 
 def compute_hd95(mask_gt, mask_pred, voxel_spacing=(1.0, 1.0, 1.0)):
     """Compute 95th percentile Hausdorff Distance (HD95)."""
@@ -60,22 +72,29 @@ def evaluate_single_subject(args):
             
             intersection = np.sum(gt_o & pred_o)
             total = np.sum(gt_o) + np.sum(pred_o)
+            union = total - intersection
             
             dice = (2.0 * intersection) / (total) if total > 0 else (1.0 if not np.any(gt_o) and not np.any(pred_o) else 0.0)
+            iou = intersection / union if union > 0 else (1.0 if not np.any(gt_o) and not np.any(pred_o) else 0.0)
             hd95 = compute_hd95(gt_o, pred_o, voxel_spacing)
             betti_gt = compute_betti_0(gt_o)
             betti_pred = compute_betti_0(pred_o)
             betti_diff = abs(betti_gt - betti_pred)
             
             results[f'{organ_name}_dice'] = dice
+            results[f'{organ_name}_iou'] = iou
             results[f'{organ_name}_hd95'] = hd95
             results[f'{organ_name}_betti_gt'] = betti_gt
             results[f'{organ_name}_betti_pred'] = betti_pred
             results[f'{organ_name}_betti_diff'] = betti_diff
             
-        results['status'] = 'success'
+        ari, voi = compute_clustering_metrics(gt_data, pred_data)
+        results['overall_ari'] = ari
+        results['overall_voi'] = voi
+            
+        results['status'] = 'SUCCESS'
     except Exception as e:
-        results['status'] = f'error: {str(e)}'
+        results['status'] = f'ERROR: {str(e)}'
         
     return results
 

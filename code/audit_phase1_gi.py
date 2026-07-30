@@ -119,7 +119,11 @@ def evaluate_case_pair(args):
 
             hd95 = compute_hd95_fast(gt_o, pred_o, spacing)
 
+            union = sum_gt + sum_pred - intersection
+            iou = intersection / union if union > 0 else (1.0 if sum_gt == 0 and sum_pred == 0 else 0.0)
+
             result[f'{organ_name}_dice'] = round(dice, 4)
+            result[f'{organ_name}_iou'] = round(iou, 4)
             result[f'{organ_name}_hd95'] = round(hd95, 2) if not np.isnan(hd95) else np.nan
             result[f'{organ_name}_betti_gt'] = betti_gt
             result[f'{organ_name}_betti_pred'] = betti_pred
