@@ -15,6 +15,8 @@ module load miniforge3/26.3.2-3
 eval "$(mamba shell hook --shell bash)"
 mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 
+export PYTHONUNBUFFERED=1
+
 # Make directories for outputs and logs
 mkdir -p /mnt/scratch/user/chrsong/mp-factory/logs
 OUT_DIR="/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_models/fold_${SLURM_ARRAY_TASK_ID}"

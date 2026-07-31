@@ -277,7 +277,7 @@ def main():
             epoch_loss += loss.item()
 
         epoch_loss /= max(step, 1)
-        print(f"Epoch [{epoch}/{args.epochs}] Loss: {epoch_loss:.4f}")
+        print(f"Epoch [{epoch}/{args.epochs}] Loss: {epoch_loss:.4f}", flush=True)
 
         # Validation Step
         if epoch % args.val_interval == 0:
@@ -300,13 +300,13 @@ def main():
                 mean_val_dice = dice_metric.aggregate().item()
                 dice_metric.reset()
 
-                print(f"  --> Validation Mean Dice: {mean_val_dice:.4f}")
+                print(f"  --> Validation Mean Dice: {mean_val_dice:.4f}", flush=True)
 
                 if mean_val_dice > best_val_dice:
                     best_val_dice = mean_val_dice
                     raw_model = model.module if hasattr(model, "module") else model
                     torch.save(raw_model.state_dict(), best_model_path)
-                    print(f"  [+] New Best Model Saved! Dice: {best_val_dice:.4f} -> {best_model_path}")
+                    print(f"  [+] New Best Model Saved! Dice: {best_val_dice:.4f} -> {best_model_path}", flush=True)
 
     print(f"\nTraining Complete! Best Validation Dice: {best_val_dice:.4f}")
 
