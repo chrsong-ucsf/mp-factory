@@ -34,15 +34,16 @@ from monai.transforms import (
 )
 from monai.data import Dataset, DataLoader, decollate_batch
 
-# Import MedNeXt from nnunet_mednext package
+import subprocess
+
+# Import MedNeXt with fallbacks
 try:
     from nnunet_mednext import create_mednext_v1
 except ImportError:
-    print("WARNING: 'nnunet_mednext' is not installed! Installing MedNeXt package automatically...")
-    subprocess_cmd = [sys.executable, "-m", "pip", "install", "git+https://github.com/MIC-DKFZ/MedNeXt.git"]
-    import subprocess
-    subprocess.check_call(subprocess_cmd)
-    from nnunet_mednext import create_mednext_v1
+    try:
+        from mednext.create_mednext_v1 import create_mednext_v1
+    except ImportError:
+        create_mednext_v1 = None
 
 ORGAN_ALIASES = {
     1: ['stomach'],
@@ -231,6 +232,19 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=max(1, num_gpus), num_workers=4)
 
     # Instantiate MedNeXt-B Architecture
+    global create_mednext_v1
+    if create_mednext_v1 is None:
+        print("WARNING: MedNeXt package not found. Attempting automatic installation...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "git+https://github.com/MIC-DKFZ/MedNeXt.git"])
+            try:
+                from nnunet_mednext import create_mednext_v1
+            except ImportError:
+                from mednext.create_mednext_v1 import create_mednext_v1
+        except Exception as e:
+            print(f"Error installing or importing MedNeXt: {e}")
+            sys.exit(1)
+
     print(f"Initializing MedNeXt (Variant: MedNeXt-{args.model_id}, Kernel: {args.kernel_size}x{args.kernel_size}x{args.kernel_size})...")
     model = create_mednext_v1(
         num_channels=1,
