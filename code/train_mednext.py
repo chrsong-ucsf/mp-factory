@@ -232,23 +232,15 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=max(1, num_gpus), num_workers=4)
 
     # Instantiate MedNeXt-B Architecture
-    global create_mednext_v1
     if create_mednext_v1 is None:
-        print("WARNING: MedNeXt package not found. Attempting automatic installation...")
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "git+https://github.com/MIC-DKFZ/MedNeXt.git"])
-            try:
-                from nnunet_mednext import create_mednext_v1
-            except ImportError:
-                from mednext.create_mednext_v1 import create_mednext_v1
-        except Exception as e:
-            print(f"Error installing or importing MedNeXt: {e}")
-            sys.exit(1)
+        print("ERROR: MedNeXt (nnunet_mednext) is not installed in this environment.")
+        print("Please install it manually on the login node: pip install git+https://github.com/MIC-DKFZ/MedNeXt.git")
+        sys.exit(1)
 
     print(f"Initializing MedNeXt (Variant: MedNeXt-{args.model_id}, Kernel: {args.kernel_size}x{args.kernel_size}x{args.kernel_size})...")
     model = create_mednext_v1(
-        num_channels=1,
-        num_classes=5,  # Background + 4 GI organs
+        num_input_channels=1,   # correct MedNeXt API argument name
+        num_classes=5,          # Background + 4 GI organs
         model_id=args.model_id,
         kernel_size=args.kernel_size,
         deep_supervision=False
