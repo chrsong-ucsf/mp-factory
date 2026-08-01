@@ -7,8 +7,13 @@
 #SBATCH --mem=64G                # RAM allocation
 #SBATCH --time=02:00:00          # 2 hours max
 
-# Activate virtual environment
-source activate /mnt/scratch/user/chrsong/envs/mp-factory
+# Load modules and activate environment
+module load CBI
+module load miniforge3/26.3.2-3
+eval "$(mamba shell hook --shell bash)"
+mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
+
+export PYTHONUNBUFFERED=1
 
 # Define Paths
 PRED_DIR="/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks"
