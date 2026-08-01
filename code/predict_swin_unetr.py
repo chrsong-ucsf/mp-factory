@@ -97,6 +97,8 @@ def main():
                         help="Total number of parallel workers / SLURM array size")
     parser.add_argument("--overwrite", action="store_true",
                         help="Re-run inference even if output mask already exists")
+    parser.add_argument("--save_probs", action="store_true",
+                        help="Save softmax probability maps (.npz) alongside segmentation masks")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -182,6 +184,11 @@ def main():
             # save in the preprocessed space (1.5x1.5x2.0 mm RAS)
             out_nii = nib.Nifti1Image(pred_np, affine=orig_nii.affine)
             nib.save(out_nii, out_mask_path)
+
+            if args.save_probs:
+                probs = torch.softmax(pred_logits[0], dim=0).cpu().numpy().astype(np.float16)
+                prob_path = os.path.join(args.out_dir, f"{subject_id}_gi_probs.npz")
+                np.savez_compressed(prob_path, probs=probs)
 
             print(f"    Saved: {out_mask_path}")
             unique_labels = np.unique(pred_np)

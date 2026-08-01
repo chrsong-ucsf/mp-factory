@@ -72,6 +72,7 @@ def main():
     parser.add_argument("--array_id", type=int, default=0)
     parser.add_argument("--total_workers", type=int, default=1)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--save_probs", action="store_true", help="Save softmax probability maps (.npz) alongside segmentation masks")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -142,6 +143,11 @@ def main():
             orig_nii = nib.load(ct_path)
             out_nii = nib.Nifti1Image(pred_np, affine=orig_nii.affine)
             nib.save(out_nii, out_mask_path)
+
+            if args.save_probs:
+                probs = torch.softmax(pred_logits[0], dim=0).cpu().numpy().astype(np.float16)
+                prob_path = os.path.join(args.out_dir, f"{subject_id}_gi_probs.npz")
+                np.savez_compressed(prob_path, probs=probs)
 
             unique_labels = np.unique(pred_np)
             label_names = [ORGAN_NAMES.get(int(l), str(l)) for l in unique_labels]

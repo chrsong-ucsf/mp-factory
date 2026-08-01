@@ -84,6 +84,101 @@ def compute_clustering_metrics(gt_arr, pred_arr):
     return float(ari), float(voi)
 
 
+def compute_classification_metrics(gt_mask, pred_mask):
+    """Compute Precision, Sensitivity (Recall), and Specificity."""
+    tp = np.sum(gt_mask & pred_mask)
+    fp = np.sum((~gt_mask) & pred_mask)
+    fn = np.sum(gt_mask & (~pred_mask))
+    tn = np.sum((~gt_mask) & (~pred_mask))
+
+    precision = float(tp / (tp + fp)) if (tp + fp) > 0 else (1.0 if np.sum(gt_mask) == 0 and np.sum(pred_mask) == 0 else 0.0)
+    sensitivity = float(tp / (tp + fn)) if (tp + fn) > 0 else (1.0 if np.sum(gt_mask) == 0 and np.sum(pred_mask) == 0 else 0.0)
+    specificity = float(tn / (tn + fp)) if (tn + fp) > 0 else 1.0
+
+    return precision, sensitivity, specificity
+
+
+def compute_volumetric_metrics(gt_mask, pred_mask, voxel_spacing=(1.5, 1.5, 2.0)):
+    """Compute Volumetric Overlap Error (VOE) and Relative Voxel Difference (RVD)."""
+    v_gt = float(np.sum(gt_mask)) * np.prod(voxel_spacing) / 1000.0  # in mL
+    v_pred = float(np.sum(pred_mask)) * np.prod(voxel_spacing) / 1000.0  # in mL
+
+    intersection = np.sum(gt_mask & pred_mask)
+    union = np.sum(gt_mask | pred_mask)
+
+    voe = float(1.0 - (intersection / union)) if union > 0 else (0.0 if v_gt == 0 and v_pred == 0 else 1.0)
+    rvd = float((v_pred - v_gt) / v_gt) if v_gt > 0 else (0.0 if v_pred == 0 else np.nan)
+
+    return voe, rvd, v_gt, v_pred
+
+
+def compute_surface_metrics(gt_mask, pred_mask, voxel_spacing=(1.5, 1.5, 2.0), tolerance_mm=2.0):
+    """Compute Average Surface Distance (ASD) and Normalized Surface Distance (NSD)."""
+    if not np.any(gt_mask) or not np.any(pred_mask):
+        return np.nan, np.nan
+    if np.array_equal(gt_mask, pred_mask):
+        return 0.0, 1.0
+
+    gt_border = gt_mask ^ binary_erosion(gt_mask)
+    pred_border = pred_mask ^ binary_erosion(pred_mask)
+
+    if not np.any(gt_border) or not np.any(pred_border):
+        return np.nan, np.nan
+
+    dt_gt = distance_transform_edt(~gt_border, sampling=voxel_spacing)
+    dt_pred = distance_transform_edt(~pred_border, sampling=voxel_spacing)
+
+    dist_gt_to_pred = dt_pred[gt_border]
+    dist_pred_to_gt = dt_gt[pred_border]
+
+    asd = float(0.5 * (np.mean(dist_gt_to_pred) + np.mean(dist_pred_to_gt)))
+
+    # NSD: fraction of surface points within tolerance_mm
+    nsd_gt = np.mean(dist_gt_to_pred <= tolerance_mm)
+    nsd_pred = np.mean(dist_pred_to_gt <= tolerance_mm)
+    nsd = float(0.5 * (nsd_gt + nsd_pred))
+
+    return asd, nsd
+
+
+def compute_composite_score(dice, hd95, max_hd_cap=50.0):
+    """
+    UW-Madison GI Tract Benchmark Composite Score:
+    Score = 0.4 * Dice + 0.6 * max(0, 1.0 - HD95 / max_hd_cap)
+    """
+    if np.isnan(hd95):
+        hd_part = 0.0
+    else:
+        hd_part = max(0.0, 1.0 - (hd95 / max_hd_cap))
+    return float(0.4 * dice + 0.6 * hd_part)
+
+
+def compute_ece(probs, true_labels, n_bins=10):
+    """Compute Expected Calibration Error (ECE)."""
+    confidences = np.max(probs, axis=0).ravel()
+    predictions = np.argmax(probs, axis=0).ravel()
+    accuracies = (predictions == true_labels.ravel())
+
+    # Subsample 1 in 50 for speed
+    confidences = confidences[::50]
+    accuracies = accuracies[::50]
+
+    bin_boundaries = np.linspace(0, 1, n_bins + 1)
+    ece = 0.0
+
+    for i in range(n_bins):
+        bin_lower, bin_upper = bin_boundaries[i], bin_boundaries[i+1]
+        in_bin = (confidences > bin_lower) & (confidences <= bin_upper)
+        prop_in_bin = np.mean(in_bin)
+
+        if prop_in_bin > 0:
+            accuracy_in_bin = np.mean(accuracies[in_bin])
+            avg_confidence_in_bin = np.mean(confidences[in_bin])
+            ece += np.abs(accuracy_in_bin - avg_confidence_in_bin) * prop_in_bin
+
+    return float(ece)
+
+
 def compute_diversity_weights(model_masks):
     """
     Computes diversity-promoting weights for N models based on pairwise Dice similarity.
@@ -201,11 +296,25 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                 d = (2.0 * intersection) / total if total > 0 else 1.0
                 iou = intersection / union if union > 0 else 1.0
 
+                hd95 = compute_hd95_fast(cons_o, m_o)
                 betti_m = compute_betti_0(m_o)
                 b_diff = abs(betti_cons - betti_m)
+                prec, sens, spec = compute_classification_metrics(cons_o, m_o)
+                voe, rvd, v_cons, v_m = compute_volumetric_metrics(cons_o, m_o)
+                asd, nsd = compute_surface_metrics(cons_o, m_o)
+                composite = compute_composite_score(d, hd95)
 
                 res[f'{organ_name}_dice_{name}'] = round(float(d), 4)
                 res[f'{organ_name}_iou_{name}'] = round(float(iou), 4)
+                res[f'{organ_name}_hd95_{name}'] = round(float(hd95), 2) if not np.isnan(hd95) else np.nan
+                res[f'{organ_name}_precision_{name}'] = round(float(prec), 4)
+                res[f'{organ_name}_sensitivity_{name}'] = round(float(sens), 4)
+                res[f'{organ_name}_specificity_{name}'] = round(float(spec), 4)
+                res[f'{organ_name}_voe_{name}'] = round(float(voe), 4)
+                res[f'{organ_name}_rvd_{name}'] = round(float(rvd), 4) if not np.isnan(rvd) else np.nan
+                res[f'{organ_name}_asd_{name}'] = round(float(asd), 2) if not np.isnan(asd) else np.nan
+                res[f'{organ_name}_nsd_{name}'] = round(float(nsd), 4) if not np.isnan(nsd) else np.nan
+                res[f'{organ_name}_composite_{name}'] = round(float(composite), 4)
                 res[f'{organ_name}_betti_diff_{name}'] = b_diff
 
                 organ_dices.append(d)
@@ -220,6 +329,14 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
             eval_dices.append(mean_org_dice)
             eval_ious.append(np.mean(organ_ious))
             max_betti_diff = max(max_betti_diff, max(organ_betti_diffs))
+
+        # Overall partition clustering metrics and ECE calibration across models vs consensus
+        for i, name in enumerate(model_names):
+            ari, voi = compute_clustering_metrics(consensus_mask, model_masks[i])
+            ece = compute_ece(one_hot_stack[i], consensus_mask)
+            res[f'ari_{name}'] = round(ari, 4)
+            res[f'voi_{name}'] = round(voi, 4)
+            res[f'ece_{name}'] = round(ece, 4)
 
         res['mean_consensus_dice'] = round(float(np.mean(eval_dices)), 4)
         res['mean_consensus_iou'] = round(float(np.mean(eval_ious)), 4)
