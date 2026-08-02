@@ -1,3 +1,4 @@
+#!/bin/bash
 #SBATCH --job-name=ensemble_eval
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/ensemble_eval_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/ensemble_eval_%j.err
