@@ -51,23 +51,32 @@ def main():
         print(f"  - [PENDING] {COMPARE_CSV} not generated yet.")
 
     # 3. Active Learning Ensemble Outputs
-    print(f"\n[3] ACTIVE LEARNING ENSEMBLE AUDIT ({ENSEMBLE_CSV}):")
+    print(f"\n[3] ACTIVE LEARNING ENSEMBLE AUDIT:")
     consensus_files   = glob.glob(os.path.join(ENSEMBLE_OUT_DIR, "*_consensus.nii.gz"))
     uncertainty_files = glob.glob(os.path.join(ENSEMBLE_OUT_DIR, "*_uncertainty.nii.gz"))
     print(f"  - Consensus Masks Saved   : {len(consensus_files):,} files")
     print(f"  - Uncertainty Heatmaps    : {len(uncertainty_files):,} files")
 
-    if os.path.exists(ENSEMBLE_CSV):
-        df_ens = pd.read_csv(ENSEMBLE_CSV)
-        print(f"  - Total Scans Audited     : {len(df_ens)}")
-        if 'triage_category' in df_ens.columns:
-            triage_counts = df_ens['triage_category'].value_counts().to_dict()
-            print(f"\n  [ACTIVE LEARNING TRIAGE BREAKDOWN]:")
-            for cat, count in triage_counts.items():
-                pct = (count / len(df_ens)) * 100
-                print(f"    - {cat:<25}: {count:,} scans ({pct:.1f}%)")
+    ens_csvs = glob.glob("/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary*.csv")
+    if ens_csvs:
+        dfs = []
+        for f in ens_csvs:
+            try:
+                dfs.append(pd.read_csv(f))
+            except Exception:
+                pass
+        if dfs:
+            df_ens = pd.concat(dfs, ignore_index=True).drop_duplicates(subset=['subject_id'])
+            df_ens.to_csv(ENSEMBLE_CSV, index=False)
+            print(f"  - Total Scans Audited     : {len(df_ens):,}")
+            if 'triage_category' in df_ens.columns:
+                triage_counts = df_ens['triage_category'].value_counts().to_dict()
+                print(f"\n  [ACTIVE LEARNING TRIAGE BREAKDOWN]:")
+                for cat, count in triage_counts.items():
+                    pct = (count / len(df_ens)) * 100.0
+                    print(f"    - {cat:<25}: {count:,} scans ({pct:.1f}%)")
     else:
-        print(f"  - [PENDING] {ENSEMBLE_CSV} not generated yet.")
+        print(f"  - [PENDING] Ensemble CSV summary not generated yet.")
 
     print("\n" + "=" * 65)
 

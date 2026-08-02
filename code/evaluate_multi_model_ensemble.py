@@ -401,6 +401,10 @@ def main():
                         help="Output path for evaluation CSV summary")
     parser.add_argument("--num_workers", type=int, default=16,
                         help="Number of parallel CPU worker processes (default: 16)")
+    parser.add_argument("--num_chunks", type=int, default=1,
+                        help="Total number of parallel array chunks (default: 1)")
+    parser.add_argument("--chunk_idx", type=int, default=0,
+                        help="Index of current array chunk (0-indexed)")
     args = parser.parse_args()
 
     pred_dirs = args.pred_dirs
@@ -426,11 +430,16 @@ def main():
         subject_maps[name] = smap
 
     common_subjects = sorted(list(set.intersection(*[set(m.keys()) for m in subject_maps.values()])))
-    print(f"\nFound {len(common_subjects)} common subjects across all {len(pred_dirs)} models.")
+    print(f"\nFound {len(common_subjects)} total common subjects across all {len(pred_dirs)} models.")
 
     if not common_subjects:
         print("ERROR: No common subjects found across prediction directories. Check directory contents.")
         sys.exit(1)
+
+    if args.num_chunks > 1:
+        chunk_subjects = [sub for i, sub in enumerate(common_subjects) if i % args.num_chunks == args.chunk_idx]
+        print(f"GPU Worker [{args.chunk_idx}/{args.num_chunks}]: Processing {len(chunk_subjects)} / {len(common_subjects)} assigned scans.")
+        common_subjects = chunk_subjects
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Executing Deep Ensemble Audit on Device: {device} (Total Subjects: {len(common_subjects)})", flush=True)
