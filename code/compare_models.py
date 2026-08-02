@@ -51,6 +51,11 @@ def load_ground_truth(subject_dir):
     seg_dir = os.path.join(subject_dir, "segmentations")
     search_dir = seg_dir if os.path.exists(seg_dir) else subject_dir
 
+    # Check for combined mask first
+    combined_mask = os.path.join(subject_dir, "gi_mask.nii.gz")
+    if os.path.exists(combined_mask):
+        return nib.load(combined_mask).get_fdata().astype(np.uint8)
+
     ct_path = os.path.join(subject_dir, "ct.nii.gz")
     ct_nii  = nib.load(ct_path)
     gt_arr  = np.zeros(ct_nii.shape, dtype=np.uint8)
