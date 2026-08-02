@@ -27,6 +27,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import nibabel as nib
+import torch
 from scipy.ndimage import label, binary_erosion, distance_transform_edt
 from scipy.stats import entropy
 from sklearn.metrics import adjusted_rand_score
@@ -155,6 +156,11 @@ def compute_composite_score(dice, hd95, max_hd_cap=50.0):
 
 def compute_ece(probs, true_labels, n_bins=10):
     """Compute Expected Calibration Error (ECE)."""
+    if isinstance(probs, torch.Tensor):
+        probs = probs.cpu().numpy()
+    if isinstance(true_labels, torch.Tensor):
+        true_labels = true_labels.cpu().numpy()
+
     confidences = np.max(probs, axis=0).ravel()
     predictions = np.argmax(probs, axis=0).ravel()
     accuracies = (predictions == true_labels.ravel())
@@ -253,28 +259,38 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
             consensus_mask = nib.load(consensus_path).get_fdata().astype(np.uint8)
             uncertainty_map = nib.load(uncertainty_path).get_fdata()
         else:
-            # 2. Probability representation for consensus
-            one_hot_probs = []
+            # 2. PyTorch CUDA accelerated probability consensus
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            weights_t = torch.tensor(weights, dtype=torch.float32, device=device)
+
+            one_hot_tensors = []
             for i in range(len(model_files)):
                 m = model_masks[i]
                 fpath = model_files[i]
-                prob_path = fpath.replace('_gi_seg.nii.gz', '_gi_probs.npz')
-                if os.path.exists(prob_path):
-                    probs = np.load(prob_path)['probs'].astype(np.float32)
-                    one_hot_probs.append(probs)
+                prob_path = fpath.replace('_gi_seg.nii.gz', '_gi_probs.npz') if fpath.endswith('_gi_seg.nii.gz') else None
+                if prob_path and os.path.exists(prob_path):
+                    probs = np.load(prob_path, allow_pickle=True)['probs'].astype(np.float32)
+                    t = torch.tensor(probs, dtype=torch.float32, device=device)
                 else:
-                    oh = np.stack([(m == c).astype(np.float32) for c in range(5)], axis=0)
-                    one_hot_probs.append(oh)
-            one_hot_stack = np.stack(one_hot_probs, axis=0)  # (N_models, 5, X, Y, Z)
+                    m_t = torch.tensor(m, dtype=torch.long, device=device)
+                    t = torch.zeros((5,) + m.shape, dtype=torch.float32, device=device)
+                    t.scatter_(0, m_t.unsqueeze(0), 1.0)
+                one_hot_tensors.append(t)
 
-            # Weighted probability consensus
-            consensus_probs = np.average(one_hot_stack, axis=0, weights=weights)  # (5, X, Y, Z)
-            consensus_mask = np.argmax(consensus_probs, axis=0).astype(np.uint8)  # (X, Y, Z)
+            one_hot_stack = torch.stack(one_hot_tensors, dim=0)  # (N_models, 5, X, Y, Z)
 
-            # 3. Spatial Uncertainty Heatmap
+            # GPU Weighted Probability Consensus
+            weights_reshaped = weights_t.view(-1, 1, 1, 1, 1)
+            consensus_probs_t = (one_hot_stack * weights_reshaped).sum(dim=0)  # (5, X, Y, Z)
+            consensus_mask_t = torch.argmax(consensus_probs_t, dim=0).to(torch.uint8)  # (X, Y, Z)
+
+            # 3. GPU Spatial Uncertainty Heatmap (Shannon Entropy)
             epsilon = 1e-7
-            clamped = np.clip(consensus_probs, epsilon, 1.0 - epsilon)
-            uncertainty_map = -np.sum(clamped * np.log2(clamped), axis=0)  # (X, Y, Z)
+            clamped = torch.clamp(consensus_probs_t, epsilon, 1.0 - epsilon)
+            uncertainty_t = -(clamped * torch.log2(clamped)).sum(dim=0)  # (X, Y, Z)
+
+            consensus_mask = consensus_mask_t.cpu().numpy()
+            uncertainty_map = uncertainty_t.cpu().numpy()
 
             os.makedirs(out_dir, exist_ok=True)
             nib.save(nib.Nifti1Image(consensus_mask, affine=affine), consensus_path)

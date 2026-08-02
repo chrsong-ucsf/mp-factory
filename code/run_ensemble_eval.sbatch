@@ -1,11 +1,11 @@
-#!/bin/bash
 #SBATCH --job-name=ensemble_eval
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/ensemble_eval_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/ensemble_eval_%j.err
-#SBATCH --partition=cpu
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:nvidia_l40s:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
-#SBATCH --time=06:00:00
+#SBATCH --time=04:00:00
 
 module load CBI
 module load miniforge3/26.3.2-3
