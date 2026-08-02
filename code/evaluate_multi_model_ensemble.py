@@ -225,6 +225,10 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
     """Processes a single subject scan across all available models."""
     res = {'subject_id': subject_id, 'num_models': len(model_files)}
 
+    consensus_path = os.path.join(out_dir, f"{subject_id}_consensus.nii.gz")
+    uncertainty_path = os.path.join(out_dir, f"{subject_id}_uncertainty.nii.gz")
+    skip_saving = os.path.exists(consensus_path) and os.path.exists(uncertainty_path)
+
     try:
         loaded_masks = []
         affine = None
@@ -245,33 +249,39 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
         for name, w in zip(model_names, weights):
             res[f'weight_{name}'] = round(float(w), 4)
 
-        # 2. Probability representation for consensus
-        one_hot_probs = []
-        for i in range(len(model_files)):
-            m = model_masks[i]
-            oh = np.stack([(m == c).astype(np.float32) for c in range(5)], axis=0)
-            one_hot_probs.append(oh)
-        one_hot_stack = np.stack(one_hot_probs, axis=0)  # (N_models, 5, X, Y, Z)
+        if skip_saving:
+            consensus_mask = nib.load(consensus_path).get_fdata().astype(np.uint8)
+            uncertainty_map = nib.load(uncertainty_path).get_fdata()
+        else:
+            # 2. Probability representation for consensus
+            one_hot_probs = []
+            for i in range(len(model_files)):
+                m = model_masks[i]
+                fpath = model_files[i]
+                prob_path = fpath.replace('_gi_seg.nii.gz', '_gi_probs.npz')
+                if os.path.exists(prob_path):
+                    probs = np.load(prob_path)['probs'].astype(np.float32)
+                    one_hot_probs.append(probs)
+                else:
+                    oh = np.stack([(m == c).astype(np.float32) for c in range(5)], axis=0)
+                    one_hot_probs.append(oh)
+            one_hot_stack = np.stack(one_hot_probs, axis=0)  # (N_models, 5, X, Y, Z)
 
-        # Weighted probability consensus
-        consensus_probs = np.average(one_hot_stack, axis=0, weights=weights)  # (5, X, Y, Z)
-        consensus_mask = np.argmax(consensus_probs, axis=0).astype(np.uint8)  # (X, Y, Z)
+            # Weighted probability consensus
+            consensus_probs = np.average(one_hot_stack, axis=0, weights=weights)  # (5, X, Y, Z)
+            consensus_mask = np.argmax(consensus_probs, axis=0).astype(np.uint8)  # (X, Y, Z)
 
-        # 3. Spatial Uncertainty Heatmap
-        # Compute entropy directly on consensus_probs (5, X, Y, Z) — already class-probability distribution
-        epsilon = 1e-7
-        clamped = np.clip(consensus_probs, epsilon, 1.0 - epsilon)
-        uncertainty_map = -np.sum(clamped * np.log2(clamped), axis=0)  # (X, Y, Z)
+            # 3. Spatial Uncertainty Heatmap
+            epsilon = 1e-7
+            clamped = np.clip(consensus_probs, epsilon, 1.0 - epsilon)
+            uncertainty_map = -np.sum(clamped * np.log2(clamped), axis=0)  # (X, Y, Z)
+
+            os.makedirs(out_dir, exist_ok=True)
+            nib.save(nib.Nifti1Image(consensus_mask, affine=affine), consensus_path)
+            nib.save(nib.Nifti1Image(uncertainty_map.astype(np.float32), affine=affine), uncertainty_path)
+
         res['mean_uncertainty'] = round(float(np.mean(uncertainty_map)), 4)
         res['max_uncertainty'] = round(float(np.max(uncertainty_map)), 4)
-
-        # Save Consensus NIfTI & Uncertainty Heatmap NIfTI
-        os.makedirs(out_dir, exist_ok=True)
-        consensus_path = os.path.join(out_dir, f"{subject_id}_consensus.nii.gz")
-        uncertainty_path = os.path.join(out_dir, f"{subject_id}_uncertainty.nii.gz")
-
-        nib.save(nib.Nifti1Image(consensus_mask, affine=affine), consensus_path)
-        nib.save(nib.Nifti1Image(uncertainty_map.astype(np.float32), affine=affine), uncertainty_path)
 
         # 4. Metric Audit per organ against Consensus
         eval_dices = []
@@ -371,6 +381,8 @@ def main():
                         help="Output directory for consensus masks and uncertainty maps")
     parser.add_argument("--out_csv", type=str, default="./results/ensemble_audit_summary.csv",
                         help="Output path for evaluation CSV summary")
+    parser.add_argument("--num_workers", type=int, default=16,
+                        help="Number of parallel CPU worker processes (default: 16)")
     args = parser.parse_args()
 
     pred_dirs = args.pred_dirs
@@ -380,14 +392,13 @@ def main():
         print("ERROR: --pred_dirs and --model_names must have the same number of elements.")
         sys.exit(1)
 
-    print(f"Ensembling {len(pred_dirs)} models:")
+    print(f"Ensembling {len(pred_dirs)} models across {args.num_workers} parallel workers:")
     for name, pdir in zip(model_names, pred_dirs):
         print(f"  - {name}: {pdir}")
 
     # Discover common subjects across all model dirs
     subject_maps = {}
     for name, pdir in zip(model_names, pred_dirs):
-        # Only match *_gi_seg.nii.gz to avoid picking up consensus/uncertainty maps
         files = glob.glob(os.path.join(pdir, "*_gi_seg.nii.gz"))
         smap = {}
         for f in files:
@@ -403,12 +414,39 @@ def main():
         print("ERROR: No common subjects found across prediction directories. Check directory contents.")
         sys.exit(1)
 
-    results = []
-    for idx, sub_id in enumerate(common_subjects, 1):
-        print(f"[{idx}/{len(common_subjects)}] Processing {sub_id}...", flush=True)
+    os.makedirs(args.out_dir, exist_ok=True)
+
+    # Check for existing consensus files to skip already completed subjects
+    tasks = []
+    skipped_count = 0
+    for sub_id in common_subjects:
+        consensus_path = os.path.join(args.out_dir, f"{sub_id}_consensus.nii.gz")
         mfiles = [subject_maps[name][sub_id] for name in model_names]
-        res = evaluate_subject(sub_id, mfiles, model_names, args.out_dir)
-        results.append(res)
+        tasks.append((sub_id, mfiles, model_names, args.out_dir))
+
+    print(f"Submitting {len(tasks)} subjects to ProcessPoolExecutor({args.num_workers} workers)...", flush=True)
+
+    results = []
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
+        futures = {
+            executor.submit(evaluate_subject, sub_id, mfiles, model_names, out_dir): sub_id
+            for (sub_id, mfiles, model_names, out_dir) in tasks
+        }
+
+        completed = 0
+        total = len(futures)
+        for future in as_completed(futures):
+            completed += 1
+            sub_id = futures[future]
+            try:
+                res = future.result()
+                results.append(res)
+                if completed % 50 == 0 or completed == total:
+                    print(f"[{completed}/{total}] Progress: {completed/total*100:.1f}% complete", flush=True)
+            except Exception as e:
+                print(f"  [ERROR] Subject {sub_id} failed: {e}", flush=True)
 
     df = pd.DataFrame(results)
     csv_dir = os.path.dirname(args.out_csv)
