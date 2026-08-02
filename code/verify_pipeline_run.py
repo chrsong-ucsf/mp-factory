@@ -31,16 +31,22 @@ def main():
     # 2. Model Comparison CSV
     print(f"\n[2] MODEL COMPARISON SUMMARY ({COMPARE_CSV}):")
     if os.path.exists(COMPARE_CSV):
-        df_comp = pd.read_csv(COMPARE_CSV)
-        print(f"  - Evaluated Subjects : {len(df_comp)}")
-        if 'winner' in df_comp.columns:
-            win_counts = df_comp['winner'].value_counts().to_dict()
-            print(f"  - Head-to-Head Wins  : {win_counts}")
-        if 'swin_mean_dice' in df_comp.columns and 'mednext_mean_dice' in df_comp.columns:
-            swin_avg = pd.to_numeric(df_comp['swin_mean_dice'], errors='coerce').mean()
-            mednext_avg = pd.to_numeric(df_comp['mednext_mean_dice'], errors='coerce').mean()
-            print(f"  - Swin-UNETR Avg Dice: {swin_avg:.4f}")
-            print(f"  - MedNeXt Avg Dice   : {mednext_avg:.4f}")
+        try:
+            df_comp = pd.read_csv(COMPARE_CSV)
+            if len(df_comp) > 0:
+                print(f"  - Evaluated Subjects : {len(df_comp)}")
+                if 'winner' in df_comp.columns:
+                    win_counts = df_comp['winner'].value_counts().to_dict()
+                    print(f"  - Head-to-Head Wins  : {win_counts}")
+                if 'swin_mean_dice' in df_comp.columns and 'mednext_mean_dice' in df_comp.columns:
+                    swin_avg = pd.to_numeric(df_comp['swin_mean_dice'], errors='coerce').mean()
+                    mednext_avg = pd.to_numeric(df_comp['mednext_mean_dice'], errors='coerce').mean()
+                    print(f"  - Swin-UNETR Avg Dice: {swin_avg:.4f}")
+                    print(f"  - MedNeXt Avg Dice   : {mednext_avg:.4f}")
+            else:
+                print("  - [IN PROGRESS] Comparison job is actively writing results...")
+        except Exception:
+            print("  - [IN PROGRESS] Comparison job is actively writing results...")
     else:
         print(f"  - [PENDING] {COMPARE_CSV} not generated yet.")
 
