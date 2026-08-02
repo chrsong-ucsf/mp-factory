@@ -432,39 +432,44 @@ def main():
         print("ERROR: No common subjects found across prediction directories. Check directory contents.")
         sys.exit(1)
 
-    os.makedirs(args.out_dir, exist_ok=True)
-
-    # Check for existing consensus files to skip already completed subjects
-    tasks = []
-    skipped_count = 0
-    for sub_id in common_subjects:
-        consensus_path = os.path.join(args.out_dir, f"{sub_id}_consensus.nii.gz")
-        mfiles = [subject_maps[name][sub_id] for name in model_names]
-        tasks.append((sub_id, mfiles, model_names, args.out_dir))
-
-    print(f"Submitting {len(tasks)} subjects to ProcessPoolExecutor({args.num_workers} workers)...", flush=True)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Executing Deep Ensemble Audit on Device: {device} (Total Subjects: {len(common_subjects)})", flush=True)
 
     results = []
-    from concurrent.futures import ProcessPoolExecutor, as_completed
+    total = len(common_subjects)
 
-    with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
-        futures = {
-            executor.submit(evaluate_subject, sub_id, mfiles, model_names, out_dir): sub_id
-            for (sub_id, mfiles, model_names, out_dir) in tasks
-        }
-
-        completed = 0
-        total = len(futures)
-        for future in as_completed(futures):
-            completed += 1
-            sub_id = futures[future]
+    if device.type == "cuda":
+        # GPU execution: Run in main process to keep CUDA tensors on GPU VRAM
+        for completed, sub_id in enumerate(common_subjects, 1):
+            mfiles = [subject_maps[name][sub_id] for name in model_names]
             try:
-                res = future.result()
+                res = evaluate_subject(sub_id, mfiles, model_names, args.out_dir)
                 results.append(res)
-                if completed % 50 == 0 or completed == total:
-                    print(f"[{completed}/{total}] Progress: {completed/total*100:.1f}% complete", flush=True)
             except Exception as e:
                 print(f"  [ERROR] Subject {sub_id} failed: {e}", flush=True)
+
+            if completed % 50 == 0 or completed == total:
+                print(f"[{completed}/{total}] GPU Progress: {completed/total*100:.1f}% complete", flush=True)
+    else:
+        # CPU execution: Use ProcessPoolExecutor for multi-core parallelism
+        tasks = [(sub_id, [subject_maps[name][sub_id] for name in model_names], model_names, args.out_dir) for sub_id in common_subjects]
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
+            futures = {
+                executor.submit(evaluate_subject, sub_id, mfiles, model_names, out_dir): sub_id
+                for (sub_id, mfiles, model_names, out_dir) in tasks
+            }
+            completed = 0
+            for future in as_completed(futures):
+                completed += 1
+                sub_id = futures[future]
+                try:
+                    res = future.result()
+                    results.append(res)
+                except Exception as e:
+                    print(f"  [ERROR] Subject {sub_id} failed: {e}", flush=True)
+                if completed % 50 == 0 or completed == total:
+                    print(f"[{completed}/{total}] CPU Progress: {completed/total*100:.1f}% complete", flush=True)
 
         df = pd.DataFrame(results)
         csv_dir = os.path.dirname(args.out_csv)
