@@ -24,6 +24,7 @@ import sys
 import glob
 import re
 import argparse
+import gc
 import numpy as np
 import pandas as pd
 import nibabel as nib
@@ -384,6 +385,7 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
     except Exception as e:
         res['status'] = f'ERROR: {str(e)}'
 
+    gc.collect()
     return res
 
 
@@ -464,11 +466,29 @@ def main():
             except Exception as e:
                 print(f"  [ERROR] Subject {sub_id} failed: {e}", flush=True)
 
-    df = pd.DataFrame(results)
-    csv_dir = os.path.dirname(args.out_csv)
-    if csv_dir:
-        os.makedirs(csv_dir, exist_ok=True)
-    df.to_csv(args.out_csv, index=False)
+        df = pd.DataFrame(results)
+        csv_dir = os.path.dirname(args.out_csv)
+        if csv_dir:
+            os.makedirs(csv_dir, exist_ok=True)
+        df.to_csv(args.out_csv, index=False)
+
+        print("\n" + "=" * 70)
+        print("      MULTI-MODEL DEEP ENSEMBLE & ACTIVE LEARNING REPORT      ")
+        print("=" * 70)
+        print(f"Total Evaluated Subjects : {len(df):,}")
+        if 'mean_consensus_dice' in df.columns:
+            print(f"Mean Consensus Dice       : {df['mean_consensus_dice'].mean():.4f}")
+            print(f"Mean Consensus IoU        : {df['mean_consensus_iou'].mean():.4f}")
+            print(f"Mean Predictive Entropy   : {df['mean_uncertainty'].mean():.4f}")
+        print("-" * 70)
+        if 'triage_category' in df.columns:
+            triage_counts = df['triage_category'].value_counts().to_dict()
+            print("[ACTIVE LEARNING DATASET TRIAGE BREAKDOWN]")
+            for cat, count in triage_counts.items():
+                pct = (count / len(df)) * 100.0
+                print(f"  - {cat:<40}: {count:,} cases ({pct:.1f}%)")
+        print("=" * 70)
+        print(f"Report saved to: {args.out_csv}\n")
 
     # Print Summary Report
     print("\n" + "=" * 70)
