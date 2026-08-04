@@ -238,34 +238,77 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
     skip_saving = os.path.exists(consensus_path) and os.path.exists(uncertainty_path)
 
     try:
-        loaded_masks = []
-        affine = None
+        loaded_masks = []   # list of np.uint8 arrays in reference (model_files[0]) voxel grid
+        loaded_niis  = []   # parallel list of nibabel NIfTI images (original, for resampling)
+        affine       = None
+        ref_nii      = None  # reference voxel grid = first model file (MedNeXt)
 
-        for fpath in model_files:
+        for idx, fpath in enumerate(model_files):
             nii = nib.load(fpath)
-            if affine is None:
-                affine = nii.affine
-            arr = np.asanyarray(nii.dataobj).astype(np.uint8)
+            arr = np.asanyarray(nii.dataobj).squeeze()
             if arr.ndim == 4:
                 arr = arr[0]
-            # Remap TotalSegmentator raw class IDs (55=stomach, 56=duodenum, 57=small bowel, 58=colon;
-            # or 50=stomach, 51=duodenum, 52=small bowel, 53=colon) to standard GI organ labels (1..4)
-            if arr.max() > 4:
-                totalseg_remapped = np.zeros_like(arr, dtype=np.uint8)
-                totalseg_map = {55: 1, 56: 2, 57: 3, 58: 4, 50: 1, 51: 2, 52: 3, 53: 4}
-                for ts_id, gi_id in totalseg_map.items():
-                    totalseg_remapped[arr == ts_id] = gi_id
-                arr = totalseg_remapped
-            loaded_masks.append(arr)
 
-        # Ensure all model masks share the same 3D spatial shape (e.g. handle TotalSegmentator
-        # native-resolution masks vs MedNeXt/Swin-UNETR 1.5x1.5x2.0mm resampled masks).
+            is_totalseg = int(arr.max()) > 4
+
+            if is_totalseg:
+                # --- TotalSegmentator full-body label remapping ---
+                # Labels confirmed from diagnostic overlap test:
+                #   18 = stomach,  19 = duodenum,  20 = small_bowel
+                #   5/6 = colon variants,  50-58 = alternate TotalSeg version
+                totalseg_map = {
+                    18: 1, 50: 1, 55: 1,   # stomach
+                    19: 2, 51: 2, 56: 2,   # duodenum
+                    20: 3, 52: 3, 57: 3,   # small bowel
+                     5: 4,  6: 4, 53: 4, 58: 4  # colon
+                }
+                remapped = np.zeros_like(arr, dtype=np.uint8)
+                for ts_id, gi_id in totalseg_map.items():
+                    remapped[arr == ts_id] = gi_id
+
+                if ref_nii is not None:
+                    # Affine-aware resample: project TotalSeg full-body volume into
+                    # MedNeXt's GI-crop voxel grid using world coordinates.
+                    try:
+                        from nilearn.image import resample_to_img
+                        remapped_nii = nib.Nifti1Image(remapped.astype(np.float32), nii.affine, nii.header)
+                        resampled_nii = resample_to_img(remapped_nii, ref_nii,
+                                                        interpolation='nearest', copy=False)
+                        arr = np.asanyarray(resampled_nii.dataobj).squeeze().astype(np.uint8)
+                    except ImportError:
+                        # Fallback: scipy affine_transform using relative affines
+                        import scipy.ndimage as nd
+                        ref_shape = ref_nii.shape[:3]
+                        # Build transform: ref voxel -> world -> totalseg voxel
+                        ref2world = ref_nii.affine
+                        world2ts  = np.linalg.inv(nii.affine)
+                        combined  = world2ts @ ref2world
+                        A = combined[:3, :3]  # 3x3 rotation/scale
+                        b = combined[:3,  3]  # 3-vector offset
+                        arr = nd.affine_transform(remapped.astype(np.float32), A,
+                                                   offset=b, output_shape=ref_shape,
+                                                   order=0, cval=0).astype(np.uint8)
+                else:
+                    arr = remapped
+            else:
+                arr = arr.astype(np.uint8)
+                # Clamp any stray label values to [0..4]
+                arr = np.where((arr >= 0) & (arr < 5), arr, 0).astype(np.uint8)
+
+            if affine is None:
+                affine  = nii.affine
+                ref_nii = nii
+
+            loaded_masks.append(arr)
+            loaded_niis.append(nii)
+
+        # Shape-align any remaining masks (non-TotalSeg models at different resolutions)
+        # using PyTorch nearest-neighbor interpolation for speed.
         target_shape = loaded_masks[0].shape
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         resampled_masks = []
         for arr in loaded_masks:
             if arr.shape != target_shape:
-                # PyTorch multi-threaded C++ 3D nearest-neighbor interpolation (20x faster than scipy.ndimage.zoom on CPU)
                 t_arr = torch.tensor(arr, dtype=torch.float32, device=device).unsqueeze(0).unsqueeze(0)
                 t_res = torch.nn.functional.interpolate(t_arr, size=target_shape, mode='nearest')
                 arr = t_res.squeeze(0).squeeze(0).to(torch.uint8).cpu().numpy()
