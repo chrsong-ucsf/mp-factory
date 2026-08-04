@@ -18,17 +18,16 @@ export PYTHONUNBUFFERED=1
 # Define Paths
 DIR_MEDNEXT="/mnt/scratch/user/chrsong/mp-factory/results/mednext_predictions"
 DIR_SWIN="/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_predictions"
-DIR_TOTALSEG="/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks_bdmap"
 
 OUT_DIR="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out"
 OUT_CSV="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv"
 
 mkdir -p "$OUT_DIR"
 
-# Run ensemble evaluation script
+# Run ensemble evaluation script across trained deep models
 python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluate_multi_model_ensemble.py \
-    --pred_dirs "$DIR_MEDNEXT" "$DIR_SWIN" "$DIR_TOTALSEG" \
-    --model_names MedNeXt Swin-UNETR TotalSegmentator \
+    --pred_dirs "$DIR_MEDNEXT" "$DIR_SWIN" \
+    --model_names MedNeXt Swin-UNETR \
     --out_dir "$OUT_DIR" \
     --num_workers 16 \
     --out_csv "$OUT_CSV"
