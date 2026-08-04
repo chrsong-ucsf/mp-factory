@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 import nibabel as nib
 import torch
-from scipy.ndimage import label, binary_erosion, distance_transform_edt
+from scipy.ndimage import label, binary_erosion, distance_transform_edt, zoom
 from scipy.stats import entropy
 from sklearn.metrics import adjusted_rand_score
 from skimage.metrics import variation_of_information
@@ -250,7 +250,17 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                 arr = arr[0]
             loaded_masks.append(arr)
 
-        model_masks = np.stack(loaded_masks, axis=0)  # (N_models, X, Y, Z)
+        # Ensure all model masks share the same 3D spatial shape (e.g. handle TotalSegmentator
+        # native-resolution masks vs MedNeXt/Swin-UNETR 1.5x1.5x2.0mm resampled masks).
+        target_shape = loaded_masks[0].shape
+        resampled_masks = []
+        for arr in loaded_masks:
+            if arr.shape != target_shape:
+                zoom_factors = [t / s for t, s in zip(target_shape, arr.shape)]
+                arr = zoom(arr, zoom_factors, order=0).astype(np.uint8)
+            resampled_masks.append(arr)
+
+        model_masks = np.stack(resampled_masks, axis=0)  # (N_models, X, Y, Z)
 
         # 1. Diversity Weights
         weights = compute_diversity_weights(model_masks)
@@ -269,6 +279,9 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
             prob_path = fpath.replace('_gi_seg.nii.gz', '_gi_probs.npz') if fpath.endswith('_gi_seg.nii.gz') else None
             if prob_path and os.path.exists(prob_path):
                 probs = np.load(prob_path, allow_pickle=True)['probs'].astype(np.float32)
+                if probs.shape[1:] != target_shape:
+                    zoom_factors = [1.0] + [t / s for t, s in zip(target_shape, probs.shape[1:])]
+                    probs = zoom(probs, zoom_factors, order=1).astype(np.float32)
                 t = torch.tensor(probs, dtype=torch.float32, device=device)
             else:
                 m_t = torch.tensor(m, dtype=torch.long, device=device)
