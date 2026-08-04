@@ -261,11 +261,18 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
         # Ensure all model masks share the same 3D spatial shape (e.g. handle TotalSegmentator
         # native-resolution masks vs MedNeXt/Swin-UNETR 1.5x1.5x2.0mm resampled masks).
         target_shape = loaded_masks[0].shape
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         resampled_masks = []
         for arr in loaded_masks:
             if arr.shape != target_shape:
-                zoom_factors = [t / s for t, s in zip(target_shape, arr.shape)]
-                arr = zoom(arr, zoom_factors, order=0).astype(np.uint8)
+                if device.type == "cuda":
+                    # PyTorch CUDA 3D GPU nearest-neighbor interpolation (100x faster than CPU scipy.ndimage.zoom)
+                    t_arr = torch.tensor(arr, dtype=torch.float32, device=device).unsqueeze(0).unsqueeze(0)
+                    t_res = torch.nn.functional.interpolate(t_arr, size=target_shape, mode='nearest')
+                    arr = t_res.squeeze(0).squeeze(0).to(torch.uint8).cpu().numpy()
+                else:
+                    zoom_factors = [t / s for t, s in zip(target_shape, arr.shape)]
+                    arr = zoom(arr, zoom_factors, order=0).astype(np.uint8)
             resampled_masks.append(arr)
 
         model_masks = np.stack(resampled_masks, axis=0)  # (N_models, X, Y, Z)
@@ -288,8 +295,13 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
             if prob_path and os.path.exists(prob_path):
                 probs = np.load(prob_path, allow_pickle=True)['probs'].astype(np.float32)
                 if probs.shape[1:] != target_shape:
-                    zoom_factors = [1.0] + [t / s for t, s in zip(target_shape, probs.shape[1:])]
-                    probs = zoom(probs, zoom_factors, order=1).astype(np.float32)
+                    if device.type == "cuda":
+                        t_probs = torch.tensor(probs, dtype=torch.float32, device=device).unsqueeze(0)
+                        t_res = torch.nn.functional.interpolate(t_probs, size=target_shape, mode='trilinear', align_corners=False)
+                        probs = t_res.squeeze(0).cpu().numpy()
+                    else:
+                        zoom_factors = [1.0] + [t / s for t, s in zip(target_shape, probs.shape[1:])]
+                        probs = zoom(probs, zoom_factors, order=1).astype(np.float32)
                 t = torch.tensor(probs, dtype=torch.float32, device=device)
             else:
                 m_clamped = np.where((m >= 0) & (m < 5), m, 0)
