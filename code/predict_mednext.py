@@ -128,7 +128,7 @@ def main():
             img_tensor = data_dict["image"].unsqueeze(0).to(device)
 
             with torch.no_grad():
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast(device_type='cuda'):
                     pred_logits = sliding_window_inference(
                         inputs=img_tensor,
                         roi_size=tuple(args.roi_size),
@@ -140,8 +140,12 @@ def main():
             pred_label = post_pred(pred_logits[0])
             pred_np = pred_label.cpu().numpy().astype(np.uint8)
 
-            orig_nii = nib.load(ct_path)
-            out_nii = nib.Nifti1Image(pred_np, affine=orig_nii.affine)
+            # Save prediction in resampled space (1.5×1.5×2.0 mm RAS).
+            # Use the affine updated by Spacingd/Orientationd from the transform metadata
+            # instead of orig_nii.affine (native scanner space), which would create a
+            # silent geometry mismatch when source scans have different native resolutions.
+            resampled_affine = data_dict["image"].meta["affine"].numpy()
+            out_nii = nib.Nifti1Image(pred_np, affine=resampled_affine)
             nib.save(out_nii, out_mask_path)
 
             if args.save_probs:

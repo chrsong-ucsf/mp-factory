@@ -29,4 +29,5 @@ python -u /mnt/scratch/user/chrsong/mp-factory/code/predict_mednext.py \
     --sw_batch_size 4 \
     --overlap 0.5 \
     --array_id "${SLURM_ARRAY_TASK_ID}" \
+    --save_probs \
     --total_workers 4

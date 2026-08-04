@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=eval_totalseg
-#SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/eval_%j.out
-#SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/eval_%j.err
-#SBATCH --partition=cpu          # CPU partition (change if named differently on your cluster)
-#SBATCH --cpus-per-task=32       # Request 32 CPU cores
-#SBATCH --mem=64G                # RAM allocation
-#SBATCH --time=02:00:00          # 2 hours max
+#SBATCH --job-name=eval_ensemble
+#SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/eval_ensemble_%j.out
+#SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/eval_ensemble_%j.err
+#SBATCH --partition=cpu
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=64G
+#SBATCH --time=06:00:00
 
 # Load modules and activate environment
 module load CBI
@@ -16,14 +16,19 @@ mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 export PYTHONUNBUFFERED=1
 
 # Define Paths
-PRED_DIR="/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks"
-GT_DIR="/mnt/scratch/user/chrsong/mp-factory/CancerVerse/ground_truth_masks"  # ADJUST THIS TO YOUR GT PATH
-OUT_CSV="/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_metrics_summary.csv"
+DIR_MEDNEXT="/mnt/scratch/user/chrsong/mp-factory/results/mednext_predictions"
+DIR_SWIN="/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_predictions"
+DIR_TOTALSEG="/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks_bdmap"
 
-# Run evaluation script
-python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluate_gi_masks.py \
-    --pred_dir "$PRED_DIR" \
-    --gt_dir "$GT_DIR" \
-    --out_csv "$OUT_CSV" \
-    --num_workers 32
+OUT_DIR="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out"
+OUT_CSV="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv"
 
+mkdir -p "$OUT_DIR"
+
+# Run ensemble evaluation script
+python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluate_multi_model_ensemble.py \
+    --pred_dirs "$DIR_MEDNEXT" "$DIR_SWIN" "$DIR_TOTALSEG" \
+    --model_names MedNeXt Swin-UNETR TotalSegmentator \
+    --out_dir "$OUT_DIR" \
+    --num_workers 32 \
+    --out_csv "$OUT_CSV"

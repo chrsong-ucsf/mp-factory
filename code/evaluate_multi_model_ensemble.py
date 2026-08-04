@@ -1,7 +1,7 @@
 """
 evaluate_multi_model_ensemble.py
 
-Multi-Model Deep Ensemble Evaluation, Consensus Assembly, and Active Learning Triage.
+Multi-Model Deep Ensemble Evaluation, Consensus Assembly, and Automated Data Cleansing.
 
 This script:
   1. Loads multi-organ segmentation masks or softmax probability maps from N independent models.
@@ -9,7 +9,8 @@ This script:
   3. Generates voxel-wise Spatial Predictive Uncertainty Heatmaps (entropy/variance across models).
   4. Assembles a weighted consensus "pseudo-ground truth" mask (<subject_id>_consensus.nii.gz).
   5. Evaluates model and consensus quality via Dice, IoU, HD95, Betti-0 Count Difference (|Δβ0|), ARI, and VOI.
-  6. Routes scans into Clean, Weak, or Reject/Active-Learning-Triage buckets.
+  6. Routes scans into CLEAN_HIGH_CONFIDENCE, WEAK_COARSE, or NOISE_REJECT buckets
+     for fully-automated data cleansing (no human-in-the-loop radiologist review).
 
 Usage:
   python evaluate_multi_model_ensemble.py \
@@ -256,43 +257,45 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
         for name, w in zip(model_names, weights):
             res[f'weight_{name}'] = round(float(w), 4)
 
+        # 2. Always build per-model probability tensors — required for ECE even when
+        #    consensus/uncertainty files already exist (skip_saving=True on resume).
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        weights_t = torch.tensor(weights, dtype=torch.float32, device=device)
+
+        one_hot_tensors = []
+        for i in range(len(model_files)):
+            m = model_masks[i]
+            fpath = model_files[i]
+            prob_path = fpath.replace('_gi_seg.nii.gz', '_gi_probs.npz') if fpath.endswith('_gi_seg.nii.gz') else None
+            if prob_path and os.path.exists(prob_path):
+                probs = np.load(prob_path, allow_pickle=True)['probs'].astype(np.float32)
+                t = torch.tensor(probs, dtype=torch.float32, device=device)
+            else:
+                m_t = torch.tensor(m, dtype=torch.long, device=device)
+                t = torch.zeros((5,) + m.shape, dtype=torch.float32, device=device)
+                t.scatter_(0, m_t.unsqueeze(0), 1.0)
+            one_hot_tensors.append(t)
+
+        one_hot_stack = torch.stack(one_hot_tensors, dim=0)  # (N_models, 5, X, Y, Z)
+
+        # GPU Weighted Probability Consensus
+        weights_reshaped = weights_t.view(-1, 1, 1, 1, 1)
+        consensus_probs_t = (one_hot_stack * weights_reshaped).sum(dim=0)  # (5, X, Y, Z)
+        consensus_mask_t = torch.argmax(consensus_probs_t, dim=0).to(torch.uint8)  # (X, Y, Z)
+
+        # 3. GPU Spatial Uncertainty Heatmap (Shannon Entropy)
+        epsilon = 1e-7
+        clamped = torch.clamp(consensus_probs_t, epsilon, 1.0 - epsilon)
+        uncertainty_t = -(clamped * torch.log2(clamped)).sum(dim=0)  # (X, Y, Z)
+
         if skip_saving:
+            # Load saved files as the authoritative source for reporting metrics
+            # (the saved consensus is from the original run and is the ground truth).
             consensus_mask = nib.load(consensus_path).get_fdata().astype(np.uint8)
             uncertainty_map = nib.load(uncertainty_path).get_fdata()
         else:
-            # 2. PyTorch CUDA accelerated probability consensus
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            weights_t = torch.tensor(weights, dtype=torch.float32, device=device)
-
-            one_hot_tensors = []
-            for i in range(len(model_files)):
-                m = model_masks[i]
-                fpath = model_files[i]
-                prob_path = fpath.replace('_gi_seg.nii.gz', '_gi_probs.npz') if fpath.endswith('_gi_seg.nii.gz') else None
-                if prob_path and os.path.exists(prob_path):
-                    probs = np.load(prob_path, allow_pickle=True)['probs'].astype(np.float32)
-                    t = torch.tensor(probs, dtype=torch.float32, device=device)
-                else:
-                    m_t = torch.tensor(m, dtype=torch.long, device=device)
-                    t = torch.zeros((5,) + m.shape, dtype=torch.float32, device=device)
-                    t.scatter_(0, m_t.unsqueeze(0), 1.0)
-                one_hot_tensors.append(t)
-
-            one_hot_stack = torch.stack(one_hot_tensors, dim=0)  # (N_models, 5, X, Y, Z)
-
-            # GPU Weighted Probability Consensus
-            weights_reshaped = weights_t.view(-1, 1, 1, 1, 1)
-            consensus_probs_t = (one_hot_stack * weights_reshaped).sum(dim=0)  # (5, X, Y, Z)
-            consensus_mask_t = torch.argmax(consensus_probs_t, dim=0).to(torch.uint8)  # (X, Y, Z)
-
-            # 3. GPU Spatial Uncertainty Heatmap (Shannon Entropy)
-            epsilon = 1e-7
-            clamped = torch.clamp(consensus_probs_t, epsilon, 1.0 - epsilon)
-            uncertainty_t = -(clamped * torch.log2(clamped)).sum(dim=0)  # (X, Y, Z)
-
             consensus_mask = consensus_mask_t.cpu().numpy()
             uncertainty_map = uncertainty_t.cpu().numpy()
-
             os.makedirs(out_dir, exist_ok=True)
             nib.save(nib.Nifti1Image(consensus_mask, affine=affine), consensus_path)
             nib.save(nib.Nifti1Image(uncertainty_map.astype(np.float32), affine=affine), uncertainty_path)
@@ -303,6 +306,7 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
         # 4. Metric Audit per organ against Consensus
         eval_dices = []
         eval_ious = []
+        eval_inter_model_dices = []
         max_betti_diff = 0
 
         for organ_id, organ_name in ORGAN_MAP.items():
@@ -348,6 +352,23 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                 organ_ious.append(iou)
                 organ_betti_diffs.append(b_diff)
 
+            # Pairwise inter-model Dice (eliminates circular model-vs-consensus bias)
+            organ_inter_model_dices = []
+            if len(model_names) > 1:
+                for i in range(len(model_names)):
+                    for j in range(i + 1, len(model_names)):
+                        m_i = (model_masks[i] == organ_id)
+                        m_j = (model_masks[j] == organ_id)
+                        intersection_ij = np.sum(m_i & m_j)
+                        total_ij = np.sum(m_i) + np.sum(m_j)
+                        d_ij = (2.0 * intersection_ij) / total_ij if total_ij > 0 else 1.0
+                        organ_inter_model_dices.append(d_ij)
+            else:
+                organ_inter_model_dices = [1.0]
+
+            mean_organ_inter_model_dice = float(np.mean(organ_inter_model_dices))
+            res[f'{organ_name}_inter_model_dice'] = round(mean_organ_inter_model_dice, 4)
+
             mean_org_dice = float(np.mean(organ_dices))
             res[f'{organ_name}_mean_dice'] = round(mean_org_dice, 4)
             res[f'{organ_name}_mean_iou'] = round(float(np.mean(organ_ious)), 4)
@@ -355,6 +376,7 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
 
             eval_dices.append(mean_org_dice)
             eval_ious.append(np.mean(organ_ious))
+            eval_inter_model_dices.append(mean_organ_inter_model_dice)
             max_betti_diff = max(max_betti_diff, max(organ_betti_diffs))
 
         # Overall partition clustering metrics and ECE calibration across models vs consensus
@@ -367,18 +389,28 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
 
         res['mean_consensus_dice'] = round(float(np.mean(eval_dices)), 4)
         res['mean_consensus_iou'] = round(float(np.mean(eval_ious)), 4)
+        res['mean_inter_model_dice'] = round(float(np.mean(eval_inter_model_dices)), 4)
         res['max_betti_diff'] = max_betti_diff
 
-        # 5. Categorization / Triage Logic
-        if res['mean_consensus_dice'] < 0.50 or max_betti_diff > 5 or res['mean_uncertainty'] > 0.35:
-            res['triage_category'] = 'REJECT_OR_TRIAGE'
-            res['action'] = 'Route to Active Learning Radiologist Queue'
-        elif res['mean_consensus_dice'] >= 0.82 and max_betti_diff <= 2:
+        # 5. Categorization / Triage Logic (Automated Data Cleansing)
+        # REJECT uses pairwise inter-model Dice (unbiased) as primary gate,
+        # avoiding circular model-vs-consensus bias in mean_consensus_dice.
+        # Betti threshold tightened: > 3 (was > 5) to prevent broken topology
+        # leaking into the WEAK_COARSE pool.
+        if (res['mean_consensus_dice'] < 0.82
+                or res['mean_inter_model_dice'] < 0.70
+                or max_betti_diff > 3
+                or res['mean_uncertainty'] > 0.15):
+            res['triage_category'] = 'NOISE_REJECT'
+            res['action'] = 'Auto-Exclude (Discard from Training Pool)'
+        elif (res['mean_consensus_dice'] >= 0.82
+                and max_betti_diff <= 2
+                and res['mean_inter_model_dice'] >= 0.85):
             res['triage_category'] = 'CLEAN_HIGH_CONFIDENCE'
-            res['action'] = 'Auto-Approve for Generative VAE Conditioning'
+            res['action'] = 'Auto-Approve for GKD Distillation & VAE'
         else:
             res['triage_category'] = 'WEAK_COARSE'
-            res['action'] = 'Phase 3 Auto-labeling / Coarse Ignore Class'
+            res['action'] = 'Apply Hard Thresholding (Set Conflicting Pixels to Ignore Class)'
 
         res['status'] = 'SUCCESS'
 
@@ -390,7 +422,7 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Multi-Model Ensemble Consensus & Active Learning Audit")
+    parser = argparse.ArgumentParser(description="Multi-Model Ensemble Consensus & Automated Data Cleansing")
     parser.add_argument("--pred_dirs", type=str, nargs="+", required=True,
                         help="List of output directories for each model")
     parser.add_argument("--model_names", type=str, nargs="+", default=None,
@@ -418,14 +450,19 @@ def main():
     for name, pdir in zip(model_names, pred_dirs):
         print(f"  - {name}: {pdir}")
 
-    # Discover common subjects across all model dirs
+    # Discover common subjects across all model dirs (supports both _gi_seg and _gi_mask filenames)
     subject_maps = {}
     for name, pdir in zip(model_names, pred_dirs):
         files = glob.glob(os.path.join(pdir, "*_gi_seg.nii.gz"))
+        if not files:
+            files = glob.glob(os.path.join(pdir, "*_gi_mask.nii.gz"))
+        if not files:
+            # General fallback for any .nii.gz files if neither pattern matches directly
+            files = glob.glob(os.path.join(pdir, "*.nii.gz"))
         smap = {}
         for f in files:
             fname = os.path.basename(f)
-            sub_id = fname.replace('_gi_seg.nii.gz', '')
+            sub_id = fname.replace('_gi_seg.nii.gz', '').replace('_gi_mask.nii.gz', '').replace('.nii.gz', '')
             smap[sub_id] = f
         subject_maps[name] = smap
 
@@ -480,33 +517,19 @@ def main():
                 if completed % 50 == 0 or completed == total:
                     print(f"[{completed}/{total}] CPU Progress: {completed/total*100:.1f}% complete", flush=True)
 
-        df = pd.DataFrame(results)
-        csv_dir = os.path.dirname(args.out_csv)
-        if csv_dir:
-            os.makedirs(csv_dir, exist_ok=True)
-        df.to_csv(args.out_csv, index=False)
-
-        print("\n" + "=" * 70)
-        print("      MULTI-MODEL DEEP ENSEMBLE & ACTIVE LEARNING REPORT      ")
-        print("=" * 70)
-        print(f"Total Evaluated Subjects : {len(df):,}")
-        if 'mean_consensus_dice' in df.columns:
-            print(f"Mean Consensus Dice       : {df['mean_consensus_dice'].mean():.4f}")
-            print(f"Mean Consensus IoU        : {df['mean_consensus_iou'].mean():.4f}")
-            print(f"Mean Predictive Entropy   : {df['mean_uncertainty'].mean():.4f}")
-        print("-" * 70)
-        if 'triage_category' in df.columns:
-            triage_counts = df['triage_category'].value_counts().to_dict()
-            print("[ACTIVE LEARNING DATASET TRIAGE BREAKDOWN]")
-            for cat, count in triage_counts.items():
-                pct = (count / len(df)) * 100.0
-                print(f"  - {cat:<40}: {count:,} cases ({pct:.1f}%)")
-        print("=" * 70)
-        print(f"Report saved to: {args.out_csv}\n")
+    # Build DataFrame and save CSV — runs for both GPU and CPU paths.
+    # Previously this was inside the CPU-only else branch, causing NameError
+    # on GPU and silently producing no output file.
+    df = pd.DataFrame(results)
+    csv_dir = os.path.dirname(args.out_csv)
+    if csv_dir:
+        os.makedirs(csv_dir, exist_ok=True)
+    df.to_csv(args.out_csv, index=False)
+    print(f"\nCSV saved: {args.out_csv} ({len(df):,} rows)", flush=True)
 
     # Print Summary Report
     print("\n" + "=" * 70)
-    print("      MULTI-MODEL DEEP ENSEMBLE & ACTIVE LEARNING REPORT      ")
+    print("      MULTI-MODEL DEEP ENSEMBLE & AUTOMATED DATA CLEANSING REPORT      ")
     print("=" * 70)
     valid_df = df[df['status'] == 'SUCCESS']
     total_valid = len(valid_df)
@@ -514,17 +537,18 @@ def main():
     if total_valid > 0:
         n_clean = (valid_df['triage_category'] == 'CLEAN_HIGH_CONFIDENCE').sum()
         n_weak = (valid_df['triage_category'] == 'WEAK_COARSE').sum()
-        n_reject = (valid_df['triage_category'] == 'REJECT_OR_TRIAGE').sum()
+        n_reject = (valid_df['triage_category'] == 'NOISE_REJECT').sum()
 
-        print(f"Total Evaluated Subjects : {total_valid}")
-        print(f"Mean Consensus Dice       : {valid_df['mean_consensus_dice'].mean():.4f}")
-        print(f"Mean Consensus IoU        : {valid_df['mean_consensus_iou'].mean():.4f}")
-        print(f"Mean Predictive Entropy   : {valid_df['mean_uncertainty'].mean():.4f}")
+        print(f"Total Evaluated Subjects   : {total_valid}")
+        print(f"Mean Consensus Dice         : {valid_df['mean_consensus_dice'].mean():.4f}")
+        print(f"Mean Inter-Model Dice       : {valid_df['mean_inter_model_dice'].mean():.4f}")
+        print(f"Mean Consensus IoU          : {valid_df['mean_consensus_iou'].mean():.4f}")
+        print(f"Mean Predictive Entropy     : {valid_df['mean_uncertainty'].mean():.4f}")
         print("-" * 70)
-        print("[ACTIVE LEARNING DATASET TRIAGE BREAKDOWN]")
-        print(f"  1. Clean High-Confidence Masks (Auto-Approve VAE) : {n_clean} cases ({n_clean/total_valid*100:.1f}%)")
-        print(f"  2. Weak / Coarse Masks (Phase 3 Thresholding)      : {n_weak} cases ({n_weak/total_valid*100:.1f}%)")
-        print(f"  3. Active Learning Triage / Reject (|Δβ0|>5 / High Var): {n_reject} cases ({n_reject/total_valid*100:.1f}%)")
+        print("[AUTOMATED DATA CLEANSING BREAKDOWN]")
+        print(f"  1. Clean High-Confidence (GKD Distillation + VAE)     : {n_clean} cases ({n_clean/total_valid*100:.1f}%)")
+        print(f"  2. Weak / Coarse (Hard Threshold Ignore Class)         : {n_weak} cases ({n_weak/total_valid*100:.1f}%)")
+        print(f"  3. Noise Reject (Auto-Excluded from Training Pool)     : {n_reject} cases ({n_reject/total_valid*100:.1f}%)")
     print("=" * 70)
     print(f"Report saved to: {args.out_csv}\n")
 

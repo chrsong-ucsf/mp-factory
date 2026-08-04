@@ -106,6 +106,14 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
+    # Validate checkpoint path BEFORE allocating GPU memory (avoids wasted CUDA alloc on missing file)
+    if not os.path.exists(args.model_path):
+        print(f"ERROR: Checkpoint not found at {args.model_path}")
+        print("Available checkpoints:")
+        for pt in glob.glob("/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_models/**/best_*.pt", recursive=True):
+            print(f"  {pt}")
+        sys.exit(1)
+
     # Load model
     print(f"Loading Swin-UNETR checkpoint from: {args.model_path}")
     model = SwinUNETR(
@@ -115,13 +123,6 @@ def main():
         use_checkpoint=True,
         spatial_dims=3,
     ).to(device)
-
-    if not os.path.exists(args.model_path):
-        print(f"ERROR: Checkpoint not found at {args.model_path}")
-        print("Available checkpoints:")
-        for pt in glob.glob("/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_models/**/best_*.pt", recursive=True):
-            print(f"  {pt}")
-        sys.exit(1)
 
     state_dict = torch.load(args.model_path, map_location=device)
     # Strip DataParallel prefix if present
@@ -164,7 +165,7 @@ def main():
             roi_size = tuple(args.roi_size)
 
             with torch.no_grad():
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast(device_type='cuda'):
                     pred_logits = sliding_window_inference(
                         inputs=img_tensor,
                         roi_size=roi_size,
@@ -177,12 +178,12 @@ def main():
             pred_label = post_pred(pred_logits[0])   # (H, W, D)
             pred_np = pred_label.cpu().numpy().astype(np.uint8)
 
-            # Load original ct.nii.gz to recover affine/header for output
-            orig_nii = nib.load(ct_path)
-
-            # The prediction is in resampled/reoriented RAS space;
-            # save in the preprocessed space (1.5x1.5x2.0 mm RAS)
-            out_nii = nib.Nifti1Image(pred_np, affine=orig_nii.affine)
+            # Save prediction in resampled space (1.5×1.5×2.0 mm RAS).
+            # Use the affine updated by Spacingd/Orientationd from the transform metadata
+            # instead of orig_nii.affine (native scanner space), which would create a
+            # silent geometry mismatch when source scans have different native resolutions.
+            resampled_affine = data_dict["image"].meta["affine"].numpy()
+            out_nii = nib.Nifti1Image(pred_np, affine=resampled_affine)
             nib.save(out_nii, out_mask_path)
 
             if args.save_probs:

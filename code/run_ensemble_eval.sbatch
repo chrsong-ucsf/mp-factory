@@ -23,7 +23,8 @@ python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluate_multi_model_ensembl
     --pred_dirs \
         "/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_predictions" \
         "/mnt/scratch/user/chrsong/mp-factory/results/mednext_predictions" \
-    --model_names Swin-UNETR MedNeXt \
+        "/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks_bdmap" \
+    --model_names Swin-UNETR MedNeXt TotalSegmentator \
     --out_dir  "/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out" \
     --out_csv  "/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary_${SLURM_ARRAY_TASK_ID}.csv" \
     --num_chunks 4 \
