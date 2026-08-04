@@ -284,7 +284,8 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                     probs = zoom(probs, zoom_factors, order=1).astype(np.float32)
                 t = torch.tensor(probs, dtype=torch.float32, device=device)
             else:
-                m_t = torch.tensor(m, dtype=torch.long, device=device)
+                m_clamped = np.where((m >= 0) & (m < 5), m, 0)
+                m_t = torch.tensor(m_clamped, dtype=torch.long, device=device)
                 t = torch.zeros((5,) + m.shape, dtype=torch.float32, device=device)
                 t.scatter_(0, m_t.unsqueeze(0), 1.0)
             one_hot_tensors.append(t)
