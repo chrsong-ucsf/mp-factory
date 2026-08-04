@@ -248,6 +248,14 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
             arr = np.asanyarray(nii.dataobj).astype(np.uint8)
             if arr.ndim == 4:
                 arr = arr[0]
+            # Remap TotalSegmentator raw class IDs (55=stomach, 56=duodenum, 57=small bowel, 58=colon;
+            # or 50=stomach, 51=duodenum, 52=small bowel, 53=colon) to standard GI organ labels (1..4)
+            if arr.max() > 4:
+                totalseg_remapped = np.zeros_like(arr, dtype=np.uint8)
+                totalseg_map = {55: 1, 56: 2, 57: 3, 58: 4, 50: 1, 51: 2, 52: 3, 53: 4}
+                for ts_id, gi_id in totalseg_map.items():
+                    totalseg_remapped[arr == ts_id] = gi_id
+                arr = totalseg_remapped
             loaded_masks.append(arr)
 
         # Ensure all model masks share the same 3D spatial shape (e.g. handle TotalSegmentator
@@ -431,7 +439,10 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
     except Exception as e:
         res['status'] = f'ERROR: {str(e)}'
 
+    del loaded_masks, resampled_masks, model_masks
     gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     return res
 
 
