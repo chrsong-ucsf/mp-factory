@@ -3,9 +3,9 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/eval_ensemble_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/eval_ensemble_%j.err
 #SBATCH --partition=cpu
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=64G
-#SBATCH --time=06:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
+#SBATCH --time=04:00:00
 
 # Load modules and activate environment
 module load CBI
@@ -30,5 +30,5 @@ python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluate_multi_model_ensembl
     --pred_dirs "$DIR_MEDNEXT" "$DIR_SWIN" "$DIR_TOTALSEG" \
     --model_names MedNeXt Swin-UNETR TotalSegmentator \
     --out_dir "$OUT_DIR" \
-    --num_workers 32 \
+    --num_workers 16 \
     --out_csv "$OUT_CSV"
