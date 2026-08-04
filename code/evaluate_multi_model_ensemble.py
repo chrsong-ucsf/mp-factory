@@ -499,6 +499,15 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
     return res
 
 
+def _eval_subject_wrapper(args_tuple):
+    """Wrapper function for multiprocessing.Pool."""
+    sub_id, mfiles, model_names, out_dir = args_tuple
+    try:
+        return evaluate_subject(sub_id, mfiles, model_names, out_dir)
+    except Exception as e:
+        return {'subject_id': sub_id, 'status': f'ERROR: {str(e)}'}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Multi-Model Ensemble Consensus & Automated Data Cleansing")
     parser.add_argument("--pred_dirs", type=str, nargs="+", required=True,
@@ -575,23 +584,22 @@ def main():
             if completed % 50 == 0 or completed == total:
                 print(f"[{completed}/{total}] GPU Progress: {completed/total*100:.1f}% complete", flush=True)
     else:
-        # CPU execution: Use ProcessPoolExecutor for multi-core parallelism
+        # CPU execution: Use multiprocessing.Pool with maxtasksperchild=20.
+        # Automatically recycles worker processes every 20 tasks to prevent C-level
+        # memory leaks (nilearn/scipy/nibabel) and RAM fragmentation, ensuring
+        # Linux OOM killer never kills a worker process.
+        import multiprocessing as mp
         tasks = [(sub_id, [subject_maps[name][sub_id] for name in model_names], model_names, args.out_dir) for sub_id in common_subjects]
-        from concurrent.futures import ProcessPoolExecutor, as_completed
-        with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
-            futures = {
-                executor.submit(evaluate_subject, sub_id, mfiles, model_names, out_dir): sub_id
-                for (sub_id, mfiles, model_names, out_dir) in tasks
-            }
+        
+        ctx = mp.get_context("spawn")
+        with ctx.Pool(processes=args.num_workers, maxtasksperchild=20) as pool:
             completed = 0
-            for future in as_completed(futures):
+            for res in pool.imap_unordered(_eval_subject_wrapper, tasks, chunksize=1):
                 completed += 1
-                sub_id = futures[future]
-                try:
-                    res = future.result()
+                if res.get('status') == 'SUCCESS':
                     results.append(res)
-                except Exception as e:
-                    print(f"  [ERROR] Subject {sub_id} failed: {e}", flush=True)
+                else:
+                    print(f"  [ERROR] Subject {res.get('subject_id')} failed: {res.get('status')}", flush=True)
                 if completed % 50 == 0 or completed == total:
                     print(f"[{completed}/{total}] CPU Progress: {completed/total*100:.1f}% complete", flush=True)
 
