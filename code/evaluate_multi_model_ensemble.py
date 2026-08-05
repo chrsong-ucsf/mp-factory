@@ -574,8 +574,14 @@ def main():
         except Exception as e:
             print(f"Warning: Could not read existing CSV for resume: {e}")
 
+    # Also check on-disk consensus NIfTI files in case CSV fell behind
+    for sub_id in common_subjects:
+        consensus_path = os.path.join(args.out_dir, f"{sub_id}_consensus.nii.gz")
+        if os.path.exists(consensus_path):
+            already_processed.add(sub_id)
+
     remaining_subjects = [sub for sub in common_subjects if sub not in already_processed]
-    print(f"Skipping {len(already_processed):,} already-audited subjects. Remaining to process: {len(remaining_subjects):,}/{len(common_subjects):,}")
+    print(f"Skipping {len(already_processed):,} already-audited subjects (from CSV + on-disk files). Remaining to process: {len(remaining_subjects):,}/{len(common_subjects):,}")
     common_subjects = remaining_subjects
 
     if args.num_chunks > 1:
