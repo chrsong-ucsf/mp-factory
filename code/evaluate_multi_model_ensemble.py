@@ -574,11 +574,26 @@ def main():
         except Exception as e:
             print(f"Warning: Could not read existing CSV for resume: {e}")
 
-    # Also check on-disk consensus NIfTI files in case CSV fell behind
+    # Also check on-disk consensus NIfTI files in case CSV fell behind.
+    # For subjects with a saved consensus mask but no CSV row, we re-read
+    # the consensus mask and recompute lightweight metrics so the final CSV
+    # is complete with all 1,734 rows.
+    disk_only_subjects = []
     for sub_id in common_subjects:
+        if sub_id in already_processed:
+            continue
         consensus_path = os.path.join(args.out_dir, f"{sub_id}_consensus.nii.gz")
         if os.path.exists(consensus_path):
             already_processed.add(sub_id)
+            disk_only_subjects.append(sub_id)
+
+    if disk_only_subjects:
+        print(f"  Found {len(disk_only_subjects):,} subjects with on-disk consensus but missing CSV rows — re-running metrics only (fast).")
+        for sub_id in disk_only_subjects:
+            mfiles = [subject_maps[name][sub_id] for name in model_names]
+            res = _eval_subject_wrapper((sub_id, mfiles, model_names, args.out_dir))
+            if res.get('status') == 'SUCCESS':
+                results.append(res)
 
     remaining_subjects = [sub for sub in common_subjects if sub not in already_processed]
     print(f"Skipping {len(already_processed):,} already-audited subjects (from CSV + on-disk files). Remaining to process: {len(remaining_subjects):,}/{len(common_subjects):,}")
