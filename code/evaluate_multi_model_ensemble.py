@@ -560,15 +560,32 @@ def main():
         print("ERROR: No common subjects found across prediction directories. Check directory contents.")
         sys.exit(1)
 
+    # --- Smart Fast Resume Logic ---
+    results = []
+    already_processed = set()
+    if os.path.exists(args.out_csv):
+        try:
+            existing_df = pd.read_csv(args.out_csv)
+            if 'subject_id' in existing_df.columns and 'status' in existing_df.columns:
+                valid_rows = existing_df[existing_df['status'] == 'SUCCESS']
+                already_processed = set(valid_rows['subject_id'].astype(str))
+                results = valid_rows.to_dict('records')
+                print(f"Loaded {len(results):,} pre-existing completed subject records from {args.out_csv}.")
+        except Exception as e:
+            print(f"Warning: Could not read existing CSV for resume: {e}")
+
+    remaining_subjects = [sub for sub in common_subjects if sub not in already_processed]
+    print(f"Skipping {len(already_processed):,} already-audited subjects. Remaining to process: {len(remaining_subjects):,}/{len(common_subjects):,}")
+    common_subjects = remaining_subjects
+
     if args.num_chunks > 1:
         chunk_subjects = [sub for i, sub in enumerate(common_subjects) if i % args.num_chunks == args.chunk_idx]
         print(f"GPU Worker [{args.chunk_idx}/{args.num_chunks}]: Processing {len(chunk_subjects)} / {len(common_subjects)} assigned scans.")
         common_subjects = chunk_subjects
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Executing Deep Ensemble Audit on Device: {device} (Total Subjects: {len(common_subjects)})", flush=True)
+    print(f"Executing Deep Ensemble Audit on Device: {device} (Remaining Subjects: {len(common_subjects)})", flush=True)
 
-    results = []
     total = len(common_subjects)
 
     if device.type == "cuda":
