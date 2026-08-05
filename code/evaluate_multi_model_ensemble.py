@@ -602,16 +602,16 @@ def main():
                     print(f"  [ERROR] Subject {res.get('subject_id')} failed: {res.get('status')}", flush=True)
                 if completed % 50 == 0 or completed == total:
                     print(f"[{completed}/{total}] CPU Progress: {completed/total*100:.1f}% complete", flush=True)
+                    if results:
+                        pd.DataFrame(results).to_csv(args.out_csv, index=False)
 
-    # Build DataFrame and save CSV — runs for both GPU and CPU paths.
-    # Previously this was inside the CPU-only else branch, causing NameError
-    # on GPU and silently producing no output file.
+    # Build final DataFrame and save final CSV
     df = pd.DataFrame(results)
     csv_dir = os.path.dirname(args.out_csv)
     if csv_dir:
         os.makedirs(csv_dir, exist_ok=True)
     df.to_csv(args.out_csv, index=False)
-    print(f"\nCSV saved: {args.out_csv} ({len(df):,} rows)", flush=True)
+    print(f"\nFinal CSV saved: {args.out_csv} ({len(df):,} rows)", flush=True)
 
     # Print Summary Report
     print("\n" + "=" * 70)

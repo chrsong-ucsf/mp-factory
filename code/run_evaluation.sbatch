@@ -5,7 +5,7 @@
 #SBATCH --partition=cpu
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --time=04:00:00
+#SBATCH --time=08:00:00
 
 # Load modules and activate environment
 module load CBI
