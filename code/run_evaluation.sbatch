@@ -16,22 +16,19 @@ mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 export PYTHONUNBUFFERED=1
 
 # Define Paths
-# IMPORTANT: MedNeXt must be listed FIRST — it defines the reference voxel grid
-# for affine-aware TotalSegmentator resampling.
 DIR_MEDNEXT="/mnt/scratch/user/chrsong/mp-factory/results/mednext_predictions"
 DIR_SWIN="/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_predictions"
-DIR_TOTALSEG="/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks_bdmap"
 
 OUT_DIR="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out"
 OUT_CSV="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv"
 
 mkdir -p "$OUT_DIR"
 
-# Run 3-model ensemble: MedNeXt + Swin-UNETR + TotalSegmentator
-# TotalSeg is affine-resampled into MedNeXt's GI-crop voxel grid using world coordinates.
+# Run 2-model ensemble: MedNeXt-B + Swin-UNETR
+# Ensembles our 2 primary trained deep models sharing identical 1.5x1.5x2.0mm RAS space.
 python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluate_multi_model_ensemble.py \
-    --pred_dirs "$DIR_MEDNEXT" "$DIR_SWIN" "$DIR_TOTALSEG" \
-    --model_names MedNeXt Swin-UNETR TotalSegmentator \
+    --pred_dirs "$DIR_MEDNEXT" "$DIR_SWIN" \
+    --model_names MedNeXt Swin-UNETR \
     --out_dir "$OUT_DIR" \
     --num_workers 16 \
     --out_csv "$OUT_CSV"
