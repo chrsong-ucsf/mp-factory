@@ -237,20 +237,48 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 continue
 
             try:
-                gt_data, _ = nrrd.read(nrrd_path)
+                gt_data, gt_header = nrrd.read(nrrd_path)
                 pred_nii = nib.load(pred_path)
                 pred_data = pred_nii.get_fdata()
 
                 # Squeeze channel/batch singleton dimensions (e.g. (1, 290, 290, 322) -> (290, 290, 322))
                 pred_data = np.squeeze(pred_data)
 
-                # CPU 3D nearest-neighbor resampling to match GT resolution if shapes differ
-                # (Always done on CPU to avoid CUDA kernel compatibility issues)
-                if gt_data.shape != pred_data.shape:
-                    print(f"  [RESAMPLING] {subject_id}: Resampling pred {pred_data.shape} -> GT {gt_data.shape} on CPU")
-                    pred_t = torch.from_numpy(pred_data.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-                    pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
-                    pred_data = pred_t.numpy().astype(np.int64)
+                # ----------------------------------------------------------------
+                # World-space resampling: resample prediction onto the GT's exact
+                # spatial grid using the NRRD affine (LPS) and the NIfTI affine.
+                # Naive array resize ignores origin and axis-direction differences
+                # (NRRD LPS vs NIfTI RAS), causing systematic axis flips.
+                # ----------------------------------------------------------------
+                try:
+                    from nibabel.processing import resample_from_to
+
+                    # Build RAS affine from GT NRRD header
+                    sd = gt_header.get('space directions')   # (3,3) in LPS voxel->mm
+                    so = gt_header.get('space origin', np.zeros(3))
+                    if sd is not None:
+                        lps_aff = np.eye(4)
+                        lps_aff[:3, :3] = np.array(sd).T
+                        lps_aff[:3,  3] = np.array(so)
+                        # LPS -> RAS: flip x and y signs
+                        lps_to_ras = np.diag([-1., -1., 1., 1.])
+                        gt_ras_aff = lps_to_ras @ lps_aff
+                    else:
+                        gt_ras_aff = np.eye(4)
+
+                    gt_nii_img  = nib.Nifti1Image(gt_data.astype(np.int16), gt_ras_aff)
+                    pred_nii_rs = resample_from_to(pred_nii, gt_nii_img, order=0)  # nearest-neighbour
+                    pred_data   = np.round(pred_nii_rs.get_fdata()).astype(np.int64)
+                    print(f"  [RESAMPLE] {subject_id}: world-space resample OK → {pred_data.shape}")
+
+                except Exception as rs_err:
+                    # Fallback to naive CPU resize if nibabel resample fails
+                    print(f"  [RESAMPLE WARN] {subject_id}: world-space resample failed ({rs_err}), using naive resize")
+                    pred_data = np.squeeze(pred_data)
+                    if gt_data.shape != pred_data.shape:
+                        pred_t = torch.from_numpy(pred_data.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+                        pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
+                        pred_data = pred_t.numpy().astype(np.int64)
 
                 # Remap prediction labels to match GT BDMAP label IDs
                 remap = MODEL_LABEL_REMAP.get(model_name, {})
