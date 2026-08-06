@@ -2,110 +2,194 @@
 
 ## 📌 Repository Overview
 
-This workspace (`/mnt/scratch/user/chrsong`) hosts **mp-factory** (Massive Processing Factory), an HPC-scale medical image processing and deep learning factory built around the **CancerVerse** and **BodyMaps** datasets. 
+This repository is **mp-factory** (Massive Processing Factory), an HPC-scale medical
+image processing and deep learning factory built around the **CancerVerse** and
+**BodyMaps/AbdomenAtlas** CT datasets. On the cluster it lives at
+`/mnt/scratch/user/chrsong/mp-factory`.
+
+The project delivers **Project 9 (GI Organ Segmentation)** of the wider research plan
+via a *fully-automated data-cleansing and weakly-supervised distillation* pipeline
+(see `ENSEMBLE_FIX_PLAN.md`). It is designed to be "under-annotation-tolerant": rather
+than manually correcting noisy masks, it mathematically filters ~22,000 scans and
+distills clean pseudo-labels into a student model.
 
 The codebase supports:
-1. **Data Ingestion & HPC Downloading**: Pipeline scripts to pull and manage large-scale 3D CT scan datasets.
-2. **Automated 3D Organ Segmentation**: Scalable TotalSegmentator inference on full-body CT volumes (`BDMAP_*` and `CV_*` cohorts).
-3. **Topological & Metric Auditing**: Parallel evaluation scripts computing Dice coefficient, 95th-percentile Hausdorff Distance (HD95), and Betti-0 connected component counts across organ masks.
-4. **Synthetic Tumor Synthesis & Model Training**: Submodule (`SyntheticTumors`) for generating synthetic liver/pancreatic tumors and training 3D vision models (UNet, Swin-UNETR, ViT).
+1. **Data Ingestion & HPC Downloading** — pull and manage large-scale 3D CT datasets from Hugging Face.
+2. **Automated 3D Organ Segmentation** — scalable TotalSegmentator inference plus trained MedNeXt-B and Swin-UNETR GI segmenters over `BDMAP_*` and `CV_*` cohorts.
+3. **Multi-Model Ensemble & Automated Cleansing** — consensus assembly, spatial uncertainty, topological/metric auditing (Dice, HD95, Betti-0, ARI, VOI, ECE), and triage into CLEAN / WEAK / REJECT buckets.
+4. **Teacher–Student Distillation (Phase 2)** — train MedNeXt-B on consensus pseudo-ground-truth with an `ignore_index` for conflicting boundary pixels.
+5. **Expert Validation** — GPU-accelerated evaluation against JHU radiologist-corrected ground-truth masks.
+6. **Synthetic Tumor Synthesis** — `SyntheticTumors` submodule for procedural liver/pancreatic tumor generation and 3D model training.
+
+The 5 GI organ classes throughout are: `0` background, `1` stomach, `2` duodenum,
+`3` small bowel / intestine, `4` colon.
 
 ---
 
 ## 📂 Codebase Directory Layout
 
 ```
-/mnt/scratch/user/chrsong/
-├── AGENTS.md                          # Repository guide for AI agents & developers
-├── CancerVerse/                       # Local Hugging Face download target directory
-├── CancerVerse_data/                  # Primary CT scan dataset (BDMAP_XXXX/ct.nii.gz)
-├── envs/                              # Virtual environment store
-│   └── mp-factory/                    # Dedicated Python 3.11 / PyTorch / MONAI environment
-├── mp-factory/                        # Core factory project directory
-│   ├── AGENTS.md                      # Copy of project reference guide
-│   ├── CancerVerse/                   # Dataset repository, metadata CSV, and Hugging Face specs
-│   │   ├── CancerVerse_dataset_metadata.csv
-│   │   ├── README.md
-│   │   └── download_cancerverse.sh
-│   ├── code/                          # Core scripts, SLURM batch configs, and SynTumor module
-│   │   ├── SyntheticTumors/           # Synthetic tumor generator & model trainer (CVPR 2023)
-│   │   ├── download.sbatch            # Hugging Face download job script
-│   │   ├── evaluate_gi_masks.py       # Quality & topological metric evaluation
-│   │   ├── run_evaluation.sbatch      # SLURM trigger for evaluation
-│   │   ├── run_totalseg.py            # TotalSegmentator runner for CV_* scans
-│   │   ├── run_totalseg.sbatch        # SLURM script for run_totalseg.py
-│   │   ├── run_totalseg_bdmap.py      # Chunked TotalSegmentator runner for BDMAP_* scans
-│   │   ├── run_totalseg_bdmap.sbatch  # SLURM job array script for BDMAP segmentation
-│   │   ├── run_totalseg_gi_array.py   # Array job worker for GI organ segmentation
-│   │   ├── run_totalseg_gi_array.sbatch # SLURM job array for GI mask generation
-│   │   ├── smoke_test.sbatch          # Environment & GPU verification script
-│   │   └── submit_audit.sh            # Launcher script for audit pipeline
-│   ├── logs/                          # SLURM standard output & error logs (*.out, *.err)
-│   └── results/                       # Output masks and CSV summary reports
-│       ├── audit_summary.csv          # Evaluation output from evaluate_gi_masks.py
-│       ├── totalseg_gi_masks/         # Output GI masks (CV_* cohort)
-│       ├── totalseg_gi_masks_bdmap/   # Output GI masks (BDMAP_* cohort)
-│       └── totalseg_masks/            # Output multi-label total organ masks
-└── run_totalsegmentator_batch.py      # Root-level standalone batch runner for BDMAP scans
+mp-factory/
+├── AGENTS.md                       # This guide
+├── README.md                       # User-facing overview
+├── ENSEMBLE_FIX_PLAN.md            # Automated-cleansing & distillation design doc
+├── requirements.txt / setup.py     # Python packaging (environment.yml for conda)
+├── CancerVerse/                    # Dataset repo, metadata CSV, HF download specs (data gitignored)
+├── JHU_data_radiologist_corrected/ # Expert radiologist GT (*.seg.nrrd) + clinical feedback notes
+├── code/
+│   ├── active_learning/            # loop.py: UncertaintyEstimator, ActiveLearningPool, Orchestrator
+│   ├── data_download/              # download.sbatch (Hugging Face pull)
+│   ├── evaluation/                 # Auditing, ensemble cleansing, and verification
+│   │   ├── evaluate_gi_masks.py            # GT-vs-TotalSeg GI audit (Dice/HD95/Betti-0)
+│   │   ├── evaluate_multi_model_ensemble.py# Consensus + uncertainty + triage cleansing (669 LOC)
+│   │   ├── evaluate_jhu_radiologist_gpu.py # GPU eval vs JHU radiologist GT (.nrrd)
+│   │   ├── evaluate_jhu_radiologist_set.py # CPU eval + phase-propagation rules
+│   │   ├── verify_predictions.py           # Sanity-check prediction label content
+│   │   ├── verify_pipeline_run.py          # Confirm pipeline output deliverables
+│   │   └── watch_pipeline.py               # Live SLURM progress monitor
+│   ├── prediction/                 # Batch inference
+│   │   ├── predict_mednext.py              # MedNeXt checkpoint → 5-class GI masks
+│   │   ├── predict_swin_unetr.py           # Swin-UNETR checkpoint → 5-class GI masks
+│   │   └── run_totalsegmentator_batch.py   # Standalone TotalSegmentator batch runner
+│   ├── slurm_scripts/              # All *.sbatch job configs + TotalSeg array runners
+│   │   ├── run_totalseg*.py/.sbatch        # TotalSegmentator CV/BDMAP/GI array jobs
+│   │   ├── run_mednext{,_phase2}.sbatch    # MedNeXt training (4-fold arrays)
+│   │   ├── run_swin_unetr.sbatch           # Swin-UNETR training
+│   │   ├── run_predict_{mednext,swin_unetr}.sbatch
+│   │   ├── run_evaluation.sbatch / run_ensemble_eval.sbatch
+│   │   ├── run_compare_models.sbatch / run_jhu_radiologist_eval_gpu.sbatch
+│   │   ├── submit_audit_phase1.sbatch / smoke_test.sbatch
+│   ├── training/                   # Model training
+│   │   ├── train_mednext.py                # Phase 1 MedNeXt-B (real/coarse labels)
+│   │   ├── train_mednext_phase2.py         # Phase 2 student on consensus pseudo-GT (ignore_index=255)
+│   │   └── train_swin_unetr.py             # Swin-UNETR GI segmenter
+│   ├── utilities/                  # Analysis, comparison, and tests
+│   │   ├── audit_phase1_gi.py / analyze_audit_results.py
+│   │   ├── compare_models.py               # MedNeXt vs Swin-UNETR per-organ Dice
+│   │   ├── merge_ensemble_chunks.py        # Merge sharded ensemble CSVs
+│   │   ├── run_active_learning.py          # Radiologist query-queue builder
+│   │   ├── submit_audit.sh                 # Legacy audit launcher
+│   │   └── test_active_learning.py / test_ensemble_evaluation.py
+│   └── SyntheticTumors/            # Procedural tumor generator & trainer (CVPR 2023, gitignored submodule)
+├── graphify-out/                   # Knowledge-graph artifacts (GRAPH_REPORT.md, graph.json/html)
+├── logs/                           # SLURM *.out / *.err (gitignored)
+└── results/                        # Masks, consensus, and CSV summaries (gitignored)
 ```
+
+> **Note on paths:** `logs/`, `results/`, `CancerVerse/` data, `*.nii.gz`, `envs/`,
+> and `SyntheticTumors/` are gitignored (see `.gitignore`). Only code and docs are tracked.
 
 ---
 
 ## 🛠️ Key Scripts & Execution Pipelines
 
+The end-to-end flow is: **download → segment → ensemble-cleanse → distill → validate.**
+
 ### 1. Data Ingestion & Management
-- **`mp-factory/code/download.sbatch`**: SLURM batch job for downloading the `BodyMaps/CancerVerse` dataset via Hugging Face Hub (`hf download`).
-- **`mp-factory/CancerVerse/download_cancerverse.sh`**: Shell utility for dataset retrieval.
+- **`code/data_download/download.sbatch`** — SLURM job that downloads `BodyMaps/CancerVerse` via `hf download`.
+- **`CancerVerse/download_cancerverse.sh`** — shell utility for dataset retrieval.
 
-### 2. Automated 3D Segmentation Workflows
-- **`run_totalsegmentator_batch.py`**:
-  - *Location*: Root directory (`/mnt/scratch/user/chrsong/run_totalsegmentator_batch.py`)
-  - *Purpose*: Standalone CLI script that scans all `BDMAP_*` directories under `CancerVerse_data/`, checks for existing segmentations, and runs `TotalSegmentator`. Supports `--fast` and `--task` flags.
-- **`mp-factory/code/run_totalseg.py`**:
-  - *Purpose*: Batch runner executing multi-label TotalSegmentator predictions (`--ml`) on `CV_*` scans under `mp-factory/CancerVerse/CancerVerse`.
-- **`mp-factory/code/run_totalseg_bdmap.py`**:
-  - *Purpose*: Chunk-based processor for parallel segmentation of `BDMAP_*` cases in `CancerVerse_data/`.
-- **`mp-factory/code/run_totalseg_gi_array.py`**:
-  - *Purpose*: Distributed SLURM array job worker targeting GI organs. Features automated GPU memory management (`torch.cuda.empty_cache()` and `gc.collect()` after each scan).
+### 2. Automated 3D Segmentation
+- **`code/prediction/run_totalsegmentator_batch.py`** — standalone runner scanning `BDMAP_*` dirs; supports `--fast` and `--task`.
+- **`code/slurm_scripts/run_totalseg.py`** — multi-label (`--ml`) TotalSegmentator on `CV_*` scans.
+- **`code/slurm_scripts/run_totalseg_bdmap.py`** — chunked parallel segmentation of `BDMAP_*` cases.
+- **`code/slurm_scripts/run_totalseg_gi_array.py`** — SLURM array worker for GI organs with per-scan `torch.cuda.empty_cache()` + `gc.collect()`.
+- **`code/prediction/predict_mednext.py` / `predict_swin_unetr.py`** — sliding-window inference (96³ ROI) from trained checkpoints; shard across a 4-worker SLURM array via `--array_id/--total_workers`.
 
-### 3. Quantitative Evaluation & Quality Audit
-- **`mp-factory/code/evaluate_gi_masks.py`**:
-  - *Purpose*: Multi-processed quantitative audit comparing ground-truth GI masks (`CancerVerse_data/new_database_masks`) against generated TotalSegmentator masks.
-  - *Organs Audited*: Stomach (1), Duodenum (2), Small Bowel (3), Colon (4).
-  - *Metrics Computed*:
-    - **Dice Similarity Coefficient (DSC)**
-    - **95th Percentile Hausdorff Distance (HD95)**
-    - **Betti-0 Connected Component Count** (`skimage.measure.label`)
-  - *Output*: `mp-factory/results/audit_summary.csv`
-- **`mp-factory/code/submit_audit.sh`**:
-  - *Purpose*: SLURM CPU job script allocating 32 CPU cores and 64GB RAM to execute `evaluate_gi_masks.py`.
+### 3. Multi-Model Ensemble & Automated Data Cleansing
+- **`code/evaluation/evaluate_multi_model_ensemble.py`** (core engine, 669 LOC):
+  - Loads masks/softmax maps from N models (TotalSeg, MedNeXt, Swin-UNETR, optional DeepGI).
+  - Diversity-promoting weighting via a pairwise inter-model Dice matrix.
+  - Voxel-wise spatial predictive uncertainty (entropy/variance) heatmaps.
+  - Assembles a weighted consensus pseudo-GT mask `<subject_id>_consensus.nii.gz`.
+  - Metrics: Dice, IoU, HD95, Betti-0 diff (|Δβ0|), ARI, VOI, ECE.
+  - **Triage (calibrated for 3D GI):**
+    - `NOISE_REJECT` — consensus Dice < 0.65 **or** inter-model Dice < 0.50 **or** uncertainty > 0.15 → discard from training pool.
+    - `CLEAN_HIGH_CONFIDENCE` — consensus Dice ≥ 0.75 **and** inter-model Dice ≥ 0.65 → auto-approve for GKD/VAE.
+    - `WEAK_COARSE` — otherwise → hard-threshold conflicting pixels to the ignore class.
+  - Supports `--num_chunks/--chunk_idx` sharding; merge with `merge_ensemble_chunks.py`.
+- **`code/utilities/audit_phase1_gi.py` + `analyze_audit_results.py`** — Phase-1 GT-vs-consensus audit and report.
+- **`code/evaluation/evaluate_gi_masks.py`** — multi-processed GT-vs-TotalSeg GI audit → `results/audit_summary.csv`.
 
-### 4. Synthetic Tumor Submodule (`mp-factory/code/SyntheticTumors/`)
-- **`main.py`**: CLI entry point for training 3D segmentation backbones (UNet, Swin-UNETR v1/v2, ViT) on synthetic tumor datasets (`--syn`) vs real tumor datasets.
-- **`validation.py`**: Script for model evaluation across validation folds.
-- **`TumorGenerated/`**: Core algorithms for procedural 3D tumor generation and texture synthesis (`TumorGenerated.py`, `utils.py`).
-- **`networks/` & `networks2/`**: Architectures including `swin3d_unetr.py`, `swin3d_unetrv2.py`, `unetr.py`, `basicunetplusplus.py`, `vit.py`.
-- **`datafolds/`**: JSON configuration files defining dataset splits (`healthy.json`, `lits.json`, `mix_*.json`, `real_*.json`).
+### 4. Model Training (Phase 1 & Phase 2 Distillation)
+- **`code/training/train_mednext.py`** — Phase-1 MedNeXt-B (variants S/B/M/L, kernel 3 or 5), MONAI `DiceCELoss`, 4-fold arrays. Default data: `CancerVerse_dbox`.
+- **`code/training/train_swin_unetr.py`** — Swin-UNETR GI segmenter (same data pipeline / folds).
+- **`code/training/train_mednext_phase2.py`** — Phase-2 student trained on ensemble consensus pseudo-GT selected from `ensemble_audit_summary.csv` (CLEAN_HIGH_CONFIDENCE, optionally WEAK_COARSE); `DiceCE` with `ignore_index=255`, cosine-annealing LR, optional Phase-1 checkpoint finetuning.
+
+### 5. Comparison & Expert Validation
+- **`code/utilities/compare_models.py`** — per-organ + mean Dice, MedNeXt vs Swin-UNETR, on held-out GT subjects → `results/model_comparison.csv`.
+- **`code/evaluation/evaluate_jhu_radiologist_gpu.py`** — full CUDA metrics (Dice/IoU/precision/sensitivity/specificity, HD95, |Δβ0|) for MedNeXt, Swin-UNETR, TotalSeg, and EnsembleConsensus vs JHU radiologist GT (`.seg.nrrd`), applying multi-phase mask-propagation rules from `radiologist_clinical_feedback.md`.
+- **`code/evaluation/evaluate_jhu_radiologist_set.py`** — CPU counterpart with the same propagation matrix (e.g. `113→113/115/116`, `131→131/132/133`, `136→135/136`).
+
+### 6. Monitoring & Active Learning
+- **`code/evaluation/watch_pipeline.py` / `verify_pipeline_run.py`** — live progress and deliverable verification (target 1,735 scans).
+- **`code/active_learning/loop.py`** — `UncertaintyEstimator`, `ActiveLearningPool`, `ActiveLearningOrchestrator` (retained as an optional human-in-the-loop path; the primary pipeline is now fully automated).
+- **`code/utilities/run_active_learning.py`** — builds a radiologist query queue JSON from the audit CSV.
+
+### 7. Synthetic Tumor Submodule (`code/SyntheticTumors/`)
+- **`main.py`** — trains 3D backbones (UNet, Swin-UNETR v1/v2, ViT) on synthetic (`--syn`) vs real tumors.
+- **`TumorGenerated/`** — procedural 3D tumor generation and texture synthesis.
+- **`datafolds/`** — dataset-split JSON configs.
 
 ---
 
 ## ⚙️ Configuration & Environment Setup
 
-### Environment Modules & Path
-The project runs within a managed Conda environment on the HPC cluster:
-- **Environment Location**: `/mnt/scratch/user/chrsong/envs/mp-factory`
-- **Activation Command**:
-  ```bash
-  module load CBI
-  module load miniforge3/26.3.2-3
-  eval "$(mamba shell hook --shell bash)"
-  mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
-  ```
+### Environment Activation (HPC)
+```bash
+module load CBI
+module load miniforge3/26.3.2-3
+eval "$(mamba shell hook --shell bash)"
+mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
+```
+Python 3.11 with PyTorch, MONAI, TotalSegmentator, nnU-Net MedNeXt (`nnunet_mednext`),
+`nibabel`, `pynrrd`, `scikit-image`, `scikit-learn`. See `requirements.txt`.
 
-### Data & Output Locations
-- **Input CT Scans**:
-  - BDMAP Cohort: `/mnt/scratch/user/chrsong/CancerVerse_data/BDMAP_XXXX/ct.nii.gz`
-  - CV Cohort: `/mnt/scratch/user/chrsong/mp-factory/CancerVerse/CancerVerse/CV_XXXX/ct.nii.gz`
-- **Output Directories**:
-  - Masks: `/mnt/scratch/user/chrsong/mp-factory/results/`
-  - Logs: `/mnt/scratch/user/chrsong/mp-factory/logs/`
+### Data & Output Locations (cluster)
+- **Input CT scans:**
+  - Training/inference default: `/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox/<subject>/ct.nii.gz`
+  - BDMAP cohort: `/mnt/scratch/user/chrsong/CancerVerse_data/BDMAP_XXXX/ct.nii.gz`
+  - CV cohort: `/mnt/scratch/user/chrsong/mp-factory/CancerVerse/CancerVerse/CV_XXXX/ct.nii.gz`
+- **Outputs:** `results/` (mednext_predictions, swin_unetr_predictions, totalseg_gi_masks*, ensemble_out, `*_consensus.nii.gz`, audit CSVs); logs in `logs/`.
+
+---
+
+## 🔁 Typical End-to-End Run
+
+```bash
+# 1. Download data
+sbatch code/data_download/download.sbatch
+
+# 2. Baseline segmentation (TotalSegmentator, BDMAP array)
+sbatch code/slurm_scripts/run_totalseg_bdmap.sbatch
+
+# 3. Train deep models (4-fold arrays)
+sbatch code/slurm_scripts/run_mednext.sbatch
+sbatch code/slurm_scripts/run_swin_unetr.sbatch
+
+# 4. Batch inference
+sbatch code/slurm_scripts/run_predict_mednext.sbatch
+sbatch code/slurm_scripts/run_predict_swin_unetr.sbatch
+
+# 5. Ensemble consensus + automated cleansing
+sbatch code/slurm_scripts/run_evaluation.sbatch      # or run_ensemble_eval.sbatch (GPU)
+python code/utilities/merge_ensemble_chunks.py \
+  --pattern "results/ensemble_audit_summary_*.csv" \
+  --out_csv "results/ensemble_audit_summary.csv"
+
+# 6. Phase-2 distillation on consensus pseudo-GT
+sbatch code/slurm_scripts/run_mednext_phase2.sbatch
+
+# 7. Validate vs expert radiologist GT
+sbatch code/slurm_scripts/run_jhu_radiologist_eval_gpu.sbatch
+```
+
+---
+
+## 📝 Conventions for Agents
+
+- **Git:** this directory is the git root (`origin: chrsong-ucsf/mp-factory`). Commit code/doc changes; never commit data, `results/`, `logs/`, or `*.nii.gz` (already gitignored).
+- **Paths:** scripts hardcode cluster paths under `/mnt/scratch/user/chrsong/mp-factory`; when editing locally, keep those defaults unless the task says otherwise.
+- **SLURM ↔ script coupling:** `slurm_scripts/*.sbatch` reference scripts by absolute path. Some `.sbatch` files still point at the old flat `code/<script>.py` location after the subdirectory reorg — verify the `python -u ...` target path when running or editing a job.
+- **Organ label map is fixed** (`0..4` above); keep it consistent across training, prediction, and evaluation.
+- **Knowledge graph:** `graphify-out/GRAPH_REPORT.md` is a generated map of modules/relationships; regenerate rather than hand-edit.
