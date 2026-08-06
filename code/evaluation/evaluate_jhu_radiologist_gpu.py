@@ -279,7 +279,14 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                         gt_ras_aff = np.eye(4)
 
                     gt_nii_img  = nib.Nifti1Image(gt_data.astype(np.int16), gt_ras_aff)
-                    pred_nii_clean = nib.Nifti1Image(pred_data.astype(np.int16), pred_nii.affine[:4, :4])
+
+                    # If prediction has a dummy/reset affine (e.g. origin at 0,0,0), copy GT RAS affine
+                    pred_aff = pred_nii.affine[:4, :4].copy()
+                    if np.allclose(pred_aff[:3, 3], 0):
+                        print(f"  [AFFINE FIX] {subject_id} {model_name}: replacing dummy origin (0,0,0) with GT origin")
+                        pred_aff = gt_ras_aff.copy()
+
+                    pred_nii_clean = nib.Nifti1Image(pred_data.astype(np.int16), pred_aff)
                     pred_nii_rs = resample_from_to(pred_nii_clean, gt_nii_img, order=0)  # nearest-neighbour
                     pred_data   = np.round(pred_nii_rs.get_fdata()).astype(np.int64)
                     print(f"  [RESAMPLE] {subject_id}: world-space resample OK → {pred_data.shape}")

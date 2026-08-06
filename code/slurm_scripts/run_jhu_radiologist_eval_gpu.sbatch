@@ -5,7 +5,7 @@
 #SBATCH --partition=cpu
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
-#SBATCH --time=00:30:00
+#SBATCH --time=01:00:00
 
 
 # -----------------------------------------------------------------------------
