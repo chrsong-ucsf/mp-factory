@@ -300,26 +300,6 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                             print(f"  [ORIENT ALIGN] Applied XY axis flip (0,1) for {model_name} (overlap {overlap_orig} -> {overlap_xy})")
 
 
-                # Remap prediction labels to match GT BDMAP label IDs
-                remap = MODEL_LABEL_REMAP.get(model_name, {})
-                if remap:
-                    remapped = np.zeros_like(pred_data, dtype=np.int64)
-                    for pred_label, gt_label in remap.items():
-                        mask = (pred_data == pred_label)
-                        if isinstance(gt_label, list):
-                            # small_bowel (pred) maps to both jejunum (4) and ileum (5) in GT
-                            for gl in gt_label:
-                                remapped[mask] = gl  # last write wins; they're evaluated separately
-                            # Split evenly by z-slice: top half -> jejunum, bottom half -> ileum
-                            z_mid = pred_data.shape[2] // 2
-                            mask_top = np.zeros_like(mask); mask_top[:, :, :z_mid] = mask[:, :, :z_mid]
-                            mask_bot = np.zeros_like(mask); mask_bot[:, :, z_mid:] = mask[:, :, z_mid:]
-                            remapped[mask_top] = gt_label[0]  # jejunum = superior
-                            remapped[mask_bot] = gt_label[1]  # ileum = inferior
-                        else:
-                            remapped[mask] = gt_label
-                    pred_data = remapped
-                    print(f"  [REMAP] Applied {model_name} label remapping")
 
                 # Load into PyTorch CUDA Tensor
                 gt_tensor = torch.from_numpy(gt_data.astype(np.int64)).to(device)
