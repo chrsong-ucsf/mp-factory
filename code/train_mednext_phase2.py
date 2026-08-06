@@ -55,10 +55,22 @@ IGNORE_INDEX = 255  # WEAK_COARSE boundary pixels are ignored in loss
 # Dataset Discovery
 # ---------------------------------------------------------------------------
 
-def discover_phase2_dataset(data_dir, audit_csv, ensemble_out_dir, use_weak=False):
+def discover_phase2_dataset(data_dir, audit_csv, ensemble_out_dir, use_weak=False, gold_standard_dir=None):
     """Build image/label pairs using ensemble consensus masks as labels."""
     if not os.path.exists(audit_csv):
         raise FileNotFoundError(f"Audit CSV not found: {audit_csv}")
+
+    # Pre-compute set of gold standard subject IDs for efficient lookup
+    gold_standard_ids = set()
+    if gold_standard_dir and os.path.exists(gold_standard_dir):
+        import glob
+        gs_files = glob.glob(os.path.join(gold_standard_dir, "*.nii.gz"))
+        for gs_file in gs_files:
+            # Extract subject ID from filename (assuming format like SUBJECT_ID.nii.gz or similar)
+            filename = os.path.basename(gs_file)
+            # Remove .nii.gz extension to get potential subject ID
+            subject_id = filename.replace('.nii.gz', '')
+            gold_standard_ids.add(subject_id)
 
     df = pd.read_csv(audit_csv)
     df = df[df['status'] == 'SUCCESS']
@@ -91,15 +103,22 @@ def discover_phase2_dataset(data_dir, audit_csv, ensemble_out_dir, use_weak=Fals
             missing_consensus += 1
             continue
 
+        # Check if this is a gold standard sample
+        is_gold_standard = sub_id in gold_standard_ids
+
         data_pairs.append({
-            "image":      ct_path,
-            "label":      consensus_path,
-            "category":   category,
-            "subject_id": sub_id,
+            "image":           ct_path,
+            "label":           consensus_path,
+            "category":        category,
+            "subject_id":      sub_id,
+            "is_gold_standard": is_gold_standard
         })
 
     print(f"  Missing CT: {missing_ct} | Missing Consensus: {missing_consensus}")
     print(f"  Final usable pairs: {len(data_pairs):,}")
+    if gold_standard_dir:
+        gs_count = sum(1 for pair in data_pairs if pair.get("is_gold_standard", False))
+        print(f"  Gold standard samples: {gs_count}")
     return data_pairs
 
 
@@ -210,6 +229,8 @@ def main():
                         help="Include WEAK_COARSE cases with ignore_index=255 boundary masking")
     parser.add_argument("--pretrained_ckpt",  type=str,  default=None,
                         help="Path to Phase 1 pretrained checkpoint to finetune from")
+    parser.add_argument("--gold_standard_dir", type=str, default=None,
+                        help="Directory containing gold standard manual annotations for 10x loss weighting")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -222,6 +243,7 @@ def main():
         audit_csv        = args.audit_csv,
         ensemble_out_dir = args.ensemble_out_dir,
         use_weak         = args.use_weak,
+        gold_standard_dir = args.gold_standard_dir,
     )
     if not data_pairs:
         print("ERROR: No usable data pairs found.")
@@ -302,11 +324,23 @@ def main():
             step += 1
             inputs = batch_data["image"].to(device)
             labels = batch_data["label"].to(device)
+            is_gold_standard = batch_data.get("is_gold_standard", False)
+            # Handle case where is_gold_standard might be a tensor or batch
+            if isinstance(is_gold_standard, torch.Tensor):
+                # If it's a batch, we need to check if any sample in the batch is gold standard
+                # For simplicity, we'll apply weighting if any sample in the batch is gold standard
+                is_gold_any = is_gold_standard.any().item()
+            else:
+                is_gold_any = bool(is_gold_standard)
 
             optimizer.zero_grad()
             with torch.amp.autocast(device_type='cuda'):
                 outputs = model(inputs)
                 loss    = loss_fn(outputs, labels)
+
+            # Apply 10x weight for gold standard samples
+            if is_gold_any:
+                loss = loss * 10.0
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)

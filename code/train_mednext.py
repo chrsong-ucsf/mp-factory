@@ -52,28 +52,49 @@ ORGAN_ALIASES = {
     4: ['colon']
 }
 
-def discover_dataset(data_dir):
+def discover_dataset(data_dir, gold_standard_dir=None):
     """Find scans and assemble image/label pairs from CancerVerse subfolder structure strictly using ct.nii.gz as input."""
     data_pairs = []
-    
+
+    # Pre-compute set of gold standard subject IDs for efficient lookup
+    gold_standard_ids = set()
+    if gold_standard_dir and os.path.exists(gold_standard_dir):
+        gs_files = glob.glob(os.path.join(gold_standard_dir, "*.nii.gz"))
+        for gs_file in gs_files:
+            # Extract subject ID from filename (assuming format like SUBJECT_ID.nii.gz or similar)
+            filename = os.path.basename(gs_file)
+            # Remove .nii.gz extension to get potential subject ID
+            subject_id = filename.replace('.nii.gz', '')
+            gold_standard_ids.add(subject_id)
+
     # Subfolder per subject with ct.nii.gz as the input image
     subfolders = [os.path.join(data_dir, d) for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
-    
+
     for sub in sorted(subfolders):
         ct_file = os.path.join(sub, "ct.nii.gz")
-        
+
         # STRICT REQUIREMENT: Input image must be ct.nii.gz
         if not os.path.exists(ct_file):
             continue
-            
+
+        # Extract subject ID from the folder path
+        subject_id = os.path.basename(sub)
+
+        # Check if this is a gold standard sample
+        is_gold_standard = subject_id in gold_standard_ids
+
         # Check for multi-label mask or individual organ segmentations
         seg_dir = os.path.join(sub, "segmentations")
         search_dir = seg_dir if os.path.exists(seg_dir) else sub
-        
+
         # Check if single multi-organ mask exists
         combined_mask = os.path.join(sub, "gi_mask.nii.gz")
         if os.path.exists(combined_mask):
-            data_pairs.append({"image": ct_file, "label": combined_mask})
+            data_pairs.append({
+                "image": ct_file,
+                "label": combined_mask,
+                "is_gold_standard": is_gold_standard
+            })
         else:
             # Check if individual organ files exist using aliases
             has_organs = False
@@ -82,7 +103,11 @@ def discover_dataset(data_dir):
                     has_organs = True
                     break
             if has_organs:
-                data_pairs.append({"image": ct_file, "label_dir": search_dir})
+                data_pairs.append({
+                    "image": ct_file,
+                    "label_dir": search_dir,
+                    "is_gold_standard": is_gold_standard
+                })
 
     return data_pairs
 
@@ -125,9 +150,15 @@ class GIDataset(Dataset):
                 nib.save(lbl_nii, temp_lbl_path)
             data_dict = {"image": img_path, "label": temp_lbl_path}
 
+        # Add the gold standard flag to the data dict
+        if "is_gold_standard" in item:
+            data_dict["is_gold_standard"] = item["is_gold_standard"]
+        else:
+            data_dict["is_gold_standard"] = False
+
         if self.transform:
             data_dict = self.transform(data_dict)
-            
+
         return data_dict
 
 def get_transforms(roi_size=(96, 96, 96)):
@@ -180,6 +211,8 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--val_interval", type=int, default=5)
     parser.add_argument("--max_val_samples", type=int, default=50, help="Maximum number of validation scans to evaluate per check for fast validation")
+    parser.add_argument("--gold_standard_dir", type=str, default=None,
+                        help="Directory containing gold standard manual annotations for 10x loss weighting")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -188,7 +221,7 @@ def main():
     print(f"Using compute device: {device} | Total GPU Cores Detected: {num_gpus}")
 
     # Discover Dataset
-    data_pairs = discover_dataset(args.data_dir)
+    data_pairs = discover_dataset(args.data_dir, args.gold_standard_dir)
     print(f"Discovered {len(data_pairs)} scanning pairs for training/validation.")
 
     if len(data_pairs) == 0:
@@ -271,11 +304,25 @@ def main():
         for batch_data in train_loader:
             step += 1
             inputs, labels = batch_data["image"].to(device), batch_data["label"].to(device)
+            is_gold_standard = batch_data.get("is_gold_standard", False)
+            # Handle case where is_gold_standard might be a tensor or batch
+            if isinstance(is_gold_standard, torch.Tensor):
+                # If it's a batch, we need to check if any sample in the batch is gold standard
+                # For simplicity, we'll apply weighting if any sample in the batch is gold standard
+                # In practice, you might want to weight each sample individually
+                is_gold_any = is_gold_standard.any().item()
+            else:
+                is_gold_any = bool(is_gold_standard)
+
             optimizer.zero_grad()
 
             with torch.cuda.amp.autocast():
                 outputs = model(inputs)
                 loss = loss_function(outputs, labels)
+
+            # Apply 10x weight for gold standard samples
+            if is_gold_any:
+                loss = loss * 10.0
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)

@@ -3,6 +3,7 @@ import glob
 import numpy as np
 import pandas as pd
 import nibabel as nib
+import argparse
 from multiprocessing import Pool, cpu_count
 from scipy.spatial.distance import directed_hausdorff
 from skimage.measure import label, euler_number
@@ -99,27 +100,110 @@ def evaluate_single_subject(args):
     return results
 
 def main():
-    gt_dir = "/mnt/scratch/user/chrsong/CancerVerse_data/new_database_masks"
-    totalseg_dir = "/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks_bdmap"
-    output_csv = "/mnt/scratch/user/chrsong/mp-factory/results/audit_summary.csv"
-    
-    gt_files = sorted(glob.glob(os.path.join(gt_dir, "*.nii.gz")))
+    parser = argparse.ArgumentParser(description="Evaluate segmentation masks against ground truth")
+    parser.add_argument("--gt_dir", type=str,
+                        default="/mnt/scratch/user/chrsong/CancerVerse_data/new_database_masks",
+                        help="Directory containing ground truth masks")
+    parser.add_argument("--pred_dir", type=str,
+                        default="/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks_bdmap",
+                        help="Directory containing predicted masks")
+    parser.add_argument("--output_csv", type=str,
+                        default="/mnt/scratch/user/chrsong/mp-factory/results/audit_summary.csv",
+                        help="Output CSV file for evaluation results")
+    parser.add_argument("--gold_standard_dir", type=str, default=None,
+                        help="Directory containing gold standard manual annotations for True-Dice evaluation")
+
+    args = parser.parse_args()
+
+    gt_files = sorted(glob.glob(os.path.join(args.gt_dir, "*.nii.gz")))
     pair_list = []
-    
+
     for gt_f in gt_files:
         filename = os.path.basename(gt_f)
-        pred_f = os.path.join(totalseg_dir, filename)
+        pred_f = os.path.join(args.pred_dir, filename)
         pair_list.append((gt_f, pred_f))
-        
+
     print(f"Starting audit evaluation for {len(pair_list)} scan pairs...")
-    
+
     num_workers = min(cpu_count(), 32)
     with Pool(num_workers) as pool:
         eval_results = pool.map(evaluate_single_subject, pair_list)
-        
+
     df = pd.DataFrame(eval_results)
-    df.to_csv(output_csv, index=False)
-    print(f"Audit completed! Summary report saved to {output_csv}")
+    df.to_csv(args.output_csv, index=False)
+    print(f"Audit completed! Summary report saved to {args.output_csv}")
+
+    # If gold standard directory is provided, evaluate against those manual annotations
+    if args.gold_standard_dir:
+        print(f"\n=== Evaluating against Gold Standard Manual Annotations ===")
+        print(f"Gold standard directory: {args.gold_standard_dir}")
+
+        # Build pairs for gold standard evaluation
+        gs_pair_list = []
+        for gt_f in gt_files:  # Use same ground truth files (CT scans)
+            filename = os.path.basename(gt_f)
+            gs_f = os.path.join(args.gold_standard_dir, filename)
+            if os.path.exists(gs_f):  # Only include if gold standard exists
+                gs_pair_list.append((gt_f, gs_f))
+            else:
+                print(f"Warning: Gold standard not found for {filename}")
+
+        if gs_pair_list:
+            print(f"Evaluating {len(gs_pair_list)} gold standard cases...")
+            with Pool(num_workers) as pool:
+                gs_results = pool.map(evaluate_single_subject, gs_pair_list)
+
+            gs_df = pd.DataFrame(gs_results)
+            gs_output_csv = args.output_csv.replace('.csv', '_gold_standard.csv')
+            gs_df.to_csv(gs_output_csv, index=False)
+            print(f"Gold standard evaluation completed! Results saved to {gs_output_csv}")
+
+            # Calculate and print summary statistics
+            success_mask = gs_df['status'] == 'SUCCESS'
+            if success_mask.any():
+                success_df = gs_df[success_mask]
+                print(f"\n=== Gold Standard Evaluation Summary (True-Dice Metrics) ===")
+                print(f"Successfully evaluated: {len(success_df)}/{len(gs_pair_list)} cases")
+
+                # Calculate mean Dice scores for each organ
+                for organ_name in ORGAN_MAP.values():
+                    dice_col = f'{organ_name}_dice'
+                    if dice_col in success_df.columns:
+                        mean_dice = success_df[dice_col].mean()
+                        std_dice = success_df[dice_col].std()
+                        print(f"{organ_name.capitalize()} Dice: {mean_dice:.4f} ± {std_dice:.4f}")
+
+                # Overall metrics
+                if 'overall_ari' in success_df.columns:
+                    mean_ari = success_df['overall_ari'].mean()
+                    std_ari = success_df['overall_ari'].std()
+                    print(f"Adjusted Rand Index: {mean_ari:.4f} ± {std_ari:.4f}")
+
+                if 'overall_voi' in success_df.columns:
+                    mean_voi = success_df['overall_voi'].mean()
+                    std_voi = success_df['overall_voi'].std()
+                    print(f"Variation of Information: {mean_voi:.4f} ± {std_voi:.4f}")
+
+                # HD95 metrics
+                for organ_name in ORGAN_MAP.values():
+                    hd95_col = f'{organ_name}_hd95'
+                    if hd95_col in success_df.columns:
+                        # Filter out NaN values for HD95
+                        valid_hd95 = success_df[hd95_col].dropna()
+                        if len(valid_hd95) > 0:
+                            mean_hd95 = valid_hd95.mean()
+                            std_hd95 = valid_hd95.std()
+                            print(f"{organ_name.capitalize()} HD95: {mean_hd95:.2f} ± {std_hd95:.2f}")
+
+                # Betti differences
+                for organ_name in ORGAN_MAP.values():
+                    betti_col = f'{organ_name}_betti_diff'
+                    if betti_col in success_df.columns:
+                        mean_betti = success_df[betti_col].mean()
+                        std_betti = success_df[betti_col].std()
+                        print(f"{organ_name.capitalize()} Betti-0 Diff: {mean_betti:.2f} ± {std_betti:.2f}")
+        else:
+            print("No gold standard files found for evaluation.")
 
 if __name__ == "__main__":
     main()
