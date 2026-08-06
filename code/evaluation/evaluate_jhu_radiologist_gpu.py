@@ -206,15 +206,15 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 pred_nii = nib.load(pred_path)
                 pred_data = pred_nii.get_fdata()
 
-                # Automatic axis transposition if shapes are permuted
+                # Squeeze channel/batch singleton dimensions (e.g. (1, 290, 290, 322) -> (290, 290, 322))
+                pred_data = np.squeeze(pred_data)
+
+                # Automatic PyTorch CUDA 3D interpolation to match GT resolution if shapes differ
                 if gt_data.shape != pred_data.shape:
-                    if sorted(gt_data.shape) == sorted(pred_data.shape):
-                        # Map each gt axis to the closest matching pred axis by sorted size
-                        perm = np.argsort(pred_data.shape)[np.argsort(np.argsort(gt_data.shape))]
-                        pred_data = np.transpose(pred_data, perm)
-                    else:
-                        print(f"  [SHAPE MISMATCH] {subject_id}: GT {gt_data.shape} vs Pred {pred_data.shape}")
-                        continue
+                    print(f"  [RESAMPLING] {subject_id}: Resampling pred shape {pred_data.shape} -> GT shape {gt_data.shape} on GPU")
+                    pred_t = torch.from_numpy(pred_data.astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
+                    pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
+                    pred_data = pred_t.cpu().numpy().astype(np.int64)
 
                 # Load into PyTorch CUDA Tensor
                 gt_tensor = torch.from_numpy(gt_data.astype(np.int64)).to(device)

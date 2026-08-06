@@ -190,6 +190,6 @@ sbatch code/slurm_scripts/run_jhu_radiologist_eval_gpu.sbatch
 
 - **Git:** this directory is the git root (`origin: chrsong-ucsf/mp-factory`). Commit code/doc changes; never commit data, `results/`, `logs/`, or `*.nii.gz` (already gitignored).
 - **Paths:** scripts hardcode cluster paths under `/mnt/scratch/user/chrsong/mp-factory`; when editing locally, keep those defaults unless the task says otherwise.
-- **SLURM ↔ script coupling:** `slurm_scripts/*.sbatch` reference scripts by absolute path. Some `.sbatch` files still point at the old flat `code/<script>.py` location after the subdirectory reorg — verify the `python -u ...` target path when running or editing a job.
+- **SLURM ↔ script coupling:** `slurm_scripts/*.sbatch` reference scripts by absolute path. After the subdirectory reorg, **12 of the 13** `.sbatch` jobs still point at the old flat `code/<script>.py` location (only `run_jhu_radiologist_eval_gpu.sbatch` was updated to the new `code/evaluation/...` path). Fix the `python -u ...` target to the correct subdirectory (e.g. `code/training/train_mednext.py`, `code/evaluation/evaluate_multi_model_ensemble.py`) before submitting any job.
 - **Organ label map is fixed** (`0..4` above); keep it consistent across training, prediction, and evaluation.
 - **Knowledge graph:** `graphify-out/GRAPH_REPORT.md` is a generated map of modules/relationships; regenerate rather than hand-edit.
