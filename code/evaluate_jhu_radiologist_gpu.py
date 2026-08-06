@@ -208,8 +208,9 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
 
                 # Automatic axis transposition if shapes are permuted
                 if gt_data.shape != pred_data.shape:
-                    if set(gt_data.shape) == set(pred_data.shape):
-                        perm = [pred_data.shape.index(dim) for dim in gt_data.shape]
+                    if sorted(gt_data.shape) == sorted(pred_data.shape):
+                        # Map each gt axis to the closest matching pred axis by sorted size
+                        perm = np.argsort(pred_data.shape)[np.argsort(np.argsort(gt_data.shape))]
                         pred_data = np.transpose(pred_data, perm)
                     else:
                         print(f"  [SHAPE MISMATCH] {subject_id}: GT {gt_data.shape} vs Pred {pred_data.shape}")
@@ -218,7 +219,6 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 # Load into PyTorch CUDA Tensor
                 gt_tensor = torch.from_numpy(gt_data.astype(np.int64)).to(device)
                 pred_tensor = torch.from_numpy(pred_data.astype(np.int64)).to(device)
-
 
                 row = {
                     'model_name': model_name,
@@ -269,7 +269,8 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 print(f"  [ERROR] Processing {subject_id} failed: {e}")
 
     if results:
-        os.makedirs(os.path.dirname(out_csv), exist_ok=True)
+        out_dir = os.path.dirname(os.path.abspath(out_csv))
+        os.makedirs(out_dir, exist_ok=True)
         df = pd.DataFrame(results)
         df.to_csv(out_csv, index=False)
         print("\n" + "=" * 70)
