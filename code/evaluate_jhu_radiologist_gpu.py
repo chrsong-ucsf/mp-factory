@@ -178,21 +178,27 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 print(f"  [SKIP] Ground truth NRRD missing for {subject_id}: {nrrd_path}")
                 continue
 
-            # Locate prediction file
-            patterns = [
-                os.path.join(pred_dir, f"{subject_id}_gi_seg.nii.gz"),
-                os.path.join(pred_dir, f"{subject_id}_consensus.nii.gz"),
-                os.path.join(pred_dir, f"*{subject_id}*.nii.gz")
-            ]
+            # Derive candidate subject ID strings (e.g., 'BDMAP_00242131', '00242131', '242131')
+            clean_id = subject_id.replace('BDMAP_', '')
+            short_id = clean_id.lstrip('0')
+            id_aliases = [subject_id, clean_id, short_id]
+
             pred_path = None
-            for p in patterns:
-                matches = glob.glob(p)
+            for key in id_aliases:
+                if not key:
+                    continue
+                matches = (
+                    glob.glob(os.path.join(pred_dir, f"*{key}*.nii.gz")) +
+                    glob.glob(os.path.join(pred_dir, "**", f"*{key}*.nii.gz"), recursive=True) +
+                    glob.glob(os.path.join(pred_dir, f"*{key}*.nrrd")) +
+                    glob.glob(os.path.join(pred_dir, "**", f"*{key}*.nrrd"), recursive=True)
+                )
                 if matches:
                     pred_path = matches[0]
                     break
 
             if not pred_path or not os.path.exists(pred_path):
-                print(f"  [MISSING] No prediction volume found for {subject_id}")
+                print(f"  [MISSING] No prediction volume found for {subject_id} in {pred_dir}")
                 continue
 
             try:
@@ -200,13 +206,19 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 pred_nii = nib.load(pred_path)
                 pred_data = pred_nii.get_fdata()
 
+                # Automatic axis transposition if shapes are permuted
                 if gt_data.shape != pred_data.shape:
-                    print(f"  [SHAPE MISMATCH] {subject_id}: GT {gt_data.shape} vs Pred {pred_data.shape}")
-                    continue
+                    if set(gt_data.shape) == set(pred_data.shape):
+                        perm = [pred_data.shape.index(dim) for dim in gt_data.shape]
+                        pred_data = np.transpose(pred_data, perm)
+                    else:
+                        print(f"  [SHAPE MISMATCH] {subject_id}: GT {gt_data.shape} vs Pred {pred_data.shape}")
+                        continue
 
                 # Load into PyTorch CUDA Tensor
                 gt_tensor = torch.from_numpy(gt_data.astype(np.int64)).to(device)
                 pred_tensor = torch.from_numpy(pred_data.astype(np.int64)).to(device)
+
 
                 row = {
                     'model_name': model_name,
