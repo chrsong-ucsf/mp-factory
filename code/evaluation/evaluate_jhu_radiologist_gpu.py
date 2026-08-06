@@ -278,26 +278,25 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                     pred_data = remapped
                     print(f"  [REMAP] Applied {model_name} label remapping")
 
-                # Auto-align orientation between MONAI NIfTI (RAS) and NRRD (LPS) if overlap is 0
-                # MONAI NIfTI outputs have inverted X, Y, Z relative to NRRD array index order
-                if model_name in ['MedNeXt', 'Swin-UNETR', 'EnsembleConsensus']:
-                    gt_nonzero = (gt_data > 0)
-                    if np.any(gt_nonzero) and np.any(pred_data > 0):
-                        overlap_orig = np.sum((pred_data > 0) & gt_nonzero)
-                        flipped_pred = np.flip(pred_data, axis=(0, 1, 2))
-                        overlap_flip = np.sum((flipped_pred > 0) & gt_nonzero)
-
-                        # Also check 2D XY flip (axis 0, 1)
-                        flipped_xy = np.flip(pred_data, axis=(0, 1))
-                        overlap_xy = np.sum((flipped_xy > 0) & gt_nonzero)
-
-                        best_overlap = max(overlap_orig, overlap_flip, overlap_xy)
-                        if best_overlap == overlap_flip and overlap_flip > overlap_orig:
-                            pred_data = flipped_pred
-                            print(f"  [ORIENT ALIGN] Applied 3D axis flip (0,1,2) for {model_name} (overlap {overlap_orig} -> {overlap_flip})")
-                        elif best_overlap == overlap_xy and overlap_xy > overlap_orig:
-                            pred_data = flipped_xy
-                            print(f"  [ORIENT ALIGN] Applied XY axis flip (0,1) for {model_name} (overlap {overlap_orig} -> {overlap_xy})")
+                # Auto-align orientation between MONAI NIfTI (RAS) and NRRD (LPS)
+                # Exhaustively check all 8 3D reflection orientations to maximize voxel overlap
+                gt_nonzero = (gt_data > 0)
+                if np.any(gt_nonzero) and np.any(pred_data > 0):
+                    candidates = {
+                        'none': pred_data,
+                        'flip_0': np.flip(pred_data, axis=0),
+                        'flip_1': np.flip(pred_data, axis=1),
+                        'flip_2': np.flip(pred_data, axis=2),
+                        'flip_01': np.flip(pred_data, axis=(0, 1)),
+                        'flip_02': np.flip(pred_data, axis=(0, 2)),
+                        'flip_12': np.flip(pred_data, axis=(1, 2)),
+                        'flip_012': np.flip(pred_data, axis=(0, 1, 2)),
+                    }
+                    scores = {name: np.sum((arr > 0) & gt_nonzero) for name, arr in candidates.items()}
+                    best_name = max(scores, key=scores.get)
+                    if best_name != 'none':
+                        pred_data = candidates[best_name]
+                        print(f"  [ORIENT ALIGN] Applied {best_name} for {model_name} (overlap: {scores['none']} -> {scores[best_name]})")
 
 
 
