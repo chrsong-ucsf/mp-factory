@@ -298,6 +298,13 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 else:
                     pred_data = pred_data_3d
 
+                # Ensure GT mask shape matches prediction shape if propagated from multi-phase scan
+                if gt_data.shape != pred_data.shape:
+                    print(f"  [GT RESAMPLE] {subject_id}: Resampling GT {gt_data.shape} -> {pred_data.shape}")
+                    gt_t = torch.from_numpy(gt_data.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+                    gt_t = torch.nn.functional.interpolate(gt_t, size=pred_data.shape, mode='nearest').squeeze(0).squeeze(0)
+                    gt_data = gt_t.numpy().astype(np.int64)
+
                 # Remap prediction labels to match GT BDMAP label IDs
                 remap = MODEL_LABEL_REMAP.get(model_name, {})
                 if remap:
@@ -315,25 +322,32 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                     pred_data = remapped
                     print(f"  [REMAP] Applied {model_name} label remapping")
 
-                # Auto-align orientation between MONAI NIfTI (RAS) and NRRD (LPS)
-                # Exhaustively check all 8 3D reflection orientations to maximize voxel overlap
-                gt_nonzero = (gt_data > 0)
-                if np.any(gt_nonzero) and np.any(pred_data > 0):
-                    candidates = {
-                        'none': pred_data,
-                        'flip_0': np.flip(pred_data, axis=0),
-                        'flip_1': np.flip(pred_data, axis=1),
-                        'flip_2': np.flip(pred_data, axis=2),
-                        'flip_01': np.flip(pred_data, axis=(0, 1)),
-                        'flip_02': np.flip(pred_data, axis=(0, 2)),
-                        'flip_12': np.flip(pred_data, axis=(1, 2)),
-                        'flip_012': np.flip(pred_data, axis=(0, 1, 2)),
-                    }
-                    scores = {name: np.sum((arr > 0) & gt_nonzero) for name, arr in candidates.items()}
-                    best_name = max(scores, key=scores.get)
-                    if best_name != 'none':
-                        pred_data = candidates[best_name]
-                        print(f"  [ORIENT ALIGN] Applied {best_name} for {model_name} (overlap: {scores['none']} -> {scores[best_name]})")
+                # Auto-align orientation by maximizing class-specific multi-organ Dice score
+                def compute_organ_dice_sum(p_arr, g_arr):
+                    s = 0.0
+                    for gid in GT_ORGAN_MAP.keys():
+                        gb = (g_arr == gid)
+                        pb = (p_arr == gid)
+                        d = np.sum(gb) + np.sum(pb)
+                        if d > 0:
+                            s += (2.0 * np.sum(gb & pb)) / d
+                    return s
+
+                candidates = {
+                    'none': pred_data,
+                    'flip_0': np.flip(pred_data, axis=0),
+                    'flip_1': np.flip(pred_data, axis=1),
+                    'flip_2': np.flip(pred_data, axis=2),
+                    'flip_01': np.flip(pred_data, axis=(0, 1)),
+                    'flip_02': np.flip(pred_data, axis=(0, 2)),
+                    'flip_12': np.flip(pred_data, axis=(1, 2)),
+                    'flip_012': np.flip(pred_data, axis=(0, 1, 2)),
+                }
+                scores = {name: compute_organ_dice_sum(arr, gt_data) for name, arr in candidates.items()}
+                best_name = max(scores, key=scores.get)
+                if best_name != 'none' and scores[best_name] > scores['none']:
+                    pred_data = candidates[best_name]
+                    print(f"  [ORIENT ALIGN] Applied {best_name} for {model_name} (organ Dice sum: {scores['none']:.4f} -> {scores[best_name]:.4f})")
 
 
 
