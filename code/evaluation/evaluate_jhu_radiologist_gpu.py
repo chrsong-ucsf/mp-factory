@@ -38,15 +38,31 @@ import nibabel as nib
 import torch
 from scipy.ndimage import label, binary_erosion, distance_transform_edt
 
-# Organ Class Definition
-ORGAN_MAP = {
-    1: 'esophagus',
+# GT BDMAP Label Definition (radiologist NRRD ground truth)
+# Label IDs from the BDMAP dataset annotation standard
+GT_ORGAN_MAP = {
     2: 'stomach',
     3: 'duodenum',
     4: 'jejunum',
     5: 'ileum',
     6: 'colon'
 }
+# Note: GT label 1 = esophagus — excluded since models were NOT trained on esophagus
+
+# Per-model label remapping: maps prediction label IDs -> GT BDMAP label IDs
+# MedNeXt / Swin-UNETR / Ensemble training labels:
+#   1=stomach, 2=duodenum, 3=small_bowel (jejunum+ileum), 4=colon
+# TotalSegmentator v2 full-body labels (relevant GI organs):
+#   18=stomach, 19=duodenum, 20=small_bowel, 57=colon
+MODEL_LABEL_REMAP = {
+    'MedNeXt':             {1: 2, 2: 3, 3: [4, 5], 4: 6},
+    'Swin-UNETR':          {1: 2, 2: 3, 3: [4, 5], 4: 6},
+    'EnsembleConsensus':   {1: 2, 2: 3, 3: [4, 5], 4: 6},
+    'TotalSegmentator':    {18: 2, 19: 3, 20: [4, 5], 57: 6},
+}
+
+# Keep ORGAN_MAP as alias for compatibility
+ORGAN_MAP = GT_ORGAN_MAP
 
 # Expert Radiologist Multi-Phase Mask Propagation Rules
 PROPAGATION_MAP = {
@@ -210,6 +226,12 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                     pred_path = matches[0]
                     break
 
+            # For ensemble: prefer _consensus over _uncertainty files
+            if model_name == 'EnsembleConsensus' and pred_path:
+                consensus_candidates = [p for p in matches if 'consensus' in os.path.basename(p).lower()]
+                if consensus_candidates:
+                    pred_path = consensus_candidates[0]
+
             if not pred_path or not os.path.exists(pred_path):
                 print(f"  [MISSING] No prediction volume found for {subject_id} in {pred_dir}")
                 continue
@@ -230,6 +252,27 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                     pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
                     pred_data = pred_t.numpy().astype(np.int64)
 
+                # Remap prediction labels to match GT BDMAP label IDs
+                remap = MODEL_LABEL_REMAP.get(model_name, {})
+                if remap:
+                    remapped = np.zeros_like(pred_data, dtype=np.int64)
+                    for pred_label, gt_label in remap.items():
+                        mask = (pred_data == pred_label)
+                        if isinstance(gt_label, list):
+                            # small_bowel (pred) maps to both jejunum (4) and ileum (5) in GT
+                            for gl in gt_label:
+                                remapped[mask] = gl  # last write wins; they're evaluated separately
+                            # Split evenly by z-slice: top half -> jejunum, bottom half -> ileum
+                            z_mid = pred_data.shape[2] // 2
+                            mask_top = np.zeros_like(mask); mask_top[:, :, :z_mid] = mask[:, :, :z_mid]
+                            mask_bot = np.zeros_like(mask); mask_bot[:, :, z_mid:] = mask[:, :, z_mid:]
+                            remapped[mask_top] = gt_label[0]  # jejunum = superior
+                            remapped[mask_bot] = gt_label[1]  # ileum = inferior
+                        else:
+                            remapped[mask] = gt_label
+                    pred_data = remapped
+                    print(f"  [REMAP] Applied {model_name} label remapping")
+
                 # Load into PyTorch CUDA Tensor
                 gt_tensor = torch.from_numpy(gt_data.astype(np.int64)).to(device)
                 pred_tensor = torch.from_numpy(pred_data.astype(np.int64)).to(device)
@@ -244,7 +287,7 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 mean_dices = []
                 mean_hd95s = []
 
-                for label_id, organ_name in ORGAN_MAP.items():
+                for label_id, organ_name in GT_ORGAN_MAP.items():
                     # GPU Tensor Metrics
                     m = compute_gpu_tensor_metrics(gt_tensor, pred_tensor, label_id)
                     
