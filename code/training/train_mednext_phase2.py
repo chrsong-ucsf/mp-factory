@@ -47,6 +47,20 @@ except ImportError:
     except ImportError:
         create_mednext_v1 = None
 
+# Asymmetric PDCE Loss (asymmetric partial CE + Dice) for recall-optimized training
+try:
+    from src.segmentation.losses.asymmetric_loss import AsymmetricPDCELoss
+except ImportError:
+    try:
+        import sys as _sys, os as _os
+        _repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+        _vault_root = _os.path.dirname(_repo_root)
+        if _vault_root not in _sys.path:
+            _sys.insert(0, _vault_root)
+        from src.segmentation.losses.asymmetric_loss import AsymmetricPDCELoss
+    except ImportError:
+        AsymmetricPDCELoss = None
+
 NUM_CLASSES  = 5    # Background + Stomach + Duodenum + Small Bowel + Colon
 IGNORE_INDEX = 255  # WEAK_COARSE boundary pixels are ignored in loss
 
@@ -227,6 +241,13 @@ def main():
     parser.add_argument("--max_val_samples",  type=int,  default=50)
     parser.add_argument("--use_weak",         action="store_true",
                         help="Include WEAK_COARSE cases with ignore_index=255 boundary masking")
+    parser.add_argument("--loss_type",        type=str,  default="asymmetric",
+                        choices=["asymmetric", "dice_ce"],
+                        help="Loss: 'asymmetric' (AsymmetricPDCELoss, default) or 'dice_ce' (legacy DiceCEWithIgnoreLoss)")
+    parser.add_argument("--alpha",            type=float, default=2.0,
+                        help="Asymmetric FN weight (alpha > beta boosts recall)")
+    parser.add_argument("--beta",             type=float, default=1.0,
+                        help="Asymmetric FP weight (typically 1.0)")
     parser.add_argument("--pretrained_ckpt",  type=str,  default=None,
                         help="Path to Phase 1 pretrained checkpoint to finetune from")
     parser.add_argument("--gold_standard_dir", type=str, default=None,
