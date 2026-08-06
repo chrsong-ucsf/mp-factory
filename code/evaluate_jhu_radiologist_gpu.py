@@ -33,10 +33,17 @@ import argparse
 import gc
 import numpy as np
 import pandas as pd
-import nrrd
 import nibabel as nib
 import torch
 from scipy.ndimage import label, binary_erosion, distance_transform_edt
+
+try:
+    import nrrd
+except ImportError:
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pynrrd"])
+    import nrrd
+
 
 # Organ Class Definition
 ORGAN_MAP = {

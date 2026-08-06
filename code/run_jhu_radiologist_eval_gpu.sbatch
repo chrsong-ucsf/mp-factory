@@ -17,7 +17,11 @@ module load miniforge3/26.3.2-3
 eval "$(mamba shell hook --shell bash)"
 mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 
+# Ensure required Python packages are installed in environment
+python -m pip install --quiet pynrrd nibabel scipy pandas torch
+
 export PYTHONUNBUFFERED=1
+
 
 # -----------------------------------------------------------------------------
 # Directory Setup & Dataset Discovery
