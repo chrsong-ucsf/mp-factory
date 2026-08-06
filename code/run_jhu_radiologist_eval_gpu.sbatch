@@ -17,9 +17,6 @@ module load miniforge3/26.3.2-3
 eval "$(mamba shell hook --shell bash)"
 mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 
-# Ensure required Python packages are installed in environment
-python -m pip install --quiet pynrrd nibabel scipy pandas torch
-
 export PYTHONUNBUFFERED=1
 
 
@@ -51,7 +48,7 @@ echo "====================================================================="
 # -----------------------------------------------------------------------------
 # Run Multi-Model GPU Evaluation
 # -----------------------------------------------------------------------------
-python -u "${BASE_DIR}/code/evaluate_jhu_radiologist_gpu.py" \
+python -u "${BASE_DIR}/code/evaluation/evaluate_jhu_radiologist_gpu.py" \
     --jhu_dir "${JHU_DIR}" \
     --pred_dirs \
         "${RESULTS_DIR}/mednext_predictions" \
