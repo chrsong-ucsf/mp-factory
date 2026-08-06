@@ -176,6 +176,30 @@ def find_jhu_dir(given_path):
     return given_path
 
 
+def find_ct_file(subject_id):
+    """Find native ct.nii.gz file for a given subject ID."""
+    clean_id = subject_id.replace('BDMAP_', '')
+    short_id = clean_id.lstrip('0')
+    search_ids = [subject_id, clean_id, short_id]
+
+    base_dirs = [
+        "/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox",
+        "CancerVerse_dbox",
+        "03_Datasets/CancerVerse_dbox"
+    ]
+    for bdir in base_dirs:
+        for sid in search_ids:
+            p = os.path.join(bdir, sid, "ct.nii.gz")
+            if os.path.exists(p):
+                return p
+
+    for sid in search_ids:
+        matches = glob.glob(f"/mnt/scratch/user/chrsong/mp-factory/**/{sid}/ct.nii.gz", recursive=True)
+        if matches:
+            return matches[0]
+    return None
+
+
 def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
     # Check CUDA availability AND compatibility with installed PyTorch
     if torch.cuda.is_available():
@@ -251,15 +275,28 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 pred_nii = nib.load(pred_path)
                 pred_data = pred_nii.get_fdata()
 
-                # Squeeze channel/batch singleton dimensions (e.g. (1, 290, 290, 322) -> (290, 290, 322))
-                pred_data = np.squeeze(pred_data)
+                pred_data_3d = np.squeeze(pred_data)
 
-                # Resample prediction array to match GT shape if needed
-                if gt_data.shape != pred_data.shape:
-                    print(f"  [INTERPOLATE] {subject_id} {model_name}: {pred_data.shape} -> {gt_data.shape}")
-                    pred_t = torch.from_numpy(pred_data.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+                # Resample prediction onto original ct.nii.gz native physical grid if found
+                ct_path = find_ct_file(subject_id)
+                if ct_path and os.path.exists(ct_path):
+                    try:
+                        from nibabel.processing import resample_from_to
+                        ct_nii = nib.load(ct_path)
+                        pred_nii_clean = nib.Nifti1Image(pred_data_3d.astype(np.int16), pred_nii.affine[:4, :4])
+                        pred_nii_rs = resample_from_to(pred_nii_clean, ct_nii, order=0)
+                        pred_data = np.round(pred_nii_rs.get_fdata()).astype(np.int64)
+                        print(f"  [NATIVE RESAMPLE] {subject_id} {model_name}: resampled onto native ct.nii.gz → {pred_data.shape}")
+                    except Exception as e:
+                        print(f"  [NATIVE RESAMPLE WARN] {subject_id}: {e}")
+                        pred_data = pred_data_3d
+                elif gt_data.shape != pred_data_3d.shape:
+                    print(f"  [INTERPOLATE] {subject_id} {model_name}: {pred_data_3d.shape} -> {gt_data.shape}")
+                    pred_t = torch.from_numpy(pred_data_3d.astype(np.float32)).unsqueeze(0).unsqueeze(0)
                     pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
                     pred_data = pred_t.numpy().astype(np.int64)
+                else:
+                    pred_data = pred_data_3d
 
                 # Remap prediction labels to match GT BDMAP label IDs
                 remap = MODEL_LABEL_REMAP.get(model_name, {})
