@@ -320,8 +320,27 @@ def main():
     if num_gpus > 1:
         model = nn.DataParallel(model)
 
-    loss_fn   = DiceCEWithIgnoreLoss(num_classes=NUM_CLASSES,
-                                     ignore_index=IGNORE_INDEX, ce_weight=0.5)
+    # --- Loss selection ---
+    if args.loss_type == "asymmetric":
+        if AsymmetricPDCELoss is None:
+            print("WARNING: AsymmetricPDCELoss import failed; falling back to DiceCEWithIgnoreLoss.")
+            loss_fn = DiceCEWithIgnoreLoss(num_classes=NUM_CLASSES,
+                                           ignore_index=IGNORE_INDEX, ce_weight=0.5)
+        else:
+            print(f"[Loss] AsymmetricPDCELoss(alpha={args.alpha}, beta={args.beta}, "
+                  f"ignore_index={IGNORE_INDEX})")
+            loss_fn = AsymmetricPDCELoss(
+                apply_softmax=True,
+                ce_weight=0.5,
+                dice_weight=1.0,
+                alpha=args.alpha,
+                beta=args.beta,
+                ignore_index=IGNORE_INDEX,
+            )
+    else:
+        print(f"[Loss] DiceCEWithIgnoreLoss(ignore_index={IGNORE_INDEX})")
+        loss_fn = DiceCEWithIgnoreLoss(num_classes=NUM_CLASSES,
+                                       ignore_index=IGNORE_INDEX, ce_weight=0.5)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=1e-6)

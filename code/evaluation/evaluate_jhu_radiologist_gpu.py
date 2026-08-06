@@ -127,14 +127,24 @@ def compute_betti_0(binary_mask_np):
 
 
 def compute_hd95_fast(gt_mask_np, pred_mask_np, voxel_spacing=(1.5, 1.5, 2.0)):
-    """Fast EDT-based 95th Percentile Hausdorff Distance."""
+    """Fast EDT-based 95th Percentile Hausdorff Distance with bounding box cropping."""
     if not np.any(gt_mask_np) or not np.any(pred_mask_np):
         return np.nan
     if np.array_equal(gt_mask_np, pred_mask_np):
         return 0.0
 
-    gt_border = gt_mask_np ^ binary_erosion(gt_mask_np)
-    pred_border = pred_mask_np ^ binary_erosion(pred_mask_np)
+    # Crop to bounding box of organ masks to speed up distance transform 20x
+    combined = gt_mask_np | pred_mask_np
+    coords = np.argwhere(combined)
+    min_c = np.maximum(0, coords.min(axis=0) - 20)
+    max_c = np.minimum(gt_mask_np.shape, coords.max(axis=0) + 21)
+    bbox = tuple(slice(min_c[i], max_c[i]) for i in range(3))
+
+    gt_crop = gt_mask_np[bbox]
+    pred_crop = pred_mask_np[bbox]
+
+    gt_border = gt_crop ^ binary_erosion(gt_crop)
+    pred_border = pred_crop ^ binary_erosion(pred_crop)
 
     if not np.any(gt_border) or not np.any(pred_border):
         return np.nan
@@ -256,10 +266,12 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                     # Build RAS affine from GT NRRD header
                     sd = gt_header.get('space directions')   # (3,3) in LPS voxel->mm
                     so = gt_header.get('space origin', np.zeros(3))
-                    if sd is not None:
+                    if sd is not None and len(sd) >= 3:
+                        sd_3x3 = np.array([v for v in sd if v is not None])[:3, :3]
+                        so_3d  = np.array(so)[:3]
                         lps_aff = np.eye(4)
-                        lps_aff[:3, :3] = np.array(sd).T
-                        lps_aff[:3,  3] = np.array(so)
+                        lps_aff[:3, :3] = sd_3x3.T
+                        lps_aff[:3,  3] = so_3d
                         # LPS -> RAS: flip x and y signs
                         lps_to_ras = np.diag([-1., -1., 1., 1.])
                         gt_ras_aff = lps_to_ras @ lps_aff
@@ -267,7 +279,8 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                         gt_ras_aff = np.eye(4)
 
                     gt_nii_img  = nib.Nifti1Image(gt_data.astype(np.int16), gt_ras_aff)
-                    pred_nii_rs = resample_from_to(pred_nii, gt_nii_img, order=0)  # nearest-neighbour
+                    pred_nii_clean = nib.Nifti1Image(pred_data.astype(np.int16), pred_nii.affine[:4, :4])
+                    pred_nii_rs = resample_from_to(pred_nii_clean, gt_nii_img, order=0)  # nearest-neighbour
                     pred_data   = np.round(pred_nii_rs.get_fdata()).astype(np.int64)
                     print(f"  [RESAMPLE] {subject_id}: world-space resample OK → {pred_data.shape}")
 

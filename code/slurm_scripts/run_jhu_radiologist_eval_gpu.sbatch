@@ -3,9 +3,9 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_rad_eval_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_rad_eval_%j.err
 #SBATCH --partition=cpu
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
-#SBATCH --time=00:10:00
+#SBATCH --time=00:30:00
 
 
 # -----------------------------------------------------------------------------
