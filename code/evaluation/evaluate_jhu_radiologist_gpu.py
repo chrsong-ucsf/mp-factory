@@ -151,7 +151,20 @@ def find_jhu_dir(given_path):
 
 
 def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Check CUDA availability AND compatibility with installed PyTorch
+    if torch.cuda.is_available():
+        # PyTorch supports up to sm_90 (Ada Lovelace). Blackwell is sm_120+.
+        major, minor = torch.cuda.get_device_capability(0)
+        sm = major * 10 + minor
+        supported_sms = {50, 60, 70, 75, 80, 86, 90}
+        if sm not in supported_sms:
+            print(f"[WARNING] GPU sm_{sm} is not compatible with this PyTorch build (supports up to sm_90). Falling back to CPU.")
+            device = torch.device("cpu")
+        else:
+            device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
     print("=" * 70)
     print(f"      GPU-ACCELERATED RADIOLOGIST EVALUATION PIPELINE")
     print(f"      Execution Device: {device}")
@@ -209,12 +222,13 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 # Squeeze channel/batch singleton dimensions (e.g. (1, 290, 290, 322) -> (290, 290, 322))
                 pred_data = np.squeeze(pred_data)
 
-                # Automatic PyTorch CUDA 3D interpolation to match GT resolution if shapes differ
+                # CPU 3D nearest-neighbor resampling to match GT resolution if shapes differ
+                # (Always done on CPU to avoid CUDA kernel compatibility issues)
                 if gt_data.shape != pred_data.shape:
-                    print(f"  [RESAMPLING] {subject_id}: Resampling pred shape {pred_data.shape} -> GT shape {gt_data.shape} on GPU")
-                    pred_t = torch.from_numpy(pred_data.astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
+                    print(f"  [RESAMPLING] {subject_id}: Resampling pred {pred_data.shape} -> GT {gt_data.shape} on CPU")
+                    pred_t = torch.from_numpy(pred_data.astype(np.float32)).unsqueeze(0).unsqueeze(0)
                     pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
-                    pred_data = pred_t.cpu().numpy().astype(np.int64)
+                    pred_data = pred_t.numpy().astype(np.int64)
 
                 # Load into PyTorch CUDA Tensor
                 gt_tensor = torch.from_numpy(gt_data.astype(np.int64)).to(device)
