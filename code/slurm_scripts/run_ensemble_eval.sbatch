@@ -19,10 +19,11 @@ mkdir -p /mnt/scratch/user/chrsong/mp-factory/logs
 mkdir -p /mnt/scratch/user/chrsong/mp-factory/results/ensemble_out
 
 # Fast CUDA GPU 3D Ensemble Execution across MedNeXt + Swin-UNETR
-python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluate_multi_model_ensemble.py \
+python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluation/evaluate_multi_model_ensemble.py \
     --pred_dirs \
         "/mnt/scratch/user/chrsong/mp-factory/results/mednext_predictions" \
         "/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_predictions" \
     --model_names MedNeXt Swin-UNETR \
     --out_dir  "/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out" \
-    --out_csv  "/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv"
+    --out_csv  "/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv" \
+    --splits_dir "/mnt/scratch/user/chrsong/mp-factory/results/dataset_splits"

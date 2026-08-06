@@ -12,8 +12,19 @@ Usage:
 
 import argparse
 import glob
+import os
 import sys
 import pandas as pd
+
+# Reuse the single source of truth for dataset-split export from the evaluation
+# module so merged (sharded) runs produce identical splits to a single run.
+_EVAL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "evaluation")
+if _EVAL_DIR not in sys.path:
+    sys.path.insert(0, _EVAL_DIR)
+try:
+    from evaluate_multi_model_ensemble import export_dataset_splits
+except Exception:  # pragma: no cover - splits are optional if import fails
+    export_dataset_splits = None
 
 
 def main():
@@ -37,6 +48,19 @@ def main():
         type=str,
         default="subject_id",
         help="Column to sort the merged DataFrame by (default: subject_id)"
+    )
+    parser.add_argument(
+        "--splits_dir",
+        type=str,
+        default=None,
+        help="Directory for exported dataset splits (default: <out_csv dir>/dataset_splits). "
+             "Pass 'none' to skip split export."
+    )
+    parser.add_argument(
+        "--ensemble_out_dir",
+        type=str,
+        default=None,
+        help="Consensus mask directory, embedded as consensus_path in split CSVs."
     )
     args = parser.parse_args()
 
@@ -76,6 +100,19 @@ def main():
         print(f"\nMean Consensus Dice   : {valid['mean_consensus_dice'].mean():.4f}")
         print(f"Mean Inter-Model Dice : {valid['mean_inter_model_dice'].mean():.4f}")
         print(f"Mean Uncertainty      : {valid['mean_uncertainty'].mean():.4f}")
+
+    # Export dataset splits from the merged CSV (single source of truth in
+    # evaluate_multi_model_ensemble.export_dataset_splits) unless disabled.
+    splits_dir = args.splits_dir
+    if isinstance(splits_dir, str) and splits_dir.lower() == "none":
+        print("\n[DATASET SPLITS] Skipped (--splits_dir none).")
+    elif export_dataset_splits is None:
+        print("\n[DATASET SPLITS] Skipped (could not import export_dataset_splits).")
+    elif 'triage_category' in merged.columns:
+        if not splits_dir:
+            base = os.path.dirname(args.out_csv) or "."
+            splits_dir = os.path.join(base, "dataset_splits")
+        export_dataset_splits(merged, splits_dir, ensemble_out_dir=args.ensemble_out_dir)
 
 
 if __name__ == "__main__":

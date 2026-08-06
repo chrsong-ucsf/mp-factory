@@ -24,24 +24,46 @@ We will execute the following four steps to bypass human annotation and generate
 ### 2. `evaluate_multi_model_ensemble.py` (Script Updates)
 We will rewrite the Triage Logic in the evaluation script to reflect this automated data cleansing strategy. The script will continue utilizing the robust 4-Model Multi-Architecture Ensemble (`TotalSegmentator`, `deepGI`, `Swin-UNETR`, `MedNeXt-B`).
 
-#### [MODIFY] `02_Projects/mp-factory/code/evaluate_multi_model_ensemble.py`
-**Update Triage Logic (Lines 372-382) and Actions:**
+#### [MODIFY] `02_Projects/mp-factory/code/evaluation/evaluate_multi_model_ensemble.py`
+**Update Triage Logic and Actions (IMPLEMENTED):**
+
+The triage rules are now centralized in a pure, unit-tested `triage_case()` helper
+plus the `NOISE_*` / `CLEAN_*` module constants (single source of truth reused by
+`merge_ensemble_chunks.py`). The strict binning is:
 
 ```python
-        # Collect mean across all organs for triage
-        res['mean_inter_model_dice'] = round(float(np.mean(eval_inter_model_dices)), 4)
+NOISE_BETTI_DIFF_MAX  = 5     # |Δβ0| strictly greater than this -> NOISE_REJECT
+NOISE_DICE_MIN        = 0.50  # mean consensus Dice strictly below this -> NOISE_REJECT
+NOISE_UNCERTAINTY_MAX = 0.15  # mean predictive entropy above this -> NOISE_REJECT
+CLEAN_DICE_MIN        = 0.82
+CLEAN_INTER_MODEL_MIN = 0.85
+CLEAN_BETTI_DIFF_MAX  = 2
 
-        # 5. Categorization / Triage Logic (Automated Data Cleansing)
-        if res['mean_consensus_dice'] < 0.82 or max_betti_diff > 5 or res['mean_uncertainty'] > 0.15:
-            res['triage_category'] = 'NOISE_REJECT'
-            res['action'] = 'Auto-Exclude (Discard from Training Pool)'
-        elif res['mean_consensus_dice'] >= 0.82 and max_betti_diff <= 2 and res['mean_inter_model_dice'] >= 0.85:
-            res['triage_category'] = 'CLEAN_HIGH_CONFIDENCE'
-            res['action'] = 'Auto-Approve for GKD Distillation & VAE'
-        else:
-            res['triage_category'] = 'WEAK_COARSE'
-            res['action'] = 'Apply Hard Thresholding (Set Conflicting Pixels to Ignore Class)'
+def triage_case(mean_consensus_dice, mean_inter_model_dice, max_betti_diff, mean_uncertainty):
+    if (max_betti_diff > NOISE_BETTI_DIFF_MAX
+            or mean_consensus_dice < NOISE_DICE_MIN
+            or mean_uncertainty > NOISE_UNCERTAINTY_MAX):
+        category = 'NOISE_REJECT'          # Auto-Exclude (Discard from Training Pool)
+    elif (mean_consensus_dice >= CLEAN_DICE_MIN
+            and mean_inter_model_dice >= CLEAN_INTER_MODEL_MIN
+            and max_betti_diff <= CLEAN_BETTI_DIFF_MAX):
+        category = 'CLEAN_HIGH_CONFIDENCE' # Auto-Approve for GKD Distillation & VAE
+    else:
+        category = 'WEAK_COARSE'           # Hard-Threshold conflicting pixels to Ignore Class
+    return category, TRIAGE_ACTIONS[category]
 ```
+
+> Note: the hard-rejection gate uses `mean Dice < 0.50` (not `< 0.82`) so that
+> coarse-but-usable human labels flow into `WEAK_COARSE` for ignore-class
+> auto-labeling instead of being discarded. Only topological blow-ups
+> (`|Δβ0| > 5`), true low-overlap failures (`Dice < 0.50`), or high predictive
+> entropy (`> 0.15`) are dumped.
+
+**Dataset splits (IMPLEMENTED):** `export_dataset_splits()` materializes, next to
+`ensemble_audit_summary.csv` (or under `--splits_dir`):
+`ensemble_split_{clean_high_confidence,weak_coarse,noise_reject}.txt/.csv`,
+a combined `ensemble_split_train_pool.txt` (CLEAN+WEAK, REJECT excluded), and a
+`dataset_splits.json` manifest recording the active thresholds and per-bucket counts.
 
 ---
 

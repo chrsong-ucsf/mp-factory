@@ -21,14 +21,16 @@ DIR_SWIN="/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_predictions"
 
 OUT_DIR="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out"
 OUT_CSV="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv"
+SPLITS_DIR="/mnt/scratch/user/chrsong/mp-factory/results/dataset_splits"
 
 mkdir -p "$OUT_DIR"
 
 # Run 2-model ensemble: MedNeXt-B + Swin-UNETR
 # Ensembles our 2 primary trained deep models sharing identical 1.5x1.5x2.0mm RAS space.
-python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluate_multi_model_ensemble.py \
+python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluation/evaluate_multi_model_ensemble.py \
     --pred_dirs "$DIR_MEDNEXT" "$DIR_SWIN" \
     --model_names MedNeXt Swin-UNETR \
     --out_dir "$OUT_DIR" \
     --num_workers 16 \
-    --out_csv "$OUT_CSV"
+    --out_csv "$OUT_CSV" \
+    --splits_dir "$SPLITS_DIR"

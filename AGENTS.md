@@ -103,11 +103,12 @@ The end-to-end flow is: **download → segment → ensemble-cleanse → distill 
   - Voxel-wise spatial predictive uncertainty (entropy/variance) heatmaps.
   - Assembles a weighted consensus pseudo-GT mask `<subject_id>_consensus.nii.gz`.
   - Metrics: Dice, IoU, HD95, Betti-0 diff (|Δβ0|), ARI, VOI, ECE.
-  - **Triage (calibrated for 3D GI):**
-    - `NOISE_REJECT` — consensus Dice < 0.65 **or** inter-model Dice < 0.50 **or** uncertainty > 0.15 → discard from training pool.
-    - `CLEAN_HIGH_CONFIDENCE` — consensus Dice ≥ 0.75 **and** inter-model Dice ≥ 0.65 → auto-approve for GKD/VAE.
+  - **Triage (strict automated data-cleansing; see `triage_case` + `NOISE_*`/`CLEAN_*` constants):**
+    - `NOISE_REJECT` — `|Δβ0| > 5` **or** consensus Dice < 0.50 **or** uncertainty > 0.15 → discard from training pool (any hard gate wins).
+    - `CLEAN_HIGH_CONFIDENCE` — consensus Dice ≥ 0.82 **and** inter-model Dice ≥ 0.85 **and** `|Δβ0| ≤ 2` → auto-approve for GKD/VAE.
     - `WEAK_COARSE` — otherwise → hard-threshold conflicting pixels to the ignore class.
-  - Supports `--num_chunks/--chunk_idx` sharding; merge with `merge_ensemble_chunks.py`.
+  - **Dataset splits:** `export_dataset_splits()` writes `dataset_splits/` next to the CSV — per-bucket `ensemble_split_<cat>.txt/.csv`, a combined `ensemble_split_train_pool.txt` (CLEAN+WEAK), and `dataset_splits.json` (thresholds + counts). Override the location with `--splits_dir`.
+  - Supports `--num_chunks/--chunk_idx` sharding; merge with `merge_ensemble_chunks.py` (which re-exports splits from the merged CSV).
 - **`code/utilities/audit_phase1_gi.py` + `analyze_audit_results.py`** — Phase-1 GT-vs-consensus audit and report.
 - **`code/evaluation/evaluate_gi_masks.py`** — multi-processed GT-vs-TotalSeg GI audit → `results/audit_summary.csv`.
 

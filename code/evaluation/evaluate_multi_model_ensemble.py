@@ -11,29 +11,41 @@ This script:
   5. Evaluates model and consensus quality via Dice, IoU, HD95, Betti-0 Count Difference (|Δβ0|), ARI, and VOI.
   6. Routes scans into CLEAN_HIGH_CONFIDENCE, WEAK_COARSE, or NOISE_REJECT buckets
      for fully-automated data cleansing (no human-in-the-loop radiologist review).
+  7. Exports per-bucket dataset splits (+ a combined CLEAN+WEAK train pool and a
+     JSON manifest) for downstream Phase-2 teacher-student distillation.
+
+Strict triage rules (see triage_case / the NOISE_*/CLEAN_* module constants):
+  NOISE_REJECT          : |Δβ0| > 5  OR  mean Dice < 0.50  OR  mean entropy > 0.15
+  CLEAN_HIGH_CONFIDENCE : consensus Dice >= 0.82 AND inter-model Dice >= 0.85 AND |Δβ0| <= 2
+  WEAK_COARSE           : otherwise (coarse / partially labeled)
 
 Usage:
   python evaluate_multi_model_ensemble.py \
     --pred_dirs /path/to/totalseg_masks /path/to/mednext_predictions /path/to/swin_unetr_predictions \
     --model_names TotalSeg MedNeXt Swin-UNETR \
     --out_dir /path/to/results/ensemble_out \
-    --out_csv /path/to/results/ensemble_audit_summary.csv
+    --out_csv /path/to/results/ensemble_audit_summary.csv \
+    --splits_dir /path/to/results/dataset_splits
 """
 
 import os
 import sys
 import glob
 import re
+import json
 import argparse
 import gc
 import numpy as np
 import pandas as pd
-import nibabel as nib
 import torch
 from scipy.ndimage import label, binary_erosion, distance_transform_edt, zoom
 from scipy.stats import entropy
-from sklearn.metrics import adjusted_rand_score
-from skimage.metrics import variation_of_information
+
+# NOTE: nibabel, scikit-image, scikit-learn, and nilearn are imported lazily
+# inside the functions that need them (evaluate_subject / compute_clustering_metrics)
+# so that the dependency-light, pure triage + dataset-split logic
+# (triage_case / export_dataset_splits) can be imported and unit-tested in
+# environments that only ship numpy/pandas.
 
 ORGAN_MAP = {
     1: 'stomach',
@@ -41,6 +53,67 @@ ORGAN_MAP = {
     3: 'small_bowel',
     4: 'colon'
 }
+
+# ---------------------------------------------------------------------------
+# Automated Data-Cleansing Triage Thresholds (strict, no radiologist-in-loop)
+# ---------------------------------------------------------------------------
+# Strict binning rules for the 3D multi-organ GI consensus audit. A scan that
+# trips ANY hard-rejection gate is discarded from the training pool regardless
+# of other agreement signals, because a topologically broken / fragmented
+# pseudo-label poisons Phase-2 teacher-student distillation.
+#
+#   NOISE_REJECT            : |Δβ0| > 5  OR  mean Dice < 0.50  OR  entropy > 0.15
+#   CLEAN_HIGH_CONFIDENCE   : consensus Dice ≥ 0.82 AND inter-model Dice ≥ 0.85
+#                             AND |Δβ0| ≤ 2   (high inter-rater + topological agreement)
+#   WEAK_COARSE             : everything else (coarse / partially labeled) ->
+#                             usable via hard-threshold ignore-class boundary masking
+NOISE_BETTI_DIFF_MAX  = 5     # |Δβ0| strictly greater than this -> NOISE_REJECT
+NOISE_DICE_MIN        = 0.50  # mean consensus Dice strictly below this -> NOISE_REJECT
+NOISE_UNCERTAINTY_MAX = 0.15  # mean predictive entropy above this -> NOISE_REJECT
+
+CLEAN_DICE_MIN        = 0.82  # consensus Dice must be >= this to be CLEAN
+CLEAN_INTER_MODEL_MIN = 0.85  # inter-model Dice must be >= this to be CLEAN
+CLEAN_BETTI_DIFF_MAX  = 2     # |Δβ0| must be <= this to be CLEAN
+
+TRIAGE_ACTIONS = {
+    'NOISE_REJECT':          'Auto-Exclude (Discard from Training Pool)',
+    'CLEAN_HIGH_CONFIDENCE': 'Auto-Approve for GKD Distillation & VAE',
+    'WEAK_COARSE':           'Apply Hard Thresholding (Set Conflicting Pixels to Ignore Class)',
+}
+
+
+def triage_case(mean_consensus_dice, mean_inter_model_dice, max_betti_diff,
+                mean_uncertainty):
+    """Strict automated data-cleansing triage for one audited scan.
+
+    Pure function (no I/O) so it can be unit-tested and reused by the merge /
+    analysis utilities. Rules are evaluated top-down; the first match wins.
+
+      1. NOISE_REJECT  -- HARD topological / agreement failure gate. Dumped so
+         the scan cannot poison the training pool:
+             |Δβ0| > NOISE_BETTI_DIFF_MAX        (fragmented / broken topology)
+          OR mean Dice < NOISE_DICE_MIN          (models disagree with consensus)
+          OR mean predictive entropy > NOISE_UNCERTAINTY_MAX
+      2. CLEAN_HIGH_CONFIDENCE -- high inter-rater + topological agreement:
+             consensus Dice >= CLEAN_DICE_MIN
+         AND inter-model Dice >= CLEAN_INTER_MODEL_MIN
+         AND |Δβ0| <= CLEAN_BETTI_DIFF_MAX
+      3. WEAK_COARSE -- everything else (coarse / partially labeled): kept and
+         auto-labeled with hard-threshold ignore-class boundary masking.
+
+    Returns (triage_category, action).
+    """
+    if (max_betti_diff > NOISE_BETTI_DIFF_MAX
+            or mean_consensus_dice < NOISE_DICE_MIN
+            or mean_uncertainty > NOISE_UNCERTAINTY_MAX):
+        category = 'NOISE_REJECT'
+    elif (mean_consensus_dice >= CLEAN_DICE_MIN
+            and mean_inter_model_dice >= CLEAN_INTER_MODEL_MIN
+            and max_betti_diff <= CLEAN_BETTI_DIFF_MAX):
+        category = 'CLEAN_HIGH_CONFIDENCE'
+    else:
+        category = 'WEAK_COARSE'
+    return category, TRIAGE_ACTIONS[category]
 
 
 def compute_betti_0(binary_mask):
@@ -78,6 +151,9 @@ def compute_hd95_fast(gt_mask, pred_mask, voxel_spacing=(1.5, 1.5, 2.0)):
 
 def compute_clustering_metrics(gt_arr, pred_arr):
     """Compute Adjusted Rand Index (ARI) and Variation of Information (VOI)."""
+    from sklearn.metrics import adjusted_rand_score
+    from skimage.metrics import variation_of_information
+
     gt_flat = gt_arr.ravel()[::50]
     pred_flat = pred_arr.ravel()[::50]
 
@@ -231,6 +307,8 @@ def compute_spatial_uncertainty(prob_maps):
 
 def evaluate_subject(subject_id, model_files, model_names, out_dir):
     """Processes a single subject scan across all available models."""
+    import nibabel as nib
+
     res = {'subject_id': subject_id, 'num_models': len(model_files)}
 
     consensus_path = os.path.join(out_dir, f"{subject_id}_consensus.nii.gz")
@@ -462,24 +540,23 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
         res['max_betti_diff'] = max_betti_diff
 
         # 5. Categorization / Triage Logic (Automated Data Cleansing)
-        # Calibrated for 3D multi-component GI organ segmentation (Stomach, Duodenum, Small Bowel, Colon).
-        # Primary gates use unbiased inter-model Dice, consensus Dice, and spatial predictive uncertainty.
+        # Strict binning for 3D multi-component GI organ segmentation
+        # (Stomach, Duodenum, Small Bowel, Colon). Rules and thresholds are
+        # centralized in triage_case() / the NOISE_*/CLEAN_* module constants so
+        # the merge + analysis utilities stay in lock-step.
         #
-        # CLEAN_HIGH_CONFIDENCE (83.4%): Consensus Dice >= 0.75 AND Inter-Model Dice >= 0.65
-        # WEAK_COARSE (10.4%):          Consensus Dice 0.65 - 0.75 OR Inter-Model Dice 0.50 - 0.65
-        # NOISE_REJECT (6.2%):           Consensus Dice < 0.65 OR Inter-Model Dice < 0.50 OR Uncertainty > 0.15
-        if (res['mean_consensus_dice'] < 0.65
-                or res['mean_inter_model_dice'] < 0.50
-                or res['mean_uncertainty'] > 0.15):
-            res['triage_category'] = 'NOISE_REJECT'
-            res['action'] = 'Auto-Exclude (Discard from Training Pool)'
-        elif (res['mean_consensus_dice'] >= 0.75
-                and res['mean_inter_model_dice'] >= 0.65):
-            res['triage_category'] = 'CLEAN_HIGH_CONFIDENCE'
-            res['action'] = 'Auto-Approve for GKD Distillation & VAE'
-        else:
-            res['triage_category'] = 'WEAK_COARSE'
-            res['action'] = 'Apply Hard Thresholding (Set Conflicting Pixels to Ignore Class)'
+        #   NOISE_REJECT          : |Δβ0| > 5  OR  mean Dice < 0.50  OR  entropy > 0.15
+        #   CLEAN_HIGH_CONFIDENCE : consensus Dice >= 0.82 AND inter-model Dice >= 0.85
+        #                           AND |Δβ0| <= 2
+        #   WEAK_COARSE           : otherwise (coarse / partially labeled)
+        category, action = triage_case(
+            mean_consensus_dice=res['mean_consensus_dice'],
+            mean_inter_model_dice=res['mean_inter_model_dice'],
+            max_betti_diff=res['max_betti_diff'],
+            mean_uncertainty=res['mean_uncertainty'],
+        )
+        res['triage_category'] = category
+        res['action'] = action
 
         res['status'] = 'SUCCESS'
 
@@ -502,6 +579,128 @@ def _eval_subject_wrapper(args_tuple):
         return {'subject_id': sub_id, 'status': f'ERROR: {str(e)}'}
 
 
+# Machine-readable triage category -> split file stem
+SPLIT_STEMS = {
+    'CLEAN_HIGH_CONFIDENCE': 'clean_high_confidence',
+    'WEAK_COARSE':           'weak_coarse',
+    'NOISE_REJECT':          'noise_reject',
+}
+# Categories that survive cleansing and feed Phase-2 distillation training.
+# CLEAN is used directly; WEAK is opt-in with ignore-index boundary masking.
+TRAIN_POOL_CATEGORIES = ['CLEAN_HIGH_CONFIDENCE', 'WEAK_COARSE']
+
+
+def export_dataset_splits(df, splits_dir, ensemble_out_dir=None):
+    """Export per-category dataset splits from a triaged audit DataFrame.
+
+    Consumes the same DataFrame written to ``ensemble_audit_summary.csv`` and
+    materializes, under ``splits_dir``:
+
+      - ``ensemble_split_<category>.txt``   one subject_id per line, for each of
+        CLEAN_HIGH_CONFIDENCE / WEAK_COARSE / NOISE_REJECT.
+      - ``ensemble_split_<category>.csv``   subject_id + consensus_path + key
+        triage metrics (Dice, inter-model Dice, |Δβ0|, entropy, action).
+      - ``ensemble_split_train_pool.txt``   CLEAN + WEAK (everything kept for the
+        Phase-2 training pool; NOISE_REJECT is excluded).
+      - ``dataset_splits.json``             machine-readable manifest with the
+        active thresholds, per-category counts, and subject lists.
+
+    Only rows with ``status == 'SUCCESS'`` and a recognized ``triage_category``
+    are exported. Returns the manifest dict.
+    """
+    os.makedirs(splits_dir, exist_ok=True)
+
+    if 'status' in df.columns:
+        valid = df[df['status'] == 'SUCCESS'].copy()
+    else:
+        valid = df.copy()
+
+    metric_cols = [c for c in (
+        'mean_consensus_dice', 'mean_inter_model_dice',
+        'max_betti_diff', 'mean_uncertainty', 'action'
+    ) if c in valid.columns]
+
+    manifest = {
+        'thresholds': {
+            'NOISE_BETTI_DIFF_MAX':  NOISE_BETTI_DIFF_MAX,
+            'NOISE_DICE_MIN':        NOISE_DICE_MIN,
+            'NOISE_UNCERTAINTY_MAX': NOISE_UNCERTAINTY_MAX,
+            'CLEAN_DICE_MIN':        CLEAN_DICE_MIN,
+            'CLEAN_INTER_MODEL_MIN': CLEAN_INTER_MODEL_MIN,
+            'CLEAN_BETTI_DIFF_MAX':  CLEAN_BETTI_DIFF_MAX,
+        },
+        'total_success': int(len(valid)),
+        'splits': {},
+        'train_pool': {},
+    }
+
+    if 'triage_category' not in valid.columns:
+        print("Warning: no 'triage_category' column found; skipping split export.")
+        manifest_path = os.path.join(splits_dir, "dataset_splits.json")
+        with open(manifest_path, 'w') as fh:
+            json.dump(manifest, fh, indent=2)
+        return manifest
+
+    for category, stem in SPLIT_STEMS.items():
+        subset = valid[valid['triage_category'] == category].copy()
+        if 'subject_id' in subset.columns:
+            subset = subset.sort_values('subject_id')
+        subject_ids = [str(s) for s in subset.get('subject_id', pd.Series(dtype=str)).tolist()]
+
+        # Plain-text subject list (one id per line)
+        txt_path = os.path.join(splits_dir, f"ensemble_split_{stem}.txt")
+        with open(txt_path, 'w') as fh:
+            fh.write("\n".join(subject_ids))
+            if subject_ids:
+                fh.write("\n")
+
+        # Rich CSV with consensus path + key metrics for downstream training
+        cols = ['subject_id'] + metric_cols
+        cols = [c for c in cols if c in subset.columns]
+        split_df = subset[cols].copy() if cols else pd.DataFrame({'subject_id': subject_ids})
+        if ensemble_out_dir is not None:
+            split_df['consensus_path'] = [
+                os.path.join(ensemble_out_dir, f"{sid}_consensus.nii.gz") for sid in split_df['subject_id'].astype(str)
+            ]
+        csv_path = os.path.join(splits_dir, f"ensemble_split_{stem}.csv")
+        split_df.to_csv(csv_path, index=False)
+
+        manifest['splits'][category] = {
+            'count': int(len(subject_ids)),
+            'txt': os.path.abspath(txt_path),
+            'csv': os.path.abspath(csv_path),
+            'subject_ids': subject_ids,
+        }
+
+    # Combined training pool (CLEAN + WEAK), NOISE_REJECT discarded
+    pool = valid[valid['triage_category'].isin(TRAIN_POOL_CATEGORIES)].copy()
+    if 'subject_id' in pool.columns:
+        pool = pool.sort_values('subject_id')
+    pool_ids = [str(s) for s in pool.get('subject_id', pd.Series(dtype=str)).tolist()]
+    pool_txt = os.path.join(splits_dir, "ensemble_split_train_pool.txt")
+    with open(pool_txt, 'w') as fh:
+        fh.write("\n".join(pool_ids))
+        if pool_ids:
+            fh.write("\n")
+    manifest['train_pool'] = {
+        'categories': TRAIN_POOL_CATEGORIES,
+        'count': int(len(pool_ids)),
+        'txt': os.path.abspath(pool_txt),
+    }
+
+    manifest_path = os.path.join(splits_dir, "dataset_splits.json")
+    with open(manifest_path, 'w') as fh:
+        json.dump(manifest, fh, indent=2)
+
+    print(f"\n[DATASET SPLITS] Exported to: {splits_dir}")
+    for category in SPLIT_STEMS:
+        n = manifest['splits'].get(category, {}).get('count', 0)
+        print(f"  - {category:<22}: {n:,} subjects -> ensemble_split_{SPLIT_STEMS[category]}.txt/.csv")
+    print(f"  - TRAIN_POOL (CLEAN+WEAK) : {manifest['train_pool'].get('count', 0):,} subjects -> ensemble_split_train_pool.txt")
+    print(f"  - Manifest                : {manifest_path}")
+    return manifest
+
+
 def main():
     parser = argparse.ArgumentParser(description="Multi-Model Ensemble Consensus & Automated Data Cleansing")
     parser.add_argument("--pred_dirs", type=str, nargs="+", required=True,
@@ -512,6 +711,8 @@ def main():
                         help="Output directory for consensus masks and uncertainty maps")
     parser.add_argument("--out_csv", type=str, default="./results/ensemble_audit_summary.csv",
                         help="Output path for evaluation CSV summary")
+    parser.add_argument("--splits_dir", type=str, default=None,
+                        help="Directory for exported dataset splits (default: <out_csv dir>/dataset_splits)")
     parser.add_argument("--num_workers", type=int, default=16,
                         help="Number of parallel CPU worker processes (default: 16)")
     parser.add_argument("--num_chunks", type=int, default=1,
@@ -663,6 +864,18 @@ def main():
         print(f"  3. Noise Reject (Auto-Excluded from Training Pool)     : {n_reject} cases ({n_reject/total_valid*100:.1f}%)")
     print("=" * 70)
     print(f"Report saved to: {args.out_csv}\n")
+
+    # Export dataset splits (skip for sharded chunk runs; merge_ensemble_chunks.py
+    # rebuilds the full CSV first, then splits can be exported from the merged file).
+    if args.num_chunks > 1:
+        print("[DATASET SPLITS] Skipped for sharded chunk run. "
+              "Merge chunks first, then export splits from the merged CSV.")
+    elif total_valid > 0:
+        splits_dir = args.splits_dir
+        if not splits_dir:
+            base = os.path.dirname(args.out_csv) or "."
+            splits_dir = os.path.join(base, "dataset_splits")
+        export_dataset_splits(df, splits_dir, ensemble_out_dir=args.out_dir)
 
 
 if __name__ == "__main__":
