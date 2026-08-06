@@ -231,6 +231,19 @@ def test_full_pipeline_mock():
         assert os.path.exists(os.path.join(out_dir, "SUBJ001_uncertainty.nii.gz"))
         assert 'mean_consensus_dice' in res
         assert 'triage_category' in res
+
+        # Wiring guard: the metrics evaluate_subject actually reports must feed
+        # triage_case consistently, i.e. re-deriving the category from the stored
+        # columns reproduces the stored triage_category/action. This locks the
+        # exact integration point between metric computation and triage binning.
+        for key in ('mean_consensus_dice', 'mean_inter_model_dice',
+                    'max_betti_diff', 'mean_uncertainty', 'action'):
+            assert key in res, f"evaluate_subject result missing '{key}'"
+        recomputed_cat, recomputed_act = triage_case(
+            res['mean_consensus_dice'], res['mean_inter_model_dice'],
+            res['max_betti_diff'], res['mean_uncertainty'])
+        assert recomputed_cat == res['triage_category'], (recomputed_cat, res['triage_category'])
+        assert recomputed_act == res['action']
         print("\u2713 test_full_pipeline_mock passed!")
 
     finally:
