@@ -254,51 +254,51 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 # Squeeze channel/batch singleton dimensions (e.g. (1, 290, 290, 322) -> (290, 290, 322))
                 pred_data = np.squeeze(pred_data)
 
-                # ----------------------------------------------------------------
-                # World-space resampling: resample prediction onto the GT's exact
-                # spatial grid using the NRRD affine (LPS) and the NIfTI affine.
-                # Naive array resize ignores origin and axis-direction differences
-                # (NRRD LPS vs NIfTI RAS), causing systematic axis flips.
-                # ----------------------------------------------------------------
-                try:
-                    from nibabel.processing import resample_from_to
+                # Resample prediction array to match GT shape if needed
+                if gt_data.shape != pred_data.shape:
+                    print(f"  [INTERPOLATE] {subject_id} {model_name}: {pred_data.shape} -> {gt_data.shape}")
+                    pred_t = torch.from_numpy(pred_data.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+                    pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
+                    pred_data = pred_t.numpy().astype(np.int64)
 
-                    # Build RAS affine from GT NRRD header
-                    sd = gt_header.get('space directions')   # (3,3) in LPS voxel->mm
-                    so = gt_header.get('space origin', np.zeros(3))
-                    if sd is not None and len(sd) >= 3:
-                        sd_3x3 = np.array([v for v in sd if v is not None])[:3, :3]
-                        so_3d  = np.array(so)[:3]
-                        lps_aff = np.eye(4)
-                        lps_aff[:3, :3] = sd_3x3.T
-                        lps_aff[:3,  3] = so_3d
-                        # LPS -> RAS: flip x and y signs
-                        lps_to_ras = np.diag([-1., -1., 1., 1.])
-                        gt_ras_aff = lps_to_ras @ lps_aff
-                    else:
-                        gt_ras_aff = np.eye(4)
+                # Remap prediction labels to match GT BDMAP label IDs
+                remap = MODEL_LABEL_REMAP.get(model_name, {})
+                if remap:
+                    remapped = np.zeros_like(pred_data, dtype=np.int64)
+                    for pred_label, gt_label in remap.items():
+                        mask = (pred_data == pred_label)
+                        if isinstance(gt_label, list):
+                            z_mid = pred_data.shape[2] // 2
+                            mask_top = np.zeros_like(mask); mask_top[:, :, :z_mid] = mask[:, :, :z_mid]
+                            mask_bot = np.zeros_like(mask); mask_bot[:, :, z_mid:] = mask[:, :, z_mid:]
+                            remapped[mask_top] = gt_label[0]  # jejunum = superior
+                            remapped[mask_bot] = gt_label[1]  # ileum = inferior
+                        else:
+                            remapped[mask] = gt_label
+                    pred_data = remapped
+                    print(f"  [REMAP] Applied {model_name} label remapping")
 
-                    gt_nii_img  = nib.Nifti1Image(gt_data.astype(np.int16), gt_ras_aff)
+                # Auto-align orientation between MONAI NIfTI (RAS) and NRRD (LPS) if overlap is 0
+                # MONAI NIfTI outputs have inverted X, Y, Z relative to NRRD array index order
+                if model_name in ['MedNeXt', 'Swin-UNETR', 'EnsembleConsensus']:
+                    gt_nonzero = (gt_data > 0)
+                    if np.any(gt_nonzero) and np.any(pred_data > 0):
+                        overlap_orig = np.sum((pred_data > 0) & gt_nonzero)
+                        flipped_pred = np.flip(pred_data, axis=(0, 1, 2))
+                        overlap_flip = np.sum((flipped_pred > 0) & gt_nonzero)
 
-                    # If prediction has a dummy/reset affine (e.g. origin at 0,0,0), copy GT RAS affine
-                    pred_aff = pred_nii.affine[:4, :4].copy()
-                    if np.allclose(pred_aff[:3, 3], 0):
-                        print(f"  [AFFINE FIX] {subject_id} {model_name}: replacing dummy origin (0,0,0) with GT origin")
-                        pred_aff = gt_ras_aff.copy()
+                        # Also check 2D XY flip (axis 0, 1)
+                        flipped_xy = np.flip(pred_data, axis=(0, 1))
+                        overlap_xy = np.sum((flipped_xy > 0) & gt_nonzero)
 
-                    pred_nii_clean = nib.Nifti1Image(pred_data.astype(np.int16), pred_aff)
-                    pred_nii_rs = resample_from_to(pred_nii_clean, gt_nii_img, order=0)  # nearest-neighbour
-                    pred_data   = np.round(pred_nii_rs.get_fdata()).astype(np.int64)
-                    print(f"  [RESAMPLE] {subject_id}: world-space resample OK → {pred_data.shape}")
+                        best_overlap = max(overlap_orig, overlap_flip, overlap_xy)
+                        if best_overlap == overlap_flip and overlap_flip > overlap_orig:
+                            pred_data = flipped_pred
+                            print(f"  [ORIENT ALIGN] Applied 3D axis flip (0,1,2) for {model_name} (overlap {overlap_orig} -> {overlap_flip})")
+                        elif best_overlap == overlap_xy and overlap_xy > overlap_orig:
+                            pred_data = flipped_xy
+                            print(f"  [ORIENT ALIGN] Applied XY axis flip (0,1) for {model_name} (overlap {overlap_orig} -> {overlap_xy})")
 
-                except Exception as rs_err:
-                    # Fallback to naive CPU resize if nibabel resample fails
-                    print(f"  [RESAMPLE WARN] {subject_id}: world-space resample failed ({rs_err}), using naive resize")
-                    pred_data = np.squeeze(pred_data)
-                    if gt_data.shape != pred_data.shape:
-                        pred_t = torch.from_numpy(pred_data.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-                        pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
-                        pred_data = pred_t.numpy().astype(np.int64)
 
                 # Remap prediction labels to match GT BDMAP label IDs
                 remap = MODEL_LABEL_REMAP.get(model_name, {})
