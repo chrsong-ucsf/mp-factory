@@ -277,20 +277,8 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
 
                 pred_data_3d = np.squeeze(pred_data)
 
-                # Resample prediction onto original ct.nii.gz native physical grid if found
-                ct_path = find_ct_file(subject_id)
-                if ct_path and os.path.exists(ct_path):
-                    try:
-                        from nibabel.processing import resample_from_to
-                        ct_nii = nib.load(ct_path)
-                        pred_nii_clean = nib.Nifti1Image(pred_data_3d.astype(np.int16), pred_nii.affine[:4, :4])
-                        pred_nii_rs = resample_from_to(pred_nii_clean, ct_nii, order=0)
-                        pred_data = np.round(pred_nii_rs.get_fdata()).astype(np.int64)
-                        print(f"  [NATIVE RESAMPLE] {subject_id} {model_name}: resampled onto native ct.nii.gz → {pred_data.shape}")
-                    except Exception as e:
-                        print(f"  [NATIVE RESAMPLE WARN] {subject_id}: {e}")
-                        pred_data = pred_data_3d
-                elif gt_data.shape != pred_data_3d.shape:
+                # Direct 3D array interpolation to GT grid shape
+                if gt_data.shape != pred_data_3d.shape:
                     print(f"  [INTERPOLATE] {subject_id} {model_name}: {pred_data_3d.shape} -> {gt_data.shape}")
                     pred_t = torch.from_numpy(pred_data_3d.astype(np.float32)).unsqueeze(0).unsqueeze(0)
                     pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
