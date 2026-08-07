@@ -3,7 +3,7 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/step4_split_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/step4_split_%j.err
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:nvidia_l40s:2
+#SBATCH --gres=gpu:2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
 #SBATCH --time=04:00:00
