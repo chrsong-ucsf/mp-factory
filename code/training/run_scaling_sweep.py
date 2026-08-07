@@ -190,14 +190,14 @@ def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
 
 def build_model(num_classes, device):
     """Build MedNeXt-B; fall back to create_mednext_v1 or UNet if needed."""
+    model = None
     if MedNeXtB is not None:
         try:
             model = MedNeXtB(in_channels=1, n_channels=32, n_classes=num_classes + 1)
-            return model.to(device)
         except Exception:
             pass
 
-    if create_mednext_v1 is not None:
+    if model is None and create_mednext_v1 is not None:
         try:
             model = create_mednext_v1(
                 num_classes=num_classes + 1,
@@ -205,16 +205,23 @@ def build_model(num_classes, device):
                 kernel_size=3,
                 deep_supervision=False,
             )
-            return model.to(device)
         except Exception:
             pass
 
-    print("Warning: MedNeXt import failed — falling back to MONAI UNet.")
-    model = UNet(
-        spatial_dims=3, in_channels=1, out_channels=num_classes + 1,
-        channels=(16, 32, 64, 128, 256), strides=(2, 2, 2, 2), num_res_units=2,
-    )
-    return model.to(device)
+    if model is None:
+        print("Warning: MedNeXt import failed — falling back to MONAI UNet.")
+        model = UNet(
+            spatial_dims=3, in_channels=1, out_channels=num_classes + 1,
+            channels=(16, 32, 64, 128, 256), strides=(2, 2, 2, 2), num_res_units=2,
+        )
+
+    model = model.to(device)
+    if device.type == "cuda" and torch.cuda.device_count() > 1:
+        print(f"Enabling torch.nn.DataParallel across {torch.cuda.device_count()} GPUs!")
+        model = torch.nn.DataParallel(model)
+
+    return model
+
 
 
 def compute_dice_hd95(pred_one_hot, label_one_hot, num_classes):
