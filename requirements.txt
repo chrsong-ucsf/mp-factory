@@ -1,0 +1,12 @@
+# Core dependencies for mp-factory
+torch>=1.9.0
+torchvision>=0.10.0
+monai>=0.8.0
+nibabel>=3.2.0
+numpy>=1.19.0
+pandas>=1.3.0
+scipy>=1.14.0  # numpy 2.x ABI; older builds fail with "numpy.core.multiarray failed to import"
+# For Hugging Face dataset handling
+huggingface_hub>=0.12.0
+# For SLURM/job submission (if running on HPC)
+# subprocess and os are built-in
