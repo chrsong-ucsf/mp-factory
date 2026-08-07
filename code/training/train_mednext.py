@@ -23,12 +23,16 @@ from monai.transforms import (
     Orientationd,
     Spacingd,
     ScaleIntensityRanged,
+    ScaleIntensityRangePercentilesd,
     SpatialPadd,
     CropForegroundd,
     RandCropByPosNegLabeld,
     RandRotated,
+    Rand3DElasticd,
     RandFlipd,
     RandGaussianNoised,
+    RandScaleIntensityd,
+    RandShiftIntensityd,
     EnsureTyped,
     AsDiscrete
 )
@@ -44,6 +48,24 @@ except ImportError:
         from mednext.create_mednext_v1 import create_mednext_v1
     except ImportError:
         create_mednext_v1 = None
+
+# Asymmetric PDCE Loss (recall-optimized partial CE + Dice) from the vault-root src/
+try:
+    from src.segmentation.losses.asymmetric_loss import AsymmetricPDCELoss
+except ImportError:
+    try:
+        # __file__ = <vault>/02_Projects/mp-factory/code/training/train_mednext.py
+        # dirname x3 -> mp-factory (repo root); x5 -> the vault root holding src/.
+        _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        _vault_root = os.path.dirname(os.path.dirname(_repo_root))
+        if _vault_root not in sys.path:
+            sys.path.insert(0, _vault_root)
+        from src.segmentation.losses.asymmetric_loss import AsymmetricPDCELoss
+    except ImportError:
+        AsymmetricPDCELoss = None
+
+NUM_CLASSES = 5      # Background + Stomach + Duodenum + Small Bowel + Colon
+IGNORE_INDEX = 255   # Sentinel written by the Task A.2 consensus/auto-label stage
 
 ORGAN_ALIASES = {
     1: ['stomach'],
@@ -161,13 +183,48 @@ class GIDataset(Dataset):
 
         return data_dict
 
-def get_transforms(roi_size=(96, 96, 96)):
+def get_intensity_transform(percentile_clip=True):
+    """Intensity normalization for CT.
+
+    Task B.3 specifies clipping to the 1st-99th percentiles, which adapts to
+    each scan's own histogram and is robust to scanner/protocol variation and
+    to metal or contrast outliers. The fixed HU window (-175, 250) is retained
+    as an opt-out for reproducing earlier runs.
+    """
+    if percentile_clip:
+        return ScaleIntensityRangePercentilesd(
+            keys=["image"],
+            lower=1.0, upper=99.0,
+            b_min=0.0, b_max=1.0,
+            clip=True,
+            relative=False,
+        )
+    return ScaleIntensityRanged(
+        keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True
+    )
+
+
+def get_transforms(roi_size=(96, 96, 96), percentile_clip=True, elastic_prob=0.15):
+    """Build MONAI train/val pipelines.
+
+    Augmentations (Task B.3):
+      - intensity clipping to the 1st-99th percentiles
+      - 3D rotations about all three axes
+      - elastic deformations (Rand3DElasticd)
+      - flips plus mild intensity jitter and Gaussian noise
+
+    Note every spatial augmentation applies ``nearest`` interpolation to the
+    label so integer class indices and the ignore sentinel are never blended
+    into invalid intermediate values.
+    """
+    intensity_tf = get_intensity_transform(percentile_clip)
+
     train_transforms = Compose([
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
-        ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
+        intensity_tf,
         CropForegroundd(keys=["image", "label"], source_key="image"),
         SpatialPadd(keys=["image", "label"], spatial_size=roi_size),
         RandCropByPosNegLabeld(
@@ -180,10 +237,29 @@ def get_transforms(roi_size=(96, 96, 96)):
             image_key="image",
             image_threshold=0,
         ),
-        RandRotated(keys=["image", "label"], range_x=0.3, range_y=0.3, range_z=0.3, mode=("bilinear", "nearest"), prob=0.3),
+        # --- 3D rotations about all three axes ---
+        RandRotated(
+            keys=["image", "label"],
+            range_x=0.3, range_y=0.3, range_z=0.3,
+            mode=("bilinear", "nearest"),
+            padding_mode="zeros",
+            prob=0.3,
+        ),
+        # --- Elastic deformation: models peristaltic//postural GI variation ---
+        Rand3DElasticd(
+            keys=["image", "label"],
+            sigma_range=(5, 8),
+            magnitude_range=(50, 120),
+            prob=elastic_prob,
+            mode=("bilinear", "nearest"),
+            padding_mode="zeros",
+        ),
         RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0),
         RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=1),
         RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=2),
+        RandGaussianNoised(keys=["image"], prob=0.15, mean=0.0, std=0.01),
+        RandScaleIntensityd(keys=["image"], factors=0.1, prob=0.15),
+        RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.15),
         EnsureTyped(keys=["image", "label"]),
     ])
 
@@ -192,7 +268,7 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
-        ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
+        intensity_tf,
         EnsureTyped(keys=["image", "label"]),
     ])
 
@@ -213,6 +289,17 @@ def main():
     parser.add_argument("--max_val_samples", type=int, default=50, help="Maximum number of validation scans to evaluate per check for fast validation")
     parser.add_argument("--gold_standard_dir", type=str, default=None,
                         help="Directory containing gold standard manual annotations for 10x loss weighting")
+    parser.add_argument("--loss_type", type=str, default="asymmetric",
+                        choices=["asymmetric", "dice_ce"],
+                        help="Loss: 'asymmetric' (AsymmetricPDCELoss, default) or 'dice_ce' (legacy DiceCELoss)")
+    parser.add_argument("--alpha", type=float, default=2.0,
+                        help="Asymmetric false-negative weight (alpha > beta boosts recall)")
+    parser.add_argument("--beta", type=float, default=1.0,
+                        help="Asymmetric false-positive weight (typically 1.0)")
+    parser.add_argument("--no_percentile_clip", action="store_true",
+                        help="Use the fixed HU window (-175, 250) instead of 1st-99th percentile clipping")
+    parser.add_argument("--elastic_prob", type=float, default=0.15,
+                        help="Probability of applying 3D elastic deformation (0 disables)")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -255,7 +342,11 @@ def main():
     else:
         val_pairs_eval = val_pairs
 
-    train_tf, val_tf = get_transforms(roi_size=(96, 96, 96))
+    train_tf, val_tf = get_transforms(
+        roi_size=(96, 96, 96),
+        percentile_clip=not args.no_percentile_clip,
+        elastic_prob=args.elastic_prob,
+    )
 
     train_ds = GIDataset(train_pairs, transform=train_tf)
     val_ds = GIDataset(val_pairs_eval, transform=val_tf)
@@ -284,7 +375,24 @@ def main():
         print(f"[Multi-GPU] Wrapping MedNeXt with DataParallel across {num_gpus} GPUs!")
         model = nn.DataParallel(model)
 
-    loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
+    # --- Loss selection ---
+    if args.loss_type == "asymmetric" and AsymmetricPDCELoss is not None:
+        print(f"[Loss] AsymmetricPDCELoss(alpha={args.alpha}, beta={args.beta}, "
+              f"ignore_index={IGNORE_INDEX})")
+        loss_function = AsymmetricPDCELoss(
+            apply_softmax=True,
+            ce_weight=0.5,
+            dice_weight=1.0,
+            alpha=args.alpha,
+            beta=args.beta,
+            ignore_index=IGNORE_INDEX,
+        )
+    else:
+        if args.loss_type == "asymmetric":
+            print("WARNING: AsymmetricPDCELoss import failed; falling back to DiceCELoss.")
+        else:
+            print("[Loss] DiceCELoss")
+        loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scaler = torch.cuda.amp.GradScaler()
 

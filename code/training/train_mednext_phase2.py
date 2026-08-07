@@ -53,10 +53,12 @@ try:
 except ImportError:
     try:
         import sys as _sys, os as _os
+        # __file__ = <vault>/02_Projects/mp-factory/code/training/<this file>
+        # dirname x3 -> mp-factory (repo root); x5 -> the vault root holding src/.
         _repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-        _vault_root = _os.path.dirname(_repo_root)
+        _vault_root = _os.path.dirname(_os.path.dirname(_repo_root))
         if _vault_root not in _sys.path:
-            _sys.insert(0, _vault_root)
+            _sys.path.insert(0, _vault_root)
         from src.segmentation.losses.asymmetric_loss import AsymmetricPDCELoss
     except ImportError:
         AsymmetricPDCELoss = None
