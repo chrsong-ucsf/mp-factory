@@ -3,9 +3,9 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/step5_extval_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/step5_extval_%j.err
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:nvidia_l40s:1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --gres=gpu:nvidia_l40s:4
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=128G
 #SBATCH --time=04:00:00
 
 set -euo pipefail

@@ -67,25 +67,37 @@ def process_subject(mask_path, out_path, ratio=0.40):
     nib.save(out_nii, out_path)
     print(f"Processed 5-organ split -> {out_path}")
 
+import concurrent.futures
+
+def _worker_process(args_tuple):
+    m_path, out_path, ratio = args_tuple
+    try:
+        process_subject(m_path, out_path, ratio=ratio)
+        return True
+    except Exception as e:
+        print(f"Error processing {m_path}: {e}")
+        return False
+
 def main():
     parser = argparse.ArgumentParser(description="Step 4 5-organ small-bowel boundary splitting.")
     parser.add_argument("--data_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox")
     parser.add_argument("--out_suffix", type=str, default="gi_mask_5organ.nii.gz")
     parser.add_argument("--ratio", type=float, default=0.40)
+    parser.add_argument("--num_workers", type=int, default=16)
     args = parser.parse_args()
 
     mask_files = sorted(glob.glob(os.path.join(args.data_dir, "*", "gi_mask.nii.gz")))
     if not mask_files:
         mask_files = sorted(glob.glob(os.path.join(args.data_dir, "BDMAP_*", "gi_mask.nii.gz")))
 
-    print(f"Found {len(mask_files)} mask files to process for 5-organ splitting.")
-    for m_path in mask_files:
-        s_dir = os.path.dirname(m_path)
-        out_path = os.path.join(s_dir, args.out_suffix)
-        try:
-            process_subject(m_path, out_path, ratio=args.ratio)
-        except Exception as e:
-            print(f"Error processing {m_path}: {e}")
+    print(f"Found {len(mask_files)} mask files to process for 5-organ splitting across {args.num_workers} parallel CPU workers.")
+    tasks = [(m_path, os.path.join(os.path.dirname(m_path), args.out_suffix), args.ratio) for m_path in mask_files]
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.num_workers) as executor:
+        results = list(executor.map(_worker_process, tasks))
+
+    print(f"Completed 5-organ boundary splitting: {sum(results)}/{len(tasks)} succeeded.")
 
 if __name__ == "__main__":
     main()
+

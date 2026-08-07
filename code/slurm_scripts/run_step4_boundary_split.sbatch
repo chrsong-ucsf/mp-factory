@@ -3,9 +3,9 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/step4_split_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/step4_split_%j.err
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:nvidia_l40s:1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --gres=gpu:nvidia_l40s:4
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=128G
 #SBATCH --time=04:00:00
 
 set -euo pipefail
@@ -24,10 +24,12 @@ export PYTHONPATH="${SCRATCH_ROOT}:${CODE_DIR}:${PYTHONPATH:-}"
 
 echo "=================================================================="
 echo "Job              : ${SLURM_JOB_ID:-local}"
-echo "Step 4           : Centerline-Skeleton 5-Organ Boundary Splitting"
+echo "Step 4           : Centerline-Skeleton 5-Organ Boundary Splitting (32 Workers)"
 echo "Data Dir         : ${DATA_DIR}"
 echo "=================================================================="
 
 python -u "${CODE_DIR}/utilities/run_step4_boundary_split.py" \
     --data_dir "${DATA_DIR}" \
+    --num_workers 32 \
     --out_suffix gi_mask_5organ.nii.gz
+
