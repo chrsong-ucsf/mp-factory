@@ -3,9 +3,9 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/scaling_sweep_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/scaling_sweep_%j.err
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:2
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
 #SBATCH --time=24:00:00
 
 set -euo pipefail
