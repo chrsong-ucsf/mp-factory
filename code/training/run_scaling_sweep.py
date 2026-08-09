@@ -58,11 +58,17 @@ from monai.inferers import sliding_window_inference
 from monai.metrics import compute_hausdorff_distance
 from monai.losses import DiceCELoss
 
-# Resolve imports for MedNeXt-B and AsymmetricPDCELoss across repo layouts
+# Robust local imports for MedNeXt-B and AsymmetricPDCELoss within mp-factory
 try:
-    from src.segmentation.models.mednext import MedNeXtB
+    from code.training.mednext import MedNeXtB
 except ImportError:
-    MedNeXtB = None
+    try:
+        from mednext import MedNeXtB
+    except ImportError:
+        try:
+            from src.segmentation.models.mednext import MedNeXtB
+        except ImportError:
+            MedNeXtB = None
 
 try:
     from nnunet_mednext import create_mednext_v1
@@ -73,19 +79,16 @@ except ImportError:
         create_mednext_v1 = None
 
 try:
-    from src.segmentation.losses.asymmetric_loss import AsymmetricPDCELoss
+    from code.training.asymmetric_loss import AsymmetricPDCELoss
 except ImportError:
-    # Attempt vault-root path resolution
-    _here = os.path.abspath(__file__)
-    _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(_here)))
-    _vault_root = os.path.dirname(os.path.dirname(_repo_root))
-    for path in [_repo_root, _vault_root]:
-        if path not in sys.path:
-            sys.path.insert(0, path)
     try:
-        from src.segmentation.losses.asymmetric_loss import AsymmetricPDCELoss
+        from asymmetric_loss import AsymmetricPDCELoss
     except ImportError:
-        AsymmetricPDCELoss = None
+        try:
+            from src.segmentation.losses.asymmetric_loss import AsymmetricPDCELoss
+        except ImportError:
+            AsymmetricPDCELoss = None
+
 
 # ---------------------------------------------------------------------------
 # Constants
