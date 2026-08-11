@@ -251,37 +251,44 @@ def compute_dice_hd95(pred_one_hot, label_one_hot, num_classes):
 
 
 def evaluate_radiologist_true_dice(model, rad_cases, roi_size, device):
-    """Evaluates model predictions against expert radiologist GT cases."""
+    """
+    Evaluates model predictions against expert radiologist GT cases.
+    Returns mean radiologist true-Dice score across available radiologist GT cases.
+    """
     if not rad_cases:
         return None
-    model.eval()
-    val_ds = Dataset(data=rad_cases, transform=build_transforms(roi_size, is_train=False))
-    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
+    try:
+        model.eval()
+        val_ds = Dataset(data=rad_cases, transform=build_transforms(roi_size, is_train=False))
+        val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
 
-    dices = []
-    with torch.no_grad():
-        for batch in val_loader:
-            imgs = batch["image"].to(device)
-            lbls = batch["label"].to(device)
-            out = sliding_window_inference(
-                inputs=imgs, roi_size=roi_size,
-                sw_batch_size=1, predictor=model, overlap=0.25,
-            )
-            if isinstance(out, (tuple, list)):
-                out = out[0]
-            probs = torch.softmax(out, dim=1)
-            preds = torch.argmax(probs, dim=1, keepdim=True)
+        dices = []
+        with torch.no_grad():
+            for batch in val_loader:
+                imgs = batch["image"].to(device)
+                lbls = batch["label"].to(device)
+                out = sliding_window_inference(
+                    inputs=imgs, roi_size=roi_size,
+                    sw_batch_size=1, predictor=model, overlap=0.25,
+                )
+                if isinstance(out, (tuple, list)):
+                    out = out[0]
+                probs = torch.softmax(out, dim=1)
+                preds = torch.argmax(probs, dim=1, keepdim=True)
 
-            pred_oh = torch.zeros(imgs.shape[0], NUM_CLASSES, *imgs.shape[2:], device=device)
-            lbl_oh  = torch.zeros_like(pred_oh)
-            for c in range(NUM_CLASSES):
-                pred_oh[:, c, ...] = (preds[:, 0, ...] == (c + 1)).float()
-                lbl_oh[:, c, ...]  = (lbls[:, 0, ...] == (c + 1)).float()
+                pred_oh = torch.zeros(imgs.shape[0], NUM_CLASSES, *imgs.shape[2:], device=device)
+                lbl_oh  = torch.zeros_like(pred_oh)
+                for c in range(NUM_CLASSES):
+                    pred_oh[:, c, ...] = (preds[:, 0, ...] == (c + 1)).float()
+                    lbl_oh[:, c, ...]  = (lbls[:, 0, ...] == (c + 1)).float()
 
-            dice_vals, _ = compute_dice_hd95(pred_oh, lbl_oh, NUM_CLASSES)
-            dices.append(np.mean(dice_vals))
+                dice_vals, _ = compute_dice_hd95(pred_oh, lbl_oh, NUM_CLASSES)
+                dices.append(np.mean(dice_vals))
 
-    return float(np.mean(dices)) if dices else None
+        return float(np.mean(dices)) if dices else None
+    except Exception as err:
+        print(f"  Warning: radiologist true-Dice evaluation skipped ({err})")
+        return None
 
 
 # ---------------------------------------------------------------------------
