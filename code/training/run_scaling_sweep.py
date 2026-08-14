@@ -177,20 +177,28 @@ def remap_gi_labels(lbl):
       6 (colon)        -> 4
       0, 1 (esophagus) -> 0
     """
+    is_bdmap = False
     if torch.is_tensor(lbl):
-        out = torch.zeros_like(lbl)
-        out[lbl == 2] = 1
-        out[lbl == 3] = 2
-        out[(lbl == 4) | (lbl == 5)] = 3
-        out[lbl == 6] = 4
-        return out
+        is_bdmap = (lbl > 4).any().item()
     else:
-        out = np.zeros_like(lbl)
-        out[lbl == 2] = 1
-        out[lbl == 3] = 2
-        out[(lbl == 4) | (lbl == 5)] = 3
-        out[lbl == 6] = 4
-        return out
+        is_bdmap = (lbl > 4).any()
+
+    if is_bdmap:
+        if torch.is_tensor(lbl):
+            out = torch.zeros_like(lbl)
+            out[lbl == 2] = 1
+            out[lbl == 3] = 2
+            out[(lbl == 4) | (lbl == 5)] = 3
+            out[lbl == 6] = 4
+            return out
+        else:
+            out = np.zeros_like(lbl)
+            out[lbl == 2] = 1
+            out[lbl == 3] = 2
+            out[(lbl == 4) | (lbl == 5)] = 3
+            out[lbl == 6] = 4
+            return out
+    return lbl
 
 
 def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
