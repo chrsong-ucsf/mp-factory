@@ -178,9 +178,9 @@ def remap_gi_labels(lbl):
     If already mapped to 1..4, preserves 1..4.
     """
     if torch.is_tensor(lbl):
-        has_bdmap = ((lbl == 2) | (lbl == 3) | (lbl == 5) | (lbl == 6)).any()
+        has_bdmap = (lbl > 4).any()
     else:
-        has_bdmap = bool(np.isin(lbl, [2, 3, 5, 6]).any())
+        has_bdmap = (lbl > 4).any()
 
     if has_bdmap:
         out = torch.zeros_like(lbl)
@@ -209,7 +209,7 @@ def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
             keys=["image", "label"],
             label_key="label",
             spatial_size=roi_size,
-            pos=2, neg=1, num_samples=4,
+            pos=1, neg=1, num_samples=2,
             image_key="image", image_threshold=0,
         ))
         shared.append(RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0))
@@ -262,16 +262,21 @@ def compute_dice_hd95(pred_one_hot, label_one_hot, num_classes):
         g = label_one_hot[:, c:c+1, ...]
         inter = (p * g).sum()
         union = p.sum() + g.sum()
-        dice = (2.0 * inter / (union + 1e-6)).item()
-        dice_vals.append(dice)
+
+        if g.sum() == 0:
+            dice_vals.append(float('nan'))
+        else:
+            dice = (2.0 * inter / (union + 1e-6)).item()
+            dice_vals.append(dice)
 
         hd95 = float("nan")
-        try:
-            hd_t = compute_hausdorff_distance(p, g, percentile=95)
-            if not (torch.isnan(hd_t).all() or torch.isinf(hd_t).all()):
-                hd95 = hd_t.item()
-        except Exception:
-            pass
+        if g.sum() > 0 and p.sum() > 0:
+            try:
+                hd_t = compute_hausdorff_distance(p, g, percentile=95)
+                if not (torch.isnan(hd_t).all() or torch.isinf(hd_t).all()):
+                    hd95 = hd_t.item()
+            except Exception:
+                pass
         hd95_vals.append(hd95)
 
     return dice_vals, hd95_vals
@@ -334,6 +339,7 @@ def run_single_sweep(
     beta: float = 1.0,
     rad_cases: list = None,
     seed: int = 42,
+    pretrained_weights: str = None,
 ):
     rng = random.Random(seed)
     if n_cases > len(all_cases):
@@ -362,8 +368,20 @@ def run_single_sweep(
     val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
 
     model = build_model(NUM_CLASSES, device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
+    if pretrained_weights and os.path.exists(pretrained_weights):
+        print(f"  Loading pretrained weights from {pretrained_weights}")
+        checkpoint = torch.load(pretrained_weights, map_location=device)
+        state_dict = checkpoint.get("model_state_dict", checkpoint)
+        try:
+            model.load_state_dict(state_dict, strict=False)
+        except RuntimeError:
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                k_new = k.replace("module.", "") if not isinstance(model, torch.nn.DataParallel) else f"module.{k.replace('module.', '')}"
+                new_state_dict[k_new] = v
+            model.load_state_dict(new_state_dict, strict=False)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
 
     if loss_name == "asymmetric" and AsymmetricPDCELoss is not None:
         loss_fn = AsymmetricPDCELoss(apply_softmax=True, alpha=alpha, beta=beta)
@@ -404,7 +422,6 @@ def run_single_sweep(
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
-        scheduler.step()
         avg_loss = epoch_loss / max(len(train_loader), 1)
 
         # ---- Validate ----
@@ -436,15 +453,16 @@ def run_single_sweep(
 
                 dice_vals, hd95_vals = compute_dice_hd95(pred_oh, lbl_oh, NUM_CLASSES)
                 for c in range(NUM_CLASSES):
-                    all_dice[c].append(dice_vals[c])
+                    if not np.isnan(dice_vals[c]):
+                        all_dice[c].append(dice_vals[c])
                     if not np.isnan(hd95_vals[c]):
                         all_hd95[c].append(hd95_vals[c])
 
-        per_organ_dice = [float(np.mean(all_dice[c])) if all_dice[c] else 0.0
+        per_organ_dice = [float(np.mean(all_dice[c])) if all_dice[c] else float("nan")
                           for c in range(NUM_CLASSES)]
         per_organ_hd95 = [float(np.mean(all_hd95[c])) if all_hd95[c] else float("nan")
                           for c in range(NUM_CLASSES)]
-        mean_dice = float(np.mean(per_organ_dice))
+        mean_dice = float(np.nanmean(per_organ_dice)) if any(not np.isnan(v) for v in per_organ_dice) else float("nan")
         mean_hd95 = float(np.nanmean(per_organ_hd95)) if any(not np.isnan(v) for v in per_organ_hd95) else float("nan")
 
         true_dice = evaluate_radiologist_true_dice(model, rad_cases, roi_size, device)
@@ -558,6 +576,7 @@ def main():
     parser.add_argument("--output_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/scaling_sweep")
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--pretrained_weights", type=str, default=None, help="Path to TS-distillation pretraining weights")
     parser.add_argument(
         "--generate_dummy", action="store_true",
         help="Generate synthetic dummy data for smoke-testing.",
@@ -616,6 +635,7 @@ def main():
             beta=args.beta,
             rad_cases=rad_cases,
             seed=args.seed,
+            pretrained_weights=args.pretrained_weights,
         )
         with open(json_path) as f:
             sweep_results.append(json.load(f))
