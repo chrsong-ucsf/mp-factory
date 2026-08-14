@@ -202,7 +202,7 @@ def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
             keys=["image", "label"],
             label_key="label",
             spatial_size=roi_size,
-            pos=2, neg=1, num_samples=4,
+            pos=2, neg=1, num_samples=2,
             image_key="image", image_threshold=0,
         ))
         shared.append(RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0))
