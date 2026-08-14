@@ -175,21 +175,14 @@ def remap_gi_labels(lbl):
       4 (jejunum)      -> 3
       5 (ileum)        -> 3 (smush jejunum+ileum -> small_bowel)
       6 (colon)        -> 4
-    If already mapped to 1..4, preserves 1..4.
+      0, 1 (esophagus) -> 0
     """
-    if torch.is_tensor(lbl):
-        has_bdmap = (lbl > 4).any()
-    else:
-        has_bdmap = (lbl > 4).any()
-
-    if has_bdmap:
-        out = torch.zeros_like(lbl)
-        out[lbl == 2] = 1
-        out[lbl == 3] = 2
-        out[(lbl == 4) | (lbl == 5)] = 3
-        out[lbl == 6] = 4
-        return out
-    return lbl
+    out = torch.zeros_like(lbl)
+    out[lbl == 2] = 1
+    out[lbl == 3] = 2
+    out[(lbl == 4) | (lbl == 5)] = 3
+    out[lbl == 6] = 4
+    return out
 
 
 def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
@@ -209,7 +202,7 @@ def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
             keys=["image", "label"],
             label_key="label",
             spatial_size=roi_size,
-            pos=1, neg=1, num_samples=2,
+            pos=2, neg=1, num_samples=4,
             image_key="image", image_threshold=0,
         ))
         shared.append(RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0))
@@ -381,7 +374,8 @@ def run_single_sweep(
                 new_state_dict[k_new] = v
             model.load_state_dict(new_state_dict, strict=False)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
 
     if loss_name == "asymmetric" and AsymmetricPDCELoss is not None:
         loss_fn = AsymmetricPDCELoss(apply_softmax=True, alpha=alpha, beta=beta)
@@ -422,6 +416,7 @@ def run_single_sweep(
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
+        scheduler.step()
         avg_loss = epoch_loss / max(len(train_loader), 1)
 
         # ---- Validate ----
