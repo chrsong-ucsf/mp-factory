@@ -83,34 +83,43 @@ class AsymmetricPDCELoss(nn.Module):
         else:
             valid_mask_expanded = None
 
+        # --- Cross-Entropy Component ---
         if expanded_binary:
             ce_probs = probs[:, 1:2]
             ce_target = target_oh[:, 1:2]
+            ce_loss = - (self.alpha * ce_target * torch.log(ce_probs) +
+                         self.beta * (1.0 - ce_target) * torch.log(1.0 - ce_probs))
         else:
-            ce_probs = probs
-            ce_target = target_oh
-
-        ce_loss = - (self.alpha * ce_target * torch.log(ce_probs) +
-                     self.beta * (1.0 - ce_target) * torch.log(1.0 - ce_probs))
+            # Multiclass categorical cross-entropy with foreground asymmetric weighting
+            log_probs = torch.log(probs)
+            weights = torch.ones(probs.shape[1], device=probs.device, dtype=probs.dtype)
+            weights[1:] = self.alpha
+            spatial_dims = [1] * (target_oh.ndim - 2)
+            w_tensor = weights.view(1, -1, *spatial_dims)
+            ce_loss = - (target_oh * log_probs * w_tensor).sum(dim=1, keepdim=True)
 
         if valid_mask_expanded is not None:
             ce_loss = ce_loss * valid_mask_expanded
-            n_valid_elements = valid_mask_expanded.sum() * ce_probs.shape[1]
-            n_valid_elements = torch.clamp(n_valid_elements, min=1.0)
-            ce_loss = ce_loss.sum() / n_valid_elements
+            n_valid = torch.clamp(valid_mask_expanded.sum(), min=1.0)
+            ce_loss = ce_loss.sum() / n_valid
         else:
             ce_loss = ce_loss.mean()
 
-        if valid_mask_expanded is not None:
-            probs_masked = probs * valid_mask_expanded
-            target_masked = target_oh * valid_mask_expanded
+        # --- Dice Loss Component (Foreground classes only) ---
+        # Exclude background channel 0 in multiclass to prevent all-background collapse
+        if probs.shape[1] > 1:
+            fg_probs = probs[:, 1:, ...]
+            fg_target = target_oh[:, 1:, ...]
+            if valid_mask_expanded is not None:
+                fg_probs = fg_probs * valid_mask_expanded
+                fg_target = fg_target * valid_mask_expanded
         else:
-            probs_masked = probs
-            target_masked = target_oh
+            fg_probs = probs
+            fg_target = target_oh
 
-        reduce_dims = [0, 2, 3] + ([4] if probs.ndim == 5 else [])
-        intersection = (probs_masked * target_masked).sum(dim=reduce_dims)
-        cardinality = (probs_masked + target_masked).sum(dim=reduce_dims)
+        reduce_dims = [0, 2, 3] + ([4] if fg_probs.ndim == 5 else [])
+        intersection = (fg_probs * fg_target).sum(dim=reduce_dims)
+        cardinality = (fg_probs + fg_target).sum(dim=reduce_dims)
 
         dice_score = (2.0 * intersection + self.smooth_nr) / (cardinality + self.smooth_dr)
         dice_loss = 1.0 - dice_score.mean()
