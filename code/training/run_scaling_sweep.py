@@ -177,12 +177,20 @@ def remap_gi_labels(lbl):
       6 (colon)        -> 4
       0, 1 (esophagus) -> 0
     """
-    out = torch.zeros_like(lbl)
-    out[lbl == 2] = 1
-    out[lbl == 3] = 2
-    out[(lbl == 4) | (lbl == 5)] = 3
-    out[lbl == 6] = 4
-    return out
+    if torch.is_tensor(lbl):
+        out = torch.zeros_like(lbl)
+        out[lbl == 2] = 1
+        out[lbl == 3] = 2
+        out[(lbl == 4) | (lbl == 5)] = 3
+        out[lbl == 6] = 4
+        return out
+    else:
+        out = np.zeros_like(lbl)
+        out[lbl == 2] = 1
+        out[lbl == 3] = 2
+        out[(lbl == 4) | (lbl == 5)] = 3
+        out[lbl == 6] = 4
+        return out
 
 
 def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
@@ -256,8 +264,10 @@ def compute_dice_hd95(pred_one_hot, label_one_hot, num_classes):
         inter = (p * g).sum()
         union = p.sum() + g.sum()
 
-        if g.sum() == 0:
-            dice_vals.append(float('nan'))
+        if g.sum() == 0 and p.sum() == 0:
+            dice_vals.append(1.0)
+        elif g.sum() == 0 or p.sum() == 0:
+            dice_vals.append(0.0)
         else:
             dice = (2.0 * inter / (union + 1e-6)).item()
             dice_vals.append(dice)
