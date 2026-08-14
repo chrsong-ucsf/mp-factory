@@ -1,12 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=gi_scaling_sweep
-#SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/scaling_sweep_%j.out
-#SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/scaling_sweep_%j.err
+#SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/scaling_sweep_%A_%a.out
+#SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/scaling_sweep_%A_%a.err
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:nvidia_l40s:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=24:00:00
+#SBATCH --array=0-5%4
 
 set -euo pipefail
 
@@ -20,7 +21,9 @@ RAD_GT_DIR="${RAD_GT_DIR:-${SCRATCH_ROOT}/JHU_data_radiologist_corrected}"
 ENV_PREFIX="${ENV_PREFIX:-/mnt/scratch/user/chrsong/envs/mp-factory}"
 
 # Hyperparameters
-COHORT_SIZES="${COHORT_SIZES:-4 10 15 20 30 50}"
+ALL_COHORT_SIZES=(4 10 15 20 30 50)
+CURRENT_SIZE=${ALL_COHORT_SIZES[$SLURM_ARRAY_TASK_ID]}
+
 EPOCHS="${EPOCHS:-30}"
 LOSS="${LOSS:-asymmetric}"
 ALPHA="${ALPHA:-2.0}"
@@ -43,9 +46,9 @@ export CUDA_DEVICE_ORDER=PCI_BUS_ID
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 echo "=================================================================="
-echo "Job              : ${SLURM_JOB_ID:-local}"
+echo "Job              : ${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 echo "Node             : $(hostname)"
-echo "Cohort Sizes     : ${COHORT_SIZES}"
+echo "Cohort Size      : ${CURRENT_SIZE}"
 echo "Loss             : ${LOSS} (alpha=${ALPHA}, beta=${BETA})"
 echo "Epochs           : ${EPOCHS}"
 echo "Data Dir         : ${DATA_DIR}"
@@ -56,7 +59,7 @@ echo "=================================================================="
 python -u "${CODE_DIR}/training/run_scaling_sweep.py" \
     --data_dir "${DATA_DIR}" \
     --mask_dir "${DATA_DIR}" \
-    --cohort_sizes ${COHORT_SIZES} \
+    --cohort_sizes ${CURRENT_SIZE} \
     --loss "${LOSS}" \
     --alpha "${ALPHA}" \
     --beta "${BETA}" \
