@@ -52,6 +52,7 @@ from monai.transforms import (
     RandCropByPosNegLabeld,
     RandFlipd,
     EnsureTyped,
+    Lambdad,
 )
 from monai.data import Dataset
 from monai.inferers import sliding_window_inference
@@ -166,19 +167,40 @@ def create_dummy_cohort(tmp_dir, n_cases=50):
 # Training utilities
 # ---------------------------------------------------------------------------
 
+def remap_gi_labels(lbl):
+    """
+    Remaps BDMAP / AbdomenAtlas GI labels to 4-class scaling baseline:
+      2 (stomach)      -> 1
+      3 (duodenum)     -> 2
+      4 (jejunum)      -> 3
+      5 (ileum)        -> 3 (smush jejunum+ileum -> small_bowel)
+      6 (colon)        -> 4
+    If already mapped to 1..4, preserves 1..4.
+    """
+    if (lbl == 5).any() or (lbl == 6).any():
+        out = torch.zeros_like(lbl)
+        out[lbl == 2] = 1
+        out[lbl == 3] = 2
+        out[(lbl == 4) | (lbl == 5)] = 3
+        out[lbl == 6] = 4
+        return out
+    return lbl
+
+
 def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
     shared = [
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
+        Lambdad(keys=["label"], func=remap_gi_labels),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         EnsureTyped(keys=["image", "label"]),
     ]
     if is_train:
-        shared.insert(4, CropForegroundd(keys=["image", "label"], source_key="image"))
-        shared.insert(5, SpatialPadd(keys=["image", "label"], spatial_size=roi_size))
-        shared.insert(6, RandCropByPosNegLabeld(
+        shared.insert(5, CropForegroundd(keys=["image", "label"], source_key="image"))
+        shared.insert(6, SpatialPadd(keys=["image", "label"], spatial_size=roi_size))
+        shared.insert(7, RandCropByPosNegLabeld(
             keys=["image", "label"],
             label_key="label",
             spatial_size=roi_size,
