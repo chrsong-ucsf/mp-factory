@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:nvidia_l40s:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=24:00:00
+#SBATCH --time=02:00:00
 #SBATCH --array=0-5%4
 
 set -euo pipefail
