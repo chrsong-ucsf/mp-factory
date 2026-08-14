@@ -177,7 +177,12 @@ def remap_gi_labels(lbl):
       6 (colon)        -> 4
     If already mapped to 1..4, preserves 1..4.
     """
-    if (lbl == 5).any() or (lbl == 6).any():
+    if torch.is_tensor(lbl):
+        has_bdmap = ((lbl == 2) | (lbl == 3) | (lbl == 5) | (lbl == 6)).any()
+    else:
+        has_bdmap = bool(np.isin(lbl, [2, 3, 5, 6]).any())
+
+    if has_bdmap:
         out = torch.zeros_like(lbl)
         out[lbl == 2] = 1
         out[lbl == 3] = 2
