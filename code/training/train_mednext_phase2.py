@@ -71,10 +71,28 @@ IGNORE_INDEX = 255  # WEAK_COARSE boundary pixels are ignored in loss
 # Dataset Discovery
 # ---------------------------------------------------------------------------
 
-def discover_phase2_dataset(data_dir, audit_csv, ensemble_out_dir, use_weak=False, gold_standard_dir=None):
-    """Build image/label pairs using ensemble consensus masks as labels."""
+def discover_phase2_dataset(data_dir, audit_csv, ensemble_out_dir, autolabel_dir=None, use_weak=False, gold_standard_dir=None):
+    """Build image/label pairs using unified_gastro_dataset manifest builder."""
+    import sys, os
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    from code.evaluation.unified_gastro_dataset import build_manifest
+
     if not os.path.exists(audit_csv):
         raise FileNotFoundError(f"Audit CSV not found: {audit_csv}")
+
+    print(f"[Phase 2 Dataset] Building manifest from audit CSV: {audit_csv}")
+    manifest = build_manifest(
+        audit_csv=audit_csv,
+        data_dir=data_dir,
+        consensus_dir=ensemble_out_dir,
+        autolabel_dir=autolabel_dir,
+        use_weak=use_weak
+    )
+
+    if not manifest:
+        return []
 
     # Pre-compute set of gold standard subject IDs for efficient lookup
     gold_standard_ids = set()
@@ -82,61 +100,37 @@ def discover_phase2_dataset(data_dir, audit_csv, ensemble_out_dir, use_weak=Fals
         import glob
         gs_files = glob.glob(os.path.join(gold_standard_dir, "*.nii.gz"))
         for gs_file in gs_files:
-            # Extract subject ID from filename (assuming format like SUBJECT_ID.nii.gz or similar)
-            filename = os.path.basename(gs_file)
-            # Remove .nii.gz extension to get potential subject ID
-            subject_id = filename.replace('.nii.gz', '')
+            subject_id = os.path.basename(gs_file).replace('.nii.gz', '')
             gold_standard_ids.add(subject_id)
 
-    df = pd.read_csv(audit_csv)
-    df = df[df['status'] == 'SUCCESS']
-
-    categories = ['CLEAN_HIGH_CONFIDENCE']
-    if use_weak:
-        categories.append('WEAK_COARSE')
-
-    selected = df[df['triage_category'].isin(categories)]
-    print(f"[Phase 2 Dataset] Selected {len(selected):,} subjects:")
-    for cat in categories:
-        n = (selected['triage_category'] == cat).sum()
-        print(f"  - {cat}: {n:,} cases")
-
     data_pairs = []
-    missing_ct = 0
-    missing_consensus = 0
+    missing_files = 0
 
-    for _, row in selected.iterrows():
-        sub_id   = str(row['subject_id'])
-        category = row['triage_category']
-
-        ct_path        = os.path.join(data_dir, sub_id, "ct.nii.gz")
-        consensus_path = os.path.join(ensemble_out_dir, f"{sub_id}_consensus.nii.gz")
-
-        if not os.path.exists(ct_path):
-            missing_ct += 1
+    for rec in manifest:
+        sub_id = rec["subject_id"]
+        # Skip teachers if they snuck in, we only want CLEAN and WEAK here
+        if rec["category"] not in ["CLEAN_HIGH_CONFIDENCE", "WEAK_COARSE"]:
             continue
-        if not os.path.exists(consensus_path):
-            missing_consensus += 1
+            
+        if not rec["ct_path"] or not rec["label_path"] or not os.path.exists(rec["ct_path"]) or not os.path.exists(rec["label_path"]):
+            missing_files += 1
             continue
-
-        # Check if this is a gold standard sample
-        is_gold_standard = sub_id in gold_standard_ids
 
         data_pairs.append({
-            "image":           ct_path,
-            "label":           consensus_path,
-            "category":        category,
-            "subject_id":      sub_id,
-            "is_gold_standard": is_gold_standard
+            "image": rec["ct_path"],
+            "label": rec["label_path"],
+            "category": rec["category"],
+            "subject_id": sub_id,
+            "is_gold_standard": (sub_id in gold_standard_ids)
         })
 
-    print(f"  Missing CT: {missing_ct} | Missing Consensus: {missing_consensus}")
+    print(f"  Missing files (CT or Label): {missing_files}")
     print(f"  Final usable pairs: {len(data_pairs):,}")
     if gold_standard_dir:
-        gs_count = sum(1 for pair in data_pairs if pair.get("is_gold_standard", False))
+        gs_count = sum(1 for pair in data_pairs if pair["is_gold_standard"])
         print(f"  Gold standard samples: {gs_count}")
+        
     return data_pairs
-
 
 # ---------------------------------------------------------------------------
 # Transforms
@@ -230,6 +224,8 @@ def main():
                         default="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv")
     parser.add_argument("--ensemble_out_dir", type=str,
                         default="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out")
+    parser.add_argument("--autolabel_dir",    type=str,
+                        default="/mnt/scratch/user/chrsong/mp-factory/results/autolabel_out")
     parser.add_argument("--out_dir",          type=str,
                         default="/mnt/scratch/user/chrsong/mp-factory/results/mednext_phase2")
     parser.add_argument("--model_id",         type=str,  default="B")
@@ -265,6 +261,7 @@ def main():
         data_dir         = args.data_dir,
         audit_csv        = args.audit_csv,
         ensemble_out_dir = args.ensemble_out_dir,
+        autolabel_dir    = args.autolabel_dir,
         use_weak         = args.use_weak,
         gold_standard_dir = args.gold_standard_dir,
     )
