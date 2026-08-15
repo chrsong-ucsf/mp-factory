@@ -122,7 +122,17 @@ class AsymmetricPDCELoss(nn.Module):
         cardinality = (fg_probs + fg_target).sum(dim=reduce_dims)
 
         dice_score = (2.0 * intersection + self.smooth_nr) / (cardinality + self.smooth_dr)
-        dice_loss = 1.0 - dice_score.mean()
+        
+        # Mask out classes that are completely absent in the target crop 
+        # to prevent the gradient from overwhelmingly favoring 100% background prediction
+        target_sum = fg_target.sum(dim=reduce_dims)
+        present_mask = (target_sum > 0).float()
+        
+        # Only average Dice over classes that exist in the patch
+        if present_mask.sum() > 0:
+            dice_loss = 1.0 - (dice_score * present_mask).sum() / present_mask.sum()
+        else:
+            dice_loss = torch.tensor(0.0, device=logits.device)
 
         total_loss = (self.ce_weight * ce_loss) + (self.dice_weight * dice_loss)
         return total_loss
