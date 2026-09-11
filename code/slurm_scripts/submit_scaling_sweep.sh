@@ -95,9 +95,10 @@ for N in "${COHORT_SIZES[@]}"; do
 
         # Build the inline training command
         TRAIN_CMD="set -euo pipefail
-source /etc/profile.d/modules.sh || true
-module load CBI miniforge3/26.3.2-3 2>/dev/null || true
-eval \"\$(mamba shell hook --shell bash)\" && mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
+module load CBI
+module load miniforge3/26.3.2-3
+eval \"\$(mamba shell hook --shell bash)\"
+mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 pip install --quiet git+https://github.com/MIC-DKFZ/MedNeXt.git 2>/dev/null || true
 export PYTHONUNBUFFERED=1
 echo \"[sweep N=${N} seed=${SEED}] Starting on \$(hostname)\"
