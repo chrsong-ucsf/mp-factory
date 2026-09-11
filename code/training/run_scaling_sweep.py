@@ -25,6 +25,7 @@ Usage:
 
 import os
 import sys
+import gc
 import glob
 import json
 import csv
@@ -37,6 +38,11 @@ import numpy as np
 import torch
 import nibabel as nib
 from torch.utils.data import DataLoader
+from scipy import ndimage
+from scipy.spatial import KDTree
+
+# Memory-safe CUDA allocator — belt-and-suspenders (SLURM script also exports this)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import monai
 from monai.networks.nets import UNet
@@ -263,29 +269,73 @@ def build_model(num_classes, device):
 
 
 
+# ---------------------------------------------------------------------------
+# Metric helpers
+# ---------------------------------------------------------------------------
+
+# Shared 3-D face-connectivity structuring element for surface extraction
+_STRUCT3D = ndimage.generate_binary_structure(3, 1)
+
+
+def _extract_3d_boundaries(mask: np.ndarray) -> np.ndarray | None:
+    """Single-voxel surface via morphological erosion XOR. None if mask is empty."""
+    if mask.sum() == 0:
+        return None
+    return mask ^ ndimage.binary_erosion(mask, structure=_STRUCT3D)
+
+
+def _compute_hd95_numpy(pred_np: np.ndarray, gt_np: np.ndarray,
+                        spacing: tuple = (1.5, 1.5, 2.0)) -> float:
+    """KDTree-based HD95 on surface voxels, physical mm. Returns nan if either mask empty."""
+    b_pred = _extract_3d_boundaries(pred_np)
+    b_gt   = _extract_3d_boundaries(gt_np)
+    if b_pred is None or b_gt is None:
+        return float("nan")
+    sp = np.asarray(spacing, dtype=np.float64)
+    pts_pred = np.argwhere(b_pred).astype(np.float64) * sp
+    pts_gt   = np.argwhere(b_gt).astype(np.float64)   * sp
+    d_p2g, _ = KDTree(pts_gt).query(pts_pred)
+    d_g2p, _ = KDTree(pts_pred).query(pts_gt)
+    return max(float(np.percentile(d_p2g, 95)), float(np.percentile(d_g2p, 95)))
+
+
 def compute_dice_hd95(pred_one_hot, label_one_hot, num_classes):
-    """Returns per-class Dice and HD95 lists."""
+    """Returns per-class Dice and HD95 lists.
+
+    Dice:
+      both-empty -> 1.0 (agreement on absence, *always* included in averages)
+      one-empty  -> 0.0
+      standard   -> 2|intersection| / (|pred| + |gt|)
+
+    HD95 uses morphological surface extraction + KDTree (O(N log N), spacing-aware).
+    The training pipeline resamples all volumes to (1.5, 1.5, 2.0) mm via Spacingd.
+    """
     dice_vals, hd95_vals = [], []
+    # Training Spacingd pixdim — used to convert voxel coords to physical mm
+    spacing = (1.5, 1.5, 2.0)
+
     for c in range(num_classes):
         p = pred_one_hot[:, c:c+1, ...]
         g = label_one_hot[:, c:c+1, ...]
-        inter = (p * g).sum()
-        union = p.sum() + g.sum()
+        p_sum = p.sum()
+        g_sum = g.sum()
 
-        if g.sum() == 0 and p.sum() == 0:
+        if g_sum == 0 and p_sum == 0:
             dice_vals.append(1.0)
-        elif g.sum() == 0 or p.sum() == 0:
+        elif g_sum == 0 or p_sum == 0:
             dice_vals.append(0.0)
         else:
-            dice = (2.0 * inter / (union + 1e-6)).item()
+            inter = (p * g).sum()
+            dice = (2.0 * inter / (p_sum + g_sum + 1e-6)).item()
             dice_vals.append(dice)
 
         hd95 = float("nan")
-        if g.sum() > 0 and p.sum() > 0:
+        if g_sum > 0 and p_sum > 0:
             try:
-                hd_t = compute_hausdorff_distance(p, g, percentile=95)
-                if not (torch.isnan(hd_t).all() or torch.isinf(hd_t).all()):
-                    hd95 = hd_t.item()
+                # Move to CPU numpy for KDTree computation
+                pred_np = p[0, 0].cpu().numpy().astype(bool)
+                gt_np   = g[0, 0].cpu().numpy().astype(bool)
+                hd95 = _compute_hd95_numpy(pred_np, gt_np, spacing)
             except Exception:
                 pass
         hd95_vals.append(hd95)
@@ -349,6 +399,7 @@ def run_single_sweep(
     alpha: float = 2.0,
     beta: float = 1.0,
     rad_cases: list = None,
+    gold_standard_cases: list = None,
     seed: int = 42,
     pretrained_weights: str = None,
 ):
@@ -359,14 +410,25 @@ def run_single_sweep(
 
     cohort = rng.sample(all_cases, n_cases)
 
-    # 80/20 train/val split (minimum 1 val case)
-    n_val = max(1, int(0.2 * n_cases))
-    n_train = n_cases - n_val
-    train_cases = cohort[:n_train]
-    val_cases = cohort[n_train:]
+    # Use gold-standard cases as the static validation set when available.
+    # This anchors all sweep metrics to expert-verified ground truth rather
+    # than a random 20% slice of pseudo-labels.
+    if gold_standard_cases:
+        train_cases = cohort          # all N cases go to training
+        val_cases   = gold_standard_cases
+        n_train     = len(train_cases)
+        n_val       = len(val_cases)
+        print(f"  Validation: static gold-standard ({n_val} cases)")
+    else:
+        # Fallback: 80/20 train/val split (minimum 1 val case)
+        n_val   = max(1, int(0.2 * n_cases))
+        n_train = n_cases - n_val
+        train_cases = cohort[:n_train]
+        val_cases   = cohort[n_train:]
+        print(f"  Validation: random 20%% split ({n_val} cases)")
 
     print(f"\n{'='*60}")
-    print(f"  Scaling Sweep: N={n_cases}  |  train={n_train}  val={n_val}  loss={loss_name}")
+    print(f"  Scaling Sweep: N={n_cases} | seed={seed} | train={n_train} | val={n_val} | loss={loss_name}")
     print(f"{'='*60}")
 
     train_ds = Dataset(data=train_cases, transform=build_transforms(roi_size, is_train=True))
@@ -402,8 +464,8 @@ def run_single_sweep(
             print("Warning: AsymmetricPDCELoss not imported; falling back to DiceCELoss.")
         loss_fn = DiceCELoss(to_onehot_y=True, softmax=True)
 
-    # Output paths
-    n_dir = os.path.join(output_dir, f"N{n_cases:04d}")
+    # Output paths — per (N, seed) to avoid clobbering across multi-seed runs
+    n_dir = os.path.join(output_dir, f"N{n_cases:04d}", f"seed{seed}")
     os.makedirs(n_dir, exist_ok=True)
     json_path = os.path.join(n_dir, "epoch_metrics.json")
     csv_path  = os.path.join(n_dir, "epoch_metrics.csv")
@@ -466,8 +528,10 @@ def run_single_sweep(
 
                 dice_vals, hd95_vals = compute_dice_hd95(pred_oh, lbl_oh, NUM_CLASSES)
                 for c in range(NUM_CLASSES):
-                    if not np.isnan(dice_vals[c]):
-                        all_dice[c].append(dice_vals[c])
+                    # Dice from compute_dice_hd95 is always a float (never NaN).
+                    # Do NOT gate it on isnan — that was incorrectly excluding 0.0/1.0
+                    # boundary-case values and causing the stepped Dice bias.
+                    all_dice[c].append(dice_vals[c])
                     if not np.isnan(hd95_vals[c]):
                         all_hd95[c].append(hd95_vals[c])
 
@@ -526,8 +590,14 @@ def run_single_sweep(
 
     print(f"  Saved metrics → {json_path}")
     print(f"  Saved metrics → {csv_path}")
-    print(f"  Best val Dice (N={n_cases}): {best_dice:.4f}")
-    return json_path
+    print(f"  Best val Dice (N={n_cases}, seed={seed}): {best_dice:.4f}")
+
+    # Clean up GPU memory before next run
+    del model, optimizer
+    torch.cuda.empty_cache()
+    gc.collect()
+
+    return json_path, best_dice
 
 
 # ---------------------------------------------------------------------------
@@ -535,18 +605,22 @@ def run_single_sweep(
 # ---------------------------------------------------------------------------
 
 def write_sweep_summary(sweep_results: list, output_dir: str):
+    """Write per-N best metrics aggregated across seeds (mean ± std)."""
     summary_json_path = os.path.join(output_dir, "sweep_summary.json")
     summary_csv_path  = os.path.join(output_dir, "sweep_summary.csv")
 
-    summary = []
+    # Group raw results by N
+    from collections import defaultdict
+    by_n: dict = defaultdict(list)
     for res in sweep_results:
-        n = res["n_cases"]
+        n      = res["n_cases"]
+        seed   = res.get("seed", 42)
         records = res["epochs"]
         if not records:
             continue
         best = max(records, key=lambda r: r["val_mean_dice"])
-        summary.append({
-            "n_cases": n,
+        by_n[n].append({
+            "seed": seed,
             "best_epoch": best["epoch"],
             "best_val_mean_dice": best["val_mean_dice"],
             "best_val_mean_hd95": best["val_mean_hd95"],
@@ -555,18 +629,130 @@ def write_sweep_summary(sweep_results: list, output_dir: str):
             **{f"best_hd95_{o}": best["val_hd95"][o] for o in ORGAN_NAMES},
         })
 
+    # Aggregate across seeds: compute mean ± std per N
+    summary = []
+    for n in sorted(by_n):
+        runs = by_n[n]
+        dice_vals_across_seeds = [r["best_val_mean_dice"] for r in runs if r["best_val_mean_dice"] is not None]
+        hd95_vals_across_seeds = [r["best_val_mean_hd95"] for r in runs if r["best_val_mean_hd95"] is not None]
+        true_dice_across_seeds = [r["best_val_true_dice"] for r in runs if r["best_val_true_dice"] is not None]
+        entry = {
+            "n_cases": n,
+            "num_seeds": len(runs),
+            "seeds": [r["seed"] for r in runs],
+            "mean_best_val_dice":     float(np.mean(dice_vals_across_seeds))     if dice_vals_across_seeds else None,
+            "std_best_val_dice":      float(np.std(dice_vals_across_seeds))      if len(dice_vals_across_seeds) > 1 else None,
+            "mean_best_val_hd95":     float(np.mean(hd95_vals_across_seeds))     if hd95_vals_across_seeds else None,
+            "std_best_val_hd95":      float(np.std(hd95_vals_across_seeds))      if len(hd95_vals_across_seeds) > 1 else None,
+            "mean_best_val_true_dice": float(np.mean(true_dice_across_seeds))   if true_dice_across_seeds else None,
+            "std_best_val_true_dice":  float(np.std(true_dice_across_seeds))    if len(true_dice_across_seeds) > 1 else None,
+            "per_seed_results": runs,
+        }
+        # Per-organ aggregation
+        for o in ORGAN_NAMES:
+            vals = [r[f"best_dice_{o}"] for r in runs if r.get(f"best_dice_{o}") is not None]
+            entry[f"mean_dice_{o}"] = float(np.mean(vals)) if vals else None
+            entry[f"std_dice_{o}"]  = float(np.std(vals))  if len(vals) > 1 else None
+        summary.append(entry)
+
     with open(summary_json_path, "w") as f:
         json.dump(summary, f, indent=2)
 
+    # Flat CSV (one row per N)
     if summary:
-        header = list(summary[0].keys())
+        flat_keys = [
+            "n_cases", "num_seeds",
+            "mean_best_val_dice", "std_best_val_dice",
+            "mean_best_val_hd95", "std_best_val_hd95",
+            "mean_best_val_true_dice", "std_best_val_true_dice",
+        ] + [f"mean_dice_{o}" for o in ORGAN_NAMES] + [f"std_dice_{o}" for o in ORGAN_NAMES]
         with open(summary_csv_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=header)
+            writer = csv.DictWriter(f, fieldnames=flat_keys, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(summary)
 
     print(f"\nSweep summary saved → {summary_json_path}")
     print(f"Sweep summary saved → {summary_csv_path}")
+
+
+# ---------------------------------------------------------------------------
+# Gold-standard NRRD loader
+# ---------------------------------------------------------------------------
+
+def load_gold_standard_nrrd_cases(
+    gold_standard_dir: str,
+    tmp_nifti_dir: str,
+) -> list:
+    """Load JHU radiologist .seg.nrrd annotations, converting each to a temp .nii.gz.
+
+    The seg.nrrd files use Slicer 3D Segment format.  We extract the voxel array
+    with pynrrd and re-save as NIfTI so the MONAI DataLoader can ingest them without
+    modification.  The companion CT NIfTI must live next to the .nrrd with the same
+    BDMAP_* stem (e.g. BDMAP_00242113.nii.gz for BDMAP_00242113.seg.nrrd).
+
+    Returns a list of {image: <ct.nii.gz>, label: <mask.nii.gz>, name: <id>} dicts.
+    """
+    try:
+        import nrrd  # pynrrd
+    except ImportError:
+        print("  Warning: pynrrd not installed — gold-standard NRRD loader skipped.")
+        print("  Install with: pip install pynrrd")
+        return []
+
+    os.makedirs(tmp_nifti_dir, exist_ok=True)
+    cases = []
+
+    nrrd_files = sorted(glob.glob(os.path.join(gold_standard_dir, "*.seg.nrrd")))
+    if not nrrd_files:
+        print(f"  Warning: no .seg.nrrd files found in {gold_standard_dir}")
+        return []
+
+    for nrrd_path in nrrd_files:
+        stem = os.path.basename(nrrd_path).replace(".seg.nrrd", "")  # e.g. BDMAP_00242113
+
+        # Companion CT: must be a .nii.gz in the same directory
+        ct_path = os.path.join(gold_standard_dir, f"{stem}.nii.gz")
+        if not os.path.exists(ct_path):
+            print(f"  Warning: CT not found for gold-standard case {stem} (expected {ct_path}) — skipping.")
+            continue
+
+        # Convert seg.nrrd → temp nii.gz
+        out_label_path = os.path.join(tmp_nifti_dir, f"{stem}_gs_label.nii.gz")
+        if not os.path.exists(out_label_path):
+            try:
+                data, header = nrrd.read(nrrd_path)
+                # pynrrd returns shape (X, Y, Z) or (N_segments, X, Y, Z) for multi-label segs.
+                # For a multi-segment Slicer file the first axis is the segment index.
+                if data.ndim == 4:
+                    # Collapse N-channel one-hot to a label map (1-indexed by segment order)
+                    label_vol = np.zeros(data.shape[1:], dtype=np.uint8)
+                    for seg_idx in range(data.shape[0]):
+                        label_vol[data[seg_idx] > 0] = seg_idx + 1
+                elif data.ndim == 3:
+                    label_vol = data.astype(np.uint8)
+                else:
+                    print(f"  Warning: unexpected nrrd shape {data.shape} for {stem} — skipping.")
+                    continue
+
+                # Build affine from nrrd header (space directions + origin)
+                directions = np.array(header.get("space directions", np.eye(3)), dtype=float)
+                origin     = np.array(header.get("space origin",     np.zeros(3)), dtype=float)
+                affine = np.eye(4)
+                affine[:3, :3] = directions.T
+                affine[:3,  3] = origin
+
+                nib.save(
+                    nib.Nifti1Image(label_vol, affine),
+                    out_label_path,
+                )
+            except Exception as exc:
+                print(f"  Warning: failed to convert {nrrd_path} → NIfTI ({exc}) — skipping.")
+                continue
+
+        cases.append({"image": ct_path, "label": out_label_path, "name": stem})
+        print(f"  Gold-standard case loaded: {stem}")
+
+    return cases
 
 
 def main():
@@ -585,10 +771,26 @@ def main():
     )
     parser.add_argument("--alpha", type=float, default=2.0, help="Alpha weight for false negatives in AsymmetricPDCELoss")
     parser.add_argument("--beta", type=float, default=1.0, help="Beta weight for false positives in AsymmetricPDCELoss")
-    parser.add_argument("--radiologist_gt_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/JHU_data_radiologist_corrected")
+    parser.add_argument(
+        "--radiologist_gt_dir", type=str,
+        default="/mnt/scratch/user/chrsong/mp-factory/JHU_data_radiologist_corrected",
+        help="Directory of radiologist .nii.gz cases for true-Dice evaluation.",
+    )
+    parser.add_argument(
+        "--gold_standard_dir", type=str, default=None,
+        help="Directory of gold-standard .seg.nrrd annotations (JHU radiologist-corrected). "
+             "When provided, these 7 cases are used as the static validation set instead of "
+             "the random 20%% split, anchoring sweep metrics to expert-verified ground truth.",
+    )
     parser.add_argument("--output_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/scaling_sweep")
     parser.add_argument("--device", type=str, default="auto")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--seeds", type=int, nargs="+", default=[42],
+        help="List of random seeds for multi-seed variance bounding (default: 42). "
+             "Example: --seeds 42 123 456",
+    )
+    # Legacy single-seed arg kept for backwards-compatibility; overridden by --seeds if both given
+    parser.add_argument("--seed", type=int, default=None, help="[Deprecated] Use --seeds instead.")
     parser.add_argument("--pretrained_weights", type=str, default=None, help="Path to TS-distillation pretraining weights")
     parser.add_argument(
         "--generate_dummy", action="store_true",
@@ -596,24 +798,32 @@ def main():
     )
     args = parser.parse_args()
 
+    # Resolve seed list (legacy --seed takes effect if --seeds was not explicitly set)
+    seeds = args.seeds
+    if args.seed is not None and seeds == [42]:
+        seeds = [args.seed]
+
     # Device
     if args.device == "auto":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         device = torch.device(args.device)
     print(f"Device: {device}")
+    print(f"Seeds:  {seeds}")
 
     # ROI size
     roi_size = tuple(int(x) for x in args.roi_size.split(","))
     assert len(roi_size) == 3, "roi_size must have exactly 3 values"
 
-    # Data
+    # ---- Data loading ----
     tmp_dir = None
     rad_cases = []
+    gold_standard_cases = []
+
     if args.generate_dummy or not (
         os.path.exists(args.data_dir) and os.path.exists(args.mask_dir)
     ):
-        print("Generating dummy cohort for smoke-test …")
+        print("Generating dummy cohort for smoke-test ...")
         tmp_dir = tempfile.mkdtemp()
         max_n = max(args.cohort_sizes)
         all_cases = create_dummy_cohort(tmp_dir, n_cases=max_n + 5)
@@ -627,36 +837,68 @@ def main():
         if os.path.exists(args.radiologist_gt_dir):
             rad_cases = find_cases(args.radiologist_gt_dir, args.radiologist_gt_dir)
 
-    print(f"Total cases available: {len(all_cases)}")
+    # Load gold-standard NRRD annotations (static validation anchor)
+    if args.gold_standard_dir and os.path.isdir(args.gold_standard_dir):
+        gs_tmp_dir = os.path.join(args.output_dir, "_gs_nifti_tmp")
+        gold_standard_cases = load_gold_standard_nrrd_cases(args.gold_standard_dir, gs_tmp_dir)
+        if gold_standard_cases:
+            print(f"Gold-standard static val set: {len(gold_standard_cases)} cases from {args.gold_standard_dir}")
+        else:
+            print("  Warning: gold_standard_dir provided but no cases could be loaded. Falling back to random split.")
+
+    print(f"Total training cases available: {len(all_cases)}")
     if rad_cases:
-        print(f"Radiologist GT cases available for true-Dice validation: {len(rad_cases)}")
+        print(f"Radiologist GT cases for true-Dice: {len(rad_cases)}")
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    # ---- Progress CSV (incremental, survives job timeouts) ----
+    progress_csv_path = os.path.join(args.output_dir, "scaling_sweep_progress.csv")
+    progress_header = ["cohort_size_N", "seed", "best_generalization_dice"]
+    if not os.path.exists(progress_csv_path):
+        with open(progress_csv_path, "w", newline="") as f:
+            csv.writer(f).writerow(progress_header)
+
+    # ---- Multi-seed outer sweep loop ----
     sweep_results = []
     t0 = time.time()
+
     for n in sorted(set(args.cohort_sizes)):
-        json_path = run_single_sweep(
-            n_cases=n,
-            all_cases=all_cases,
-            output_dir=args.output_dir,
-            epochs=args.epochs,
-            roi_size=roi_size,
-            device=device,
-            loss_name=args.loss,
-            alpha=args.alpha,
-            beta=args.beta,
-            rad_cases=rad_cases,
-            seed=args.seed,
-            pretrained_weights=args.pretrained_weights,
-        )
-        with open(json_path) as f:
-            sweep_results.append(json.load(f))
+        for seed in seeds:
+            print(f"\n{'='*68}")
+            print(f"  SWEEP: N={n}  |  seed={seed}")
+            print(f"{'='*68}")
+
+            json_path, best_dice = run_single_sweep(
+                n_cases=n,
+                all_cases=all_cases,
+                output_dir=args.output_dir,
+                epochs=args.epochs,
+                roi_size=roi_size,
+                device=device,
+                loss_name=args.loss,
+                alpha=args.alpha,
+                beta=args.beta,
+                rad_cases=rad_cases,
+                gold_standard_cases=gold_standard_cases,
+                seed=seed,
+                pretrained_weights=args.pretrained_weights,
+            )
+
+            with open(json_path) as f:
+                result = json.load(f)
+                result["seed"] = seed  # tag with seed for write_sweep_summary
+                sweep_results.append(result)
+
+            # Incremental progress save — protects against cluster job timeouts
+            with open(progress_csv_path, "a", newline="") as f:
+                csv.writer(f).writerow([n, seed, round(best_dice, 6)])
 
     write_sweep_summary(sweep_results, args.output_dir)
 
     elapsed = time.time() - t0
     print(f"\nFull scaling sweep complete in {elapsed/60:.1f} min.")
+    print(f"Progress log: {progress_csv_path}")
 
     if tmp_dir:
         shutil.rmtree(tmp_dir)

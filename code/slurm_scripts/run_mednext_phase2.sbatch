@@ -26,6 +26,8 @@ FOLD=${SLURM_ARRAY_TASK_ID}
 DATA_DIR="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox"
 AUDIT_CSV="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv"
 ENSEMBLE_OUT="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out"
+AUTOLABEL_DIR="/mnt/scratch/user/chrsong/mp-factory/results/autolabel_out"
+GOLD_STD_DIR="/mnt/scratch/user/chrsong/mp-factory/JHU_data_radiologist_corrected"
 OUT_DIR="/mnt/scratch/user/chrsong/mp-factory/results/mednext_phase2/fold_${FOLD}"
 
 # Phase 1 pretrained checkpoint for warm-start (comment out if training from scratch)
@@ -35,19 +37,22 @@ mkdir -p "${OUT_DIR}"
 mkdir -p /mnt/scratch/user/chrsong/mp-factory/logs
 
 echo "[Phase 2] Starting MedNeXt-B Fold ${FOLD} on GPU: ${CUDA_VISIBLE_DEVICES}"
+echo "[Phase 2] Prerequisite: hard_threshold_autolabel.py must have been run to populate ${AUTOLABEL_DIR}"
 
-python -u /mnt/scratch/user/chrsong/mp-factory/code/train_mednext_phase2.py \
-    --data_dir        "${DATA_DIR}" \
-    --audit_csv       "${AUDIT_CSV}" \
+python -u /mnt/scratch/user/chrsong/mp-factory/code/training/train_mednext_phase2.py \
+    --data_dir         "${DATA_DIR}" \
+    --audit_csv        "${AUDIT_CSV}" \
     --ensemble_out_dir "${ENSEMBLE_OUT}" \
-    --out_dir         "${OUT_DIR}" \
-    --model_id        "B" \
-    --kernel_size     3 \
-    --fold            "${FOLD}" \
-    --num_folds       4 \
-    --epochs          150 \
-    --batch_size      1 \
-    --lr              0.0001 \
-    --val_interval    5 \
+    --autolabel_dir    "${AUTOLABEL_DIR}" \
+    --gold_standard_dir "${GOLD_STD_DIR}" \
+    --out_dir          "${OUT_DIR}" \
+    --model_id         "B" \
+    --kernel_size      3 \
+    --fold             "${FOLD}" \
+    --num_folds        4 \
+    --epochs           150 \
+    --batch_size       1 \
+    --lr               0.0001 \
+    --val_interval     5 \
     --use_weak \
-    --pretrained_ckpt "${PHASE1_CKPT}"
+    --pretrained_ckpt  "${PHASE1_CKPT}"

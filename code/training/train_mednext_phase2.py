@@ -71,8 +71,32 @@ IGNORE_INDEX = 255  # WEAK_COARSE boundary pixels are ignored in loss
 # Dataset Discovery
 # ---------------------------------------------------------------------------
 
-def discover_phase2_dataset(data_dir, audit_csv, ensemble_out_dir, use_weak=False, gold_standard_dir=None):
-    """Build image/label pairs using ensemble consensus masks as labels."""
+def discover_phase2_dataset(
+    data_dir,
+    audit_csv,
+    ensemble_out_dir,
+    autolabel_dir=None,
+    use_weak=False,
+    gold_standard_dir=None,
+    max_cases=0,
+    seed=42,
+):
+    """Build image/label pairs using ensemble consensus masks as labels.
+
+    For CLEAN_HIGH_CONFIDENCE cases: label = *_consensus.nii.gz (labels 0-4).
+    For WEAK_COARSE cases: label = *_autolabel.nii.gz (labels 0-4 + IGNORE_INDEX=255
+      at conflicting boundary voxels). Falls back to *_consensus.nii.gz with a warning
+      if the autolabeler has not been run yet.
+
+    Args:
+        autolabel_dir: Directory containing *_autolabel.nii.gz files produced by
+            hard_threshold_autolabel.py. Required for correct WEAK_COARSE training.
+        max_cases: If > 0, cap total returned cases to this count (reproducible
+            subsample via `seed`). Used by the scaling sweep to vary dataset size.
+        seed: RNG seed for max_cases subsampling.
+    """
+    import random as _rnd
+
     if not os.path.exists(audit_csv):
         raise FileNotFoundError(f"Audit CSV not found: {audit_csv}")
 
@@ -82,10 +106,7 @@ def discover_phase2_dataset(data_dir, audit_csv, ensemble_out_dir, use_weak=Fals
         import glob
         gs_files = glob.glob(os.path.join(gold_standard_dir, "*.nii.gz"))
         for gs_file in gs_files:
-            # Extract subject ID from filename (assuming format like SUBJECT_ID.nii.gz or similar)
-            filename = os.path.basename(gs_file)
-            # Remove .nii.gz extension to get potential subject ID
-            subject_id = filename.replace('.nii.gz', '')
+            subject_id = os.path.basename(gs_file).replace('.nii.gz', '')
             gold_standard_ids.add(subject_id)
 
     df = pd.read_csv(audit_csv)
@@ -101,9 +122,19 @@ def discover_phase2_dataset(data_dir, audit_csv, ensemble_out_dir, use_weak=Fals
         n = (selected['triage_category'] == cat).sum()
         print(f"  - {cat}: {n:,} cases")
 
+    # Warn loudly if WEAK is requested but autolabel_dir was not provided
+    if use_weak and not autolabel_dir:
+        print(
+            "WARNING: --use_weak is set but --autolabel_dir was not provided. "
+            "WEAK_COARSE cases will fall back to *_consensus.nii.gz (no ignore masking). "
+            "Run hard_threshold_autolabel.py first and pass --autolabel_dir to fix this."
+        )
+
     data_pairs = []
     missing_ct = 0
     missing_consensus = 0
+    weak_using_autolabel = 0
+    weak_fallback_to_consensus = 0
 
     for _, row in selected.iterrows():
         sub_id   = str(row['subject_id'])
@@ -119,22 +150,58 @@ def discover_phase2_dataset(data_dir, audit_csv, ensemble_out_dir, use_weak=Fals
             missing_consensus += 1
             continue
 
-        # Check if this is a gold standard sample
+        # -----------------------------------------------------------------------
+        # Route label: CLEAN uses consensus (0-4); WEAK uses autolabel (0-4 + 255)
+        # -----------------------------------------------------------------------
+        if category == 'WEAK_COARSE' and autolabel_dir:
+            autolabel_path = os.path.join(autolabel_dir, f"{sub_id}_autolabel.nii.gz")
+            if os.path.exists(autolabel_path):
+                label_path = autolabel_path
+                weak_using_autolabel += 1
+            else:
+                # Autolabeler hasn't been run for this subject yet.
+                # Fall back to consensus (no 255 masking) but log prominently.
+                label_path = consensus_path
+                weak_fallback_to_consensus += 1
+        else:
+            # CLEAN_HIGH_CONFIDENCE, or WEAK without autolabel_dir
+            label_path = consensus_path
+
         is_gold_standard = sub_id in gold_standard_ids
 
         data_pairs.append({
-            "image":           ct_path,
-            "label":           consensus_path,
-            "category":        category,
-            "subject_id":      sub_id,
-            "is_gold_standard": is_gold_standard
+            "image":            ct_path,
+            "label":            label_path,
+            "category":         category,
+            "subject_id":       sub_id,
+            "is_gold_standard": is_gold_standard,
         })
 
     print(f"  Missing CT: {missing_ct} | Missing Consensus: {missing_consensus}")
+    if use_weak:
+        print(f"  WEAK cases using autolabel (255 masking): {weak_using_autolabel}")
+        if weak_fallback_to_consensus:
+            print(
+                f"  WARNING: {weak_fallback_to_consensus} WEAK cases fell back to consensus "
+                f"(no _autolabel.nii.gz found). Run hard_threshold_autolabel.py to fix."
+            )
     print(f"  Final usable pairs: {len(data_pairs):,}")
     if gold_standard_dir:
-        gs_count = sum(1 for pair in data_pairs if pair.get("is_gold_standard", False))
+        gs_count = sum(1 for p in data_pairs if p.get("is_gold_standard", False))
         print(f"  Gold standard samples: {gs_count}")
+
+    # ---- max_cases sub-sampling (for scaling sweep) -------------------------
+    if max_cases > 0 and len(data_pairs) > max_cases:
+        # Exclude gold-standard cases from the cap so they always train
+        gs_pairs      = [p for p in data_pairs if p.get("is_gold_standard", False)]
+        non_gs_pairs  = [p for p in data_pairs if not p.get("is_gold_standard", False)]
+        rng = _rnd.Random(seed)
+        n_non_gs = max(0, max_cases - len(gs_pairs))
+        sampled_non_gs = rng.sample(non_gs_pairs, min(n_non_gs, len(non_gs_pairs)))
+        data_pairs = gs_pairs + sampled_non_gs
+        print(f"  [Scaling sweep] Capped to {len(data_pairs)} cases "
+              f"(seed={seed}, max_cases={max_cases})")
+
     return data_pairs
 
 
@@ -230,6 +297,10 @@ def main():
                         default="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv")
     parser.add_argument("--ensemble_out_dir", type=str,
                         default="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out")
+    parser.add_argument("--autolabel_dir",    type=str,
+                        default="/mnt/scratch/user/chrsong/mp-factory/results/autolabel_out",
+                        help="Directory of *_autolabel.nii.gz files from hard_threshold_autolabel.py. "
+                             "Required for correct WEAK_COARSE training with ignore_index=255.")
     parser.add_argument("--out_dir",          type=str,
                         default="/mnt/scratch/user/chrsong/mp-factory/results/mednext_phase2")
     parser.add_argument("--model_id",         type=str,  default="B")
@@ -253,7 +324,14 @@ def main():
     parser.add_argument("--pretrained_ckpt",  type=str,  default=None,
                         help="Path to Phase 1 pretrained checkpoint to finetune from")
     parser.add_argument("--gold_standard_dir", type=str, default=None,
-                        help="Directory containing gold standard manual annotations for 10x loss weighting")
+                        help="Directory of gold-standard manual annotations (JHU radiologist). "
+                             "Cases here receive 10x loss weight and are always included in "
+                             "the training set regardless of --max_cases.")
+    parser.add_argument("--max_cases",        type=int,  default=0,
+                        help="If > 0, cap the training set to this many cases (for scaling sweeps). "
+                             "Sampled reproducibly with --seed. Gold-standard cases are never capped.")
+    parser.add_argument("--seed",             type=int,  default=42,
+                        help="Random seed for --max_cases sub-sampling and train/val split.")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -262,18 +340,21 @@ def main():
     print(f"[Phase 2] Device: {device} | GPUs: {num_gpus} | use_weak: {args.use_weak}")
 
     data_pairs = discover_phase2_dataset(
-        data_dir         = args.data_dir,
-        audit_csv        = args.audit_csv,
-        ensemble_out_dir = args.ensemble_out_dir,
-        use_weak         = args.use_weak,
+        data_dir          = args.data_dir,
+        audit_csv         = args.audit_csv,
+        ensemble_out_dir  = args.ensemble_out_dir,
+        autolabel_dir     = args.autolabel_dir,
+        use_weak          = args.use_weak,
         gold_standard_dir = args.gold_standard_dir,
+        max_cases         = args.max_cases,
+        seed              = args.seed,
     )
     if not data_pairs:
         print("ERROR: No usable data pairs found.")
         sys.exit(1)
 
-    # Train / Val Split
-    np.random.seed(42)
+    # Train / Val Split (use --seed for reproducibility)
+    np.random.seed(args.seed)
     indices = np.random.permutation(len(data_pairs))
 
     if args.fold >= 0:

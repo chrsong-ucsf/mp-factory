@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:nvidia_l40s:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --array=0-5%4
 
 set -euo pipefail
@@ -48,6 +48,7 @@ echo "Node             : $(hostname)"
 echo "Target Cohort N  : ${TARGET_N}"
 echo "Loss             : ${LOSS} (alpha=${ALPHA}, beta=${BETA})"
 echo "Epochs           : ${EPOCHS}"
+echo "Gold Standard    : ${RAD_GT_DIR}"
 echo "=================================================================="
 
 python -u "${CODE_DIR}/training/run_scaling_sweep.py" \
@@ -59,4 +60,6 @@ python -u "${CODE_DIR}/training/run_scaling_sweep.py" \
     --beta "${BETA}" \
     --epochs "${EPOCHS}" \
     --radiologist_gt_dir "${RAD_GT_DIR}" \
+    --gold_standard_dir "${RAD_GT_DIR}" \
+    --seeds 42 123 456 \
     --output_dir "${OUT_DIR}"
