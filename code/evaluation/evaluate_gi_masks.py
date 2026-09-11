@@ -5,8 +5,9 @@ import pandas as pd
 import nibabel as nib
 import argparse
 from multiprocessing import Pool, cpu_count
-from scipy.spatial.distance import directed_hausdorff
-from skimage.measure import label, euler_number
+from scipy import ndimage
+from scipy.spatial import KDTree
+from skimage.measure import label
 from sklearn.metrics import adjusted_rand_score
 from skimage.metrics import variation_of_information, adapted_rand_error
 
@@ -36,18 +37,74 @@ def compute_clustering_metrics(gt_arr, pred_arr):
     voi = split + merge
     return float(ari), float(voi)
 
+# 3D structuring element for surface extraction (face-connectivity, rank 1)
+_STRUCT3D = ndimage.generate_binary_structure(3, 1)
+
+
+def extract_3d_boundaries(mask_3d: np.ndarray) -> np.ndarray | None:
+    """Return single-voxel surface boundary via morphological erosion XOR.
+
+    Using binary erosion rather than EDT thresholding makes the result
+    independent of physical voxel spacing — a 1-voxel shell is always
+    extracted regardless of anisotropy.
+
+    Returns None when the mask is empty (HD95 undefined).
+    """
+    if np.sum(mask_3d) == 0:
+        return None
+    eroded = ndimage.binary_erosion(mask_3d, structure=_STRUCT3D)
+    return mask_3d ^ eroded
+
+
 def compute_hd95(mask_gt, mask_pred, voxel_spacing=(1.0, 1.0, 1.0)):
-    """Compute 95th percentile Hausdorff Distance (HD95)."""
-    if not np.any(mask_gt) or not np.any(mask_pred):
+    """Compute 95th percentile Hausdorff Distance in physical mm.
+
+    Uses morphological surface extraction + KDTree for O(N log N)
+    boundary-to-boundary distances, robust to anisotropic spacing.
+    Returns np.nan when either mask is empty (mathematically undefined).
+    """
+    boundary_gt   = extract_3d_boundaries(mask_gt)
+    boundary_pred = extract_3d_boundaries(mask_pred)
+
+    if boundary_gt is None or boundary_pred is None:
         return np.nan
-    
-    pts_gt = np.argwhere(mask_gt) * np.array(voxel_spacing)
-    pts_pred = np.argwhere(mask_pred) * np.array(voxel_spacing)
-    
-    d_gt_pred = [np.min(np.linalg.norm(pts_gt - p, axis=1)) for p in pts_pred[::10]] # Subsampled for speed
-    d_pred_gt = [np.min(np.linalg.norm(pts_pred - p, axis=1)) for p in pts_gt[::10]]
-    
-    return max(np.percentile(d_gt_pred, 95), np.percentile(d_pred_gt, 95))
+
+    # Scale voxel indices to physical coordinates (mm)
+    spacing = np.asarray(voxel_spacing, dtype=np.float64)
+    pts_gt   = np.argwhere(boundary_gt).astype(np.float64)   * spacing
+    pts_pred = np.argwhere(boundary_pred).astype(np.float64) * spacing
+
+    # KDTree: O(N log N) nearest-neighbour distances in both directions
+    tree_gt   = KDTree(pts_gt)
+    tree_pred = KDTree(pts_pred)
+
+    d_pred_to_gt, _ = tree_gt.query(pts_pred)
+    d_gt_to_pred, _ = tree_pred.query(pts_gt)
+
+    hd95 = max(
+        float(np.percentile(d_pred_to_gt, 95)),
+        float(np.percentile(d_gt_to_pred, 95)),
+    )
+    return hd95
+
+
+def compute_volumetric_dice(pred_3d: np.ndarray, gt_3d: np.ndarray) -> float:
+    """Class-wise 3D volumetric Dice, safe for class absence.
+
+    * Both empty  → 1.0  (perfect agreement on absence; included in averages)
+    * One empty   → 0.0  (complete miss or false positive)
+    * Both present → standard 2|A∩B| / (|A| + |B|)
+    """
+    sum_pred = int(np.sum(pred_3d))
+    sum_gt   = int(np.sum(gt_3d))
+
+    if sum_pred == 0 and sum_gt == 0:
+        return 1.0
+    if sum_pred == 0 or sum_gt == 0:
+        return 0.0
+
+    intersection = int(np.sum(np.logical_and(pred_3d, gt_3d)))
+    return float(2.0 * intersection) / float(sum_pred + sum_gt)
 
 def evaluate_single_subject(args):
     gt_path, pred_path = args
@@ -74,8 +131,9 @@ def evaluate_single_subject(args):
             intersection = np.sum(gt_o & pred_o)
             total = np.sum(gt_o) + np.sum(pred_o)
             union = total - intersection
-            
-            dice = (2.0 * intersection) / (total) if total > 0 else (1.0 if not np.any(gt_o) and not np.any(pred_o) else 0.0)
+
+            # Use the shared helper so absence semantics are consistent everywhere
+            dice = compute_volumetric_dice(pred_o, gt_o)
             iou = intersection / union if union > 0 else (1.0 if not np.any(gt_o) and not np.any(pred_o) else 0.0)
             hd95 = compute_hd95(gt_o, pred_o, voxel_spacing)
             betti_gt = compute_betti_0(gt_o)
