@@ -490,8 +490,17 @@ def main():
                     vi = val_data["image"].to(device)
                     vl = val_data["label"].to(device)
 
-                    with torch.amp.autocast(device_type='cuda'):
+                    with torch.cuda.amp.autocast():
                         vo = sliding_window_inference(vi, (96, 96, 96), 4, model)
+
+                    # Align prediction spatial size to label size if they differ.
+                    # CT and autolabel NIfTIs can have slightly different voxel
+                    # grids after resampling, causing a shape mismatch here.
+                    if vo.shape[-3:] != vl.shape[-3:]:
+                        vo = torch.nn.functional.interpolate(
+                            vo.float(), size=vl.shape[-3:],
+                            mode="trilinear", align_corners=False,
+                        )
 
                     # Remap ignore pixels to background before metric
                     vl_clean = torch.where(vl == IGNORE_INDEX,
