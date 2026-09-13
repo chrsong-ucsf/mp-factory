@@ -427,7 +427,10 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=1e-6)
-    scaler    = torch.amp.GradScaler(device_type='cuda')
+    try:
+        scaler = torch.cuda.amp.GradScaler()
+    except Exception:
+        scaler = torch.amp.GradScaler('cuda')
 
     dice_metric = DiceMetric(include_background=False, reduction="mean")
     post_pred   = AsDiscrete(argmax=True, to_onehot=NUM_CLASSES)
