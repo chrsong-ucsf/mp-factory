@@ -77,14 +77,10 @@ def manual_mean_dice(vo_post_list, vl_post_list):
 # ---------------------------------------------------------------------------
 print("\n[Test 1] Matching image / label spatial sizes …")
 
-image_size  = (1, 1, 96, 96, 96)     # B, C, H, W, D
-label_size  = (1, 1, 96, 96, 96)
-
-vi = torch.randn(*image_size)
-vl = torch.randint(0, NUM_CLASSES, label_size).float()
-
-# Fake model output: same spatial size as image
-vo = torch.randn(1, NUM_CLASSES, *image_size[2:])
+# Tiny tensors — logic is identical at any spatial size
+vi = torch.randn(1, 1, 16, 16, 16)
+vl = torch.randint(0, NUM_CLASSES, (1, 1, 16, 16, 16)).float()
+vo = torch.randn(1, NUM_CLASSES, 16, 16, 16)
 
 if vo.shape[-3:] != vl.shape[-3:]:
     vo = F.interpolate(vo.float(), size=vl.shape[-3:], mode="trilinear", align_corners=False)
@@ -104,14 +100,10 @@ print(f"  PASS  vo_post={tuple(vo_post[0].shape)}, vl_post={tuple(vl_post[0].sha
 # ---------------------------------------------------------------------------
 print("\n[Test 2] MISMATCHED image / label spatial sizes (the real bug) …")
 
-image_size_mismatch = (1, 1, 227, 148, 227)
-label_size_mismatch = (1, 1, 170, 104, 170)
-
-vi2 = torch.randn(*image_size_mismatch)
-vl2 = torch.randint(0, NUM_CLASSES, label_size_mismatch).float()
-
-# Fake model output matches image (not label) — this is what caused the crash
-vo2 = torch.randn(1, NUM_CLASSES, *image_size_mismatch[2:])
+# Simulate the mismatch: prediction matches image, label is smaller
+# (mimics the 227 vs 170 real-world mismatch at tiny scale)
+vo2 = torch.randn(1, NUM_CLASSES, 24, 20, 24)   # pred follows image size
+vl2 = torch.randint(0, NUM_CLASSES, (1, 1, 16, 14, 16)).float()  # label is smaller
 
 # THE FIX: interpolate prediction to label size
 if vo2.shape[-3:] != vl2.shape[-3:]:
