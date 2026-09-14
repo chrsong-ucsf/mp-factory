@@ -220,6 +220,49 @@ def discover_phase2_dataset(
 # Transforms
 # ---------------------------------------------------------------------------
 
+from monai.transforms import MapTransform
+
+class FixLiarLabelAffined(MapTransform):
+    """
+    CLEAN consensus labels (e.g. from Phase 1) were generated on a resampled 1.5x1.5x2.0 grid.
+    However, they were saved with the original CT's affine matrix (which has a smaller spacing like 0.68x0.68x1.5).
+    This "liar affine" causes ResampleToMatchd and Spacingd to anatomically misalign the label, shrinking
+    the foreground to a tiny corner (causing Dice=0).
+    
+    WEAK autolabels are still at the original CT spacing and shape, so their affine is correct.
+    
+    This transform detects CLEAN labels by checking if label.shape != image.shape (before any transforms).
+    If it's a CLEAN label, it replaces the label's affine with the correct 1.5x1.5x2.0 affine.
+    """
+    def __init__(self, keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)):
+        super().__init__(keys)
+        self.image_key = image_key
+        self.target_spacing = target_spacing
+
+    def __call__(self, data):
+        d = dict(data)
+        img = d[self.image_key]
+        for key in self.keys:
+            if key in d:
+                lbl = d[key]
+                # If shapes mismatch, it means label was ALREADY resampled by Phase 1,
+                # but it was saved with the original native affine.
+                if lbl.shape != img.shape:
+                    from monai.transforms import Spacing
+                    spacer = Spacing(pixdim=self.target_spacing)
+                    # We just need the affine, so we can pass a dummy tensor or the actual img
+                    img_spaced = spacer(img)
+                    
+                    from monai.data import MetaTensor
+                    if isinstance(lbl, MetaTensor):
+                        # MetaTensor allows updating the affine
+                        lbl.affine = img_spaced.affine
+                        if hasattr(lbl, "meta"):
+                            lbl.meta["affine"] = img_spaced.affine
+                    d[key] = lbl
+        return d
+
+
 def get_transforms(roi_size=(96, 96, 96)):
     # NOTE: ResampleToMatchd MUST appear in BOTH train and val transforms.
     # Consensus labels are generated on a GI-crop sub-volume with a different
@@ -231,8 +274,8 @@ def get_transforms(roi_size=(96, 96, 96)):
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        # Project GI-crop consensus label onto the full CT voxel grid first
-        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
+        # Detect and fix Phase 1 "liar affines" on consensus labels before Spacingd mangles them
+        FixLiarLabelAffined(keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         CropForegroundd(keys=["image", "label"], source_key="image"),
@@ -257,13 +300,8 @@ def get_transforms(roi_size=(96, 96, 96)):
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        # The ensemble consensus label was generated on a GI-crop sub-volume
-        # whose affine differs from the full ct.nii.gz. Without resampling the
-        # label onto the CT's voxel grid first, Spacingd produces tensors with
-        # different spatial extents (e.g. 227 vs 170 depth), so
-        # sliding_window_inference output covers the wrong anatomical region
-        # relative to the label -> Dice = 0 for all 150 epochs.
-        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
+        # Detect and fix Phase 1 "liar affines" on consensus labels before Spacingd mangles them
+        FixLiarLabelAffined(keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         EnsureTyped(keys=["image", "label"]),
