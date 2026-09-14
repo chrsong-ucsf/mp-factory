@@ -221,10 +221,18 @@ def discover_phase2_dataset(
 # ---------------------------------------------------------------------------
 
 def get_transforms(roi_size=(96, 96, 96)):
+    # NOTE: ResampleToMatchd MUST appear in BOTH train and val transforms.
+    # Consensus labels are generated on a GI-crop sub-volume with a different
+    # affine/shape than the full ct.nii.gz (e.g. depth 170 vs 227). Without
+    # projecting the label onto the CT grid BEFORE Spacingd, the spatial
+    # extents diverge and every crop/metric operates on misaligned voxels
+    # -> loss ≈ noise, Dice = 0 for all epochs.
     train_transforms = Compose([
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
+        # Project GI-crop consensus label onto the full CT voxel grid first
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         CropForegroundd(keys=["image", "label"], source_key="image"),
@@ -458,7 +466,10 @@ def main():
     best_ckpt_path = os.path.join(args.out_dir, "best_mednext_phase2.pt")
     last_ckpt_path = os.path.join(args.out_dir, "last_mednext_phase2.pt")
 
-    print(f"\n[Phase 2] Starting training ({args.epochs} epochs)...\n")
+    import hashlib
+    _script_hash = hashlib.md5(open(__file__, "rb").read()).hexdigest()[:8]
+    print(f"\n[Phase 2] Starting training ({args.epochs} epochs)...")
+    print(f"[Phase 2] Script hash: {_script_hash}  (must match local: run git log --oneline -1 to verify cluster pulled latest)\n")
 
     for epoch in range(1, args.epochs + 1):
         model.train()
