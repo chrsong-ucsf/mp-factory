@@ -1,112 +1,78 @@
 #!/usr/bin/env python3
 """
 Post-hoc evaluation script for scaling sweep checkpoints.
-Loads checkpoints saved under results/scaling_sweep/N* and calculates Dice/HD95.
+Loads checkpoints saved under results/scaling_sweep/N*/seed*/best_mednext_phase2.pt
+and calculates validation Dice across the 4 GI organs.
 """
 
 import os
 import sys
 import glob
-import json
 import csv
 import argparse
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
 import monai
 from monai.inferers import sliding_window_inference
 from monai.metrics import compute_hausdorff_distance
-from monai.transforms import (
-    Compose,
-    LoadImaged,
-    EnsureChannelFirstd,
-    Orientationd,
-    Spacingd,
-    ScaleIntensityRanged,
-    EnsureTyped,
-    Lambdad,
-)
 from monai.data import Dataset
 
-# Local imports for MedNeXt-B
+# Add training dir to path to import model creation and transforms
+SCRATCH_DEFAULT = "/mnt/scratch/user/chrsong/mp-factory"
+sys.path.insert(0, os.path.join(SCRATCH_DEFAULT, "code", "training"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "training"))
+
 try:
-    from code.training.mednext import MedNeXtB
+    from train_mednext_phase2 import create_mednext_v1, get_transforms, FixLiarLabelAffined
 except ImportError:
-    try:
-        from mednext import MedNeXtB
-    except ImportError:
-        MedNeXtB = None
+    create_mednext_v1 = None
+    get_transforms = None
 
 ORGAN_NAMES = ["stomach", "duodenum", "small_bowel", "colon"]
-NUM_CLASSES = 4
+NUM_CLASSES = 5  # 0: bg, 1: stomach, 2: duodenum, 3: small bowel, 4: colon
 
 
-def remap_gi_labels(lbl):
-    if torch.is_tensor(lbl):
-        has_bdmap = ((lbl == 2) | (lbl == 3) | (lbl == 5) | (lbl == 6)).any()
-    else:
-        has_bdmap = bool(np.isin(lbl, [2, 3, 5, 6]).any())
-
-    if has_bdmap:
-        out = torch.zeros_like(lbl)
-        out[lbl == 2] = 1
-        out[lbl == 3] = 2
-        out[(lbl == 4) | (lbl == 5)] = 3
-        out[lbl == 6] = 4
-        return out
-    return lbl
-
-
-def build_val_transforms(roi_size=(96, 96, 96)):
-    return Compose([
-        LoadImaged(keys=["image", "label"]),
-        EnsureChannelFirstd(keys=["image", "label"]),
-        Lambdad(keys=["label"], func=remap_gi_labels),
-        Orientationd(keys=["image", "label"], axcodes="RAS"),
-        Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
-        ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
-        EnsureTyped(keys=["image", "label"]),
-    ])
-
-
-def find_cases(data_dir, mask_dir):
+def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, max_cases=20):
     cases = []
-    for ct_path in sorted(glob.glob(os.path.join(data_dir, "BDMAP_*", "ct.nii.gz"))):
-        pid = os.path.basename(os.path.dirname(ct_path))
-        mask_path = os.path.join(mask_dir, pid, "gi_mask.nii.gz")
-        if os.path.exists(ct_path) and os.path.exists(mask_path):
-            cases.append({"image": ct_path, "label": mask_path, "name": pid})
-    if not cases:
-        for ct_path in sorted(glob.glob(os.path.join(data_dir, "*", "ct.nii.gz"))):
-            pid = os.path.basename(os.path.dirname(ct_path))
-            mask_path = os.path.join(data_dir, pid, "gi_mask.nii.gz")
-            if os.path.exists(mask_path):
-                cases.append({"image": ct_path, "label": mask_path, "name": pid})
+    if audit_csv and os.path.exists(audit_csv):
+        df = pd.read_csv(audit_csv)
+        clean = df[df["triage_category"] == "CLEAN_HIGH_CONFIDENCE"]
+        for _, row in clean.iterrows():
+            sub = str(row["subject_id"])
+            ct = os.path.join(data_dir, sub, "ct.nii.gz")
+            lbl = os.path.join(ensemble_out_dir, f"{sub}_consensus.nii.gz")
+            if os.path.exists(ct) and os.path.exists(lbl):
+                cases.append({"image": ct, "label": lbl, "name": sub})
+                if len(cases) >= max_cases:
+                    break
+
+    if not cases and os.path.exists(ensemble_out_dir):
+        for lbl in sorted(glob.glob(os.path.join(ensemble_out_dir, "*_consensus.nii.gz"))):
+            sub = os.path.basename(lbl).replace("_consensus.nii.gz", "")
+            ct = os.path.join(data_dir, sub, "ct.nii.gz")
+            if os.path.exists(ct):
+                cases.append({"image": ct, "label": lbl, "name": sub})
+                if len(cases) >= max_cases:
+                    break
+
     return cases
 
 
-def evaluate_checkpoint(ckpt_path, cases, roi_size, device):
-    if MedNeXtB is not None:
-        model = MedNeXtB(in_channels=1, n_channels=32, n_classes=NUM_CLASSES + 1)
-    else:
-        from monai.networks.nets import UNet
-        model = UNet(
-            spatial_dims=3, in_channels=1, out_channels=NUM_CLASSES + 1,
-            channels=(16, 32, 64, 128, 256), strides=(2, 2, 2, 2), num_res_units=2,
-        )
-
+def evaluate_checkpoint(model, ckpt_path, cases, val_tf, roi_size, device):
     ckpt = torch.load(ckpt_path, map_location="cpu")
     sd = ckpt.get("model_state_dict", ckpt.get("state_dict", ckpt))
     clean_sd = {k.replace("module.", ""): v for k, v in sd.items()}
     model.load_state_dict(clean_sd, strict=False)
     model = model.to(device).eval()
 
-    val_ds = Dataset(data=cases, transform=build_val_transforms(roi_size))
+    val_ds = Dataset(data=cases, transform=val_tf)
     val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
 
-    all_dice = [[] for _ in range(NUM_CLASSES)]
-    all_hd95 = [[] for _ in range(NUM_CLASSES)]
+    # 4 organ classes (indices 1..4)
+    all_dice = [[] for _ in range(4)]
 
     with torch.no_grad():
         for batch in val_loader:
@@ -119,36 +85,31 @@ def evaluate_checkpoint(ckpt_path, cases, roi_size, device):
             )
             if isinstance(out, (tuple, list)):
                 out = out[0]
-            probs = torch.softmax(out, dim=1)
-            preds = torch.argmax(probs, dim=1, keepdim=True)
+            preds = torch.argmax(out, dim=1, keepdim=True)
 
-            for c in range(NUM_CLASSES):
-                p = (preds[:, 0, ...] == (c + 1)).float()
-                g = (lbls[:, 0, ...] == (c + 1)).float()
+            # Clean ignore index if any
+            lbls_clean = lbls.clone()
+            lbls_clean[lbls_clean == 255] = 0
+
+            for c in range(4):
+                organ_idx = c + 1
+                p = (preds[:, 0, ...] == organ_idx).float()
+                g = (lbls_clean[:, 0, ...] == organ_idx).float()
                 inter = (p * g).sum().item()
                 union = p.sum().item() + g.sum().item()
-                dice = (2.0 * inter / (union + 1e-6))
-                all_dice[c].append(dice)
+                if union > 0:
+                    dice = (2.0 * inter) / (union + 1e-6)
+                    all_dice[c].append(dice)
 
-                try:
-                    p_t = p.unsqueeze(1)
-                    g_t = g.unsqueeze(1)
-                    hd = compute_hausdorff_distance(p_t, g_t, percentile=95).item()
-                    if not np.isnan(hd) and not np.isinf(hd):
-                        all_hd95[c].append(hd)
-                except Exception:
-                    pass
-
-    per_organ_dice = {ORGAN_NAMES[c]: float(np.mean(all_dice[c])) if all_dice[c] else 0.0
-                      for c in range(NUM_CLASSES)}
-    per_organ_hd95 = {ORGAN_NAMES[c]: float(np.mean(all_hd95[c])) if all_hd95[c] else float("nan")
-                      for c in range(NUM_CLASSES)}
+    per_organ_dice = {
+        ORGAN_NAMES[c]: float(np.mean(all_dice[c])) if len(all_dice[c]) > 0 else 0.0
+        for c in range(4)
+    }
     mean_dice = float(np.mean(list(per_organ_dice.values())))
 
     return {
         "mean_dice": mean_dice,
         "per_organ_dice": per_organ_dice,
-        "per_organ_hd95": per_organ_hd95,
     }
 
 
@@ -156,43 +117,96 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate scaling sweep checkpoints post-hoc.")
     parser.add_argument("--results_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/scaling_sweep")
     parser.add_argument("--data_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox")
-    parser.add_argument("--rad_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/JHU_data_radiologist_corrected")
+    parser.add_argument("--ensemble_out_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out")
+    parser.add_argument("--audit_csv", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--num_val_cases", type=int, default=20)
+    parser.add_argument("--roi_size", type=int, nargs=3, default=[96, 96, 96])
     args = parser.parse_args()
 
     device = torch.device(args.device)
-    print(f"Evaluation device: {device}")
+    print("=" * 70)
+    print("      SCALING SWEEP POST-HOC EVALUATION")
+    print(f"      Device:     {device}")
+    print(f"      Results:    {args.results_dir}")
+    print("=" * 70)
 
-    val_cases = find_cases(args.data_dir, args.data_dir)[:args.num_val_cases]
-    print(f"Evaluating across {len(val_cases)} validation cases.")
+    # 1. Find validation cases
+    val_cases = find_validation_cases(
+        args.data_dir, args.ensemble_out_dir, args.audit_csv, max_cases=args.num_val_cases
+    )
+    if not val_cases:
+        print(f"ERROR: No valid (CT, label) pairs found in {args.data_dir} / {args.ensemble_out_dir}!")
+        sys.exit(1)
+    print(f"Loaded {len(val_cases)} validation cases for evaluation.")
 
-    ckpts = sorted(glob.glob(os.path.join(args.results_dir, "N*", "best_checkpoint.pt")))
+    # 2. Get transforms with FixLiarLabelAffined
+    _, val_tf = get_transforms(roi_size=tuple(args.roi_size))
+
+    # 3. Discover all checkpoints
+    # Pattern 1: results/scaling_sweep/N*/seed*/best_mednext_phase2.pt
+    ckpts = sorted(glob.glob(os.path.join(args.results_dir, "N*", "seed*", "best_mednext_phase2.pt")))
     if not ckpts:
-        print(f"No best_checkpoint.pt found in {args.results_dir}/N*")
-        return
+        # Fallback to any best_*.pt
+        ckpts = sorted(glob.glob(os.path.join(args.results_dir, "**", "best_*.pt"), recursive=True))
+
+    if not ckpts:
+        print(f"No checkpoints found under {args.results_dir}")
+        sys.exit(1)
+
+    print(f"Discovered {len(ckpts)} checkpoints to evaluate.\n")
+
+    # 4. Instantiate Model
+    if create_mednext_v1 is None:
+        print("ERROR: create_mednext_v1 could not be imported. Ensure MedNeXt is installed.")
+        sys.exit(1)
+
+    model = create_mednext_v1(
+        num_input_channels=1,
+        num_classes=NUM_CLASSES,
+        model_id="B",
+        kernel_size=3,
+        deep_supervision=False,
+    ).to(device)
 
     summary = []
     for ckpt in ckpts:
-        n_folder = os.path.basename(os.path.dirname(ckpt))
-        print(f"\nEvaluating {n_folder} -> {ckpt} ...")
-        res = evaluate_checkpoint(ckpt, val_cases, (96, 96, 96), device)
-        print(f"  {n_folder} Mean Dice: {res['mean_dice']:.4f}")
-        for organ, d in res['per_organ_dice'].items():
-            print(f"    {organ:12s}: {d:.4f}")
-        summary.append({
+        rel = os.path.relpath(ckpt, args.results_dir)
+        parts = rel.split(os.sep)
+        n_folder = parts[0] if len(parts) > 0 else "unknown"
+        seed_folder = parts[1] if len(parts) > 1 else "unknown"
+
+        print(f"Evaluating [{n_folder} | {seed_folder}] -> {ckpt} ...")
+        res = evaluate_checkpoint(model, ckpt, val_cases, val_tf, tuple(args.roi_size), device)
+        print(f"  -> Mean Dice: {res['mean_dice']:.4f}")
+        for organ, d in res["per_organ_dice"].items():
+            print(f"     {organ:12s}: {d:.4f}")
+
+        row = {
             "cohort": n_folder,
+            "seed": seed_folder,
+            "checkpoint": ckpt,
             "mean_dice": res["mean_dice"],
             **{f"dice_{k}": v for k, v in res["per_organ_dice"].items()},
-            **{f"hd95_{k}": v for k, v in res["per_organ_hd95"].items()},
-        })
+        }
+        summary.append(row)
 
-    out_csv = os.path.join(args.results_dir, "post_hoc_summary.csv")
+    # 5. Output CSV
+    out_csv = os.path.join(args.results_dir, "scaling_sweep_posthoc_eval.csv")
     with open(out_csv, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(summary[0].keys()))
         writer.writeheader()
         writer.writerows(summary)
-    print(f"\nSaved post-hoc summary to: {out_csv}")
+
+    print("\n" + "=" * 70)
+    print(f"  Evaluation Complete! Saved summary to: {out_csv}")
+    print("=" * 70)
+
+    # Grouped summary by cohort
+    df_sum = pd.DataFrame(summary)
+    grouped = df_sum.groupby("cohort")["mean_dice"].agg(["mean", "std", "count"])
+    print("\nScaling Curve Aggregated (Mean Dice across seeds):")
+    print(grouped.to_string())
 
 
 if __name__ == "__main__":
