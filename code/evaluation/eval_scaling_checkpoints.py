@@ -26,10 +26,16 @@ sys.path.insert(0, os.path.join(SCRATCH_DEFAULT, "code", "training"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "training"))
 
 try:
-    from train_mednext_phase2 import create_mednext_v1, get_transforms, FixLiarLabelAffined
-except ImportError:
+    import importlib
+    _phase2 = importlib.import_module("train_mednext_phase2")
+    create_mednext_v1 = getattr(_phase2, "create_mednext_v1", None)
+    get_transforms = getattr(_phase2, "get_transforms", None)
+    FixLiarLabelAffined = getattr(_phase2, "FixLiarLabelAffined", None)
+except Exception as _e:
+    print(f"[WARNING] Could not import train_mednext_phase2: {_e}")
     create_mednext_v1 = None
     get_transforms = None
+    FixLiarLabelAffined = None
 
 ORGAN_NAMES = ["stomach", "duodenum", "small_bowel", "colon"]
 NUM_CLASSES = 5  # 0: bg, 1: stomach, 2: duodenum, 3: small bowel, 4: colon
@@ -62,10 +68,19 @@ def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, max_cases=20):
 
 
 def evaluate_checkpoint(model, ckpt_path, cases, val_tf, roi_size, device):
-    ckpt = torch.load(ckpt_path, map_location="cpu")
-    sd = ckpt.get("model_state_dict", ckpt.get("state_dict", ckpt))
+    # train_mednext_phase2 saves raw.state_dict() directly (a flat OrderedDict)
+    # It is NOT wrapped in a dict with 'model_state_dict' key.
+    # We try common wrappers first, then fall back to treating the whole thing as a state dict.
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    if isinstance(ckpt, dict) and ("model_state_dict" in ckpt or "state_dict" in ckpt):
+        sd = ckpt.get("model_state_dict", ckpt.get("state_dict"))
+    else:
+        # Saved with torch.save(raw.state_dict(), path) — already the state dict
+        sd = ckpt
     clean_sd = {k.replace("module.", ""): v for k, v in sd.items()}
-    model.load_state_dict(clean_sd, strict=False)
+    missing, unexpected = model.load_state_dict(clean_sd, strict=False)
+    if unexpected:
+        print(f"  [WARN] Unexpected keys in checkpoint: {unexpected[:3]}")
     model = model.to(device).eval()
 
     val_ds = Dataset(data=cases, transform=val_tf)
@@ -141,6 +156,9 @@ def main():
     print(f"Loaded {len(val_cases)} validation cases for evaluation.")
 
     # 2. Get transforms with FixLiarLabelAffined
+    if get_transforms is None:
+        print("ERROR: get_transforms could not be imported from train_mednext_phase2.")
+        sys.exit(1)
     _, val_tf = get_transforms(roi_size=tuple(args.roi_size))
 
     # 3. Discover all checkpoints
@@ -156,16 +174,17 @@ def main():
 
     print(f"Discovered {len(ckpts)} checkpoints to evaluate.\n")
 
-    # 4. Instantiate Model
+    # 4. Instantiate Model (model_id="B", kernel_size=3 to match sweep config in submit_scaling_sweep.sh)
     if create_mednext_v1 is None:
-        print("ERROR: create_mednext_v1 could not be imported. Ensure MedNeXt is installed.")
+        print("ERROR: create_mednext_v1 could not be imported. Ensure MedNeXt is installed in the conda env:")
+        print("  pip install git+https://github.com/MIC-DKFZ/MedNeXt.git")
         sys.exit(1)
 
     model = create_mednext_v1(
         num_input_channels=1,
-        num_classes=NUM_CLASSES,
-        model_id="B",
-        kernel_size=3,
+        num_classes=NUM_CLASSES,  # 5: bg + 4 organs
+        model_id="B",             # Must match --model_id used in training
+        kernel_size=3,            # Must match --kernel_size used in training
         deep_supervision=False,
     ).to(device)
 
