@@ -36,6 +36,7 @@ from monai.transforms import (
     ScaleIntensityRanged, SpatialPadd, CropForegroundd, RandCropByPosNegLabeld,
     RandRotated, RandFlipd, RandGaussianNoised,
     RandScaleIntensityd, RandShiftIntensityd, EnsureTyped, AsDiscrete,
+    ResampleToMatchd,
 )
 from monai.data import Dataset, DataLoader, decollate_batch
 
@@ -61,7 +62,17 @@ except ImportError:
             _sys.path.insert(0, _vault_root)
         from src.segmentation.losses.asymmetric_loss import AsymmetricPDCELoss
     except ImportError:
-        AsymmetricPDCELoss = None
+        try:
+            # Cluster deployment: asymmetric_loss.py lives beside this script in
+            # code/training/ — add that directory and import directly.
+            import sys as _sys, os as _os
+            _here = _os.path.dirname(_os.path.abspath(__file__))
+            if _here not in _sys.path:
+                _sys.path.insert(0, _here)
+            from asymmetric_loss import AsymmetricPDCELoss
+            print("[Loss] AsymmetricPDCELoss loaded from co-located asymmetric_loss.py")
+        except ImportError:
+            AsymmetricPDCELoss = None
 
 NUM_CLASSES  = 5    # Background + Stomach + Duodenum + Small Bowel + Colon
 IGNORE_INDEX = 255  # WEAK_COARSE boundary pixels are ignored in loss
@@ -238,6 +249,13 @@ def get_transforms(roi_size=(96, 96, 96)):
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
+        # The ensemble consensus label was generated on a GI-crop sub-volume
+        # whose affine differs from the full ct.nii.gz. Without resampling the
+        # label onto the CT's voxel grid first, Spacingd produces tensors with
+        # different spatial extents (e.g. 227 vs 170 depth), so
+        # sliding_window_inference output covers the wrong anatomical region
+        # relative to the label -> Dice = 0 for all 150 epochs.
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         EnsureTyped(keys=["image", "label"]),
@@ -493,10 +511,17 @@ def main():
                     with torch.cuda.amp.autocast():
                         vo = sliding_window_inference(vi, (96, 96, 96), 4, model)
 
-                    # Align prediction spatial size to label size if they differ.
-                    # CT and autolabel NIfTIs can have slightly different voxel
-                    # grids after resampling, causing a shape mismatch here.
+                    # ResampleToMatchd in val_transforms guarantees CT and label
+                    # are on the same voxel grid, so shapes must match here.
+                    # Guard retained purely as a safety net for edge cases.
                     if vo.shape[-3:] != vl.shape[-3:]:
+                        import warnings
+                        warnings.warn(
+                            f"[Val] Unexpected shape mismatch after ResampleToMatchd: "
+                            f"pred {vo.shape[-3:]} vs label {vl.shape[-3:]}. "
+                            "Falling back to trilinear interpolation — check val_transforms.",
+                            RuntimeWarning, stacklevel=2,
+                        )
                         vo = torch.nn.functional.interpolate(
                             vo.float(), size=vl.shape[-3:],
                             mode="trilinear", align_corners=False,
