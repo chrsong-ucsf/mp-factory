@@ -41,8 +41,22 @@ ORGAN_NAMES = ["stomach", "duodenum", "small_bowel", "colon"]
 NUM_CLASSES = 5  # 0: bg, 1: stomach, 2: duodenum, 3: small bowel, 4: colon
 
 
-def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, max_cases=20):
+def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, gold_standard_dir=None, max_cases=20):
     cases = []
+    # If gold_standard_dir is provided, look for gold standard masks
+    if gold_standard_dir and os.path.exists(gold_standard_dir):
+        gs_files = sorted(glob.glob(os.path.join(gold_standard_dir, "*.nii.gz")))
+        for gf in gs_files:
+            sub = os.path.basename(gf).replace(".nii.gz", "")
+            ct = os.path.join(data_dir, sub, "ct.nii.gz")
+            if os.path.exists(ct):
+                cases.append({"image": ct, "label": gf, "name": sub})
+                if len(cases) >= max_cases:
+                    break
+        if cases:
+            print(f"Found {len(cases)} cases from gold standard directory: {gold_standard_dir}")
+            return cases
+
     if audit_csv and os.path.exists(audit_csv):
         df = pd.read_csv(audit_csv)
         clean = df[df["triage_category"] == "CLEAN_HIGH_CONFIDENCE"]
@@ -134,6 +148,8 @@ def main():
     parser.add_argument("--data_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox")
     parser.add_argument("--ensemble_out_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out")
     parser.add_argument("--audit_csv", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv")
+    parser.add_argument("--gold_standard_dir", type=str, default=None, help="Path to JHU radiologist-corrected labels directory")
+    parser.add_argument("--output_csv", type=str, default=None, help="Custom output CSV path")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--num_val_cases", type=int, default=20)
     parser.add_argument("--roi_size", type=int, nargs=3, default=[96, 96, 96])
@@ -144,11 +160,14 @@ def main():
     print("      SCALING SWEEP POST-HOC EVALUATION")
     print(f"      Device:     {device}")
     print(f"      Results:    {args.results_dir}")
+    if args.gold_standard_dir:
+        print(f"      Gold Std:   {args.gold_standard_dir}")
     print("=" * 70)
 
     # 1. Find validation cases
     val_cases = find_validation_cases(
-        args.data_dir, args.ensemble_out_dir, args.audit_csv, max_cases=args.num_val_cases
+        args.data_dir, args.ensemble_out_dir, args.audit_csv,
+        gold_standard_dir=args.gold_standard_dir, max_cases=args.num_val_cases
     )
     if not val_cases:
         print(f"ERROR: No valid (CT, label) pairs found in {args.data_dir} / {args.ensemble_out_dir}!")
@@ -211,7 +230,11 @@ def main():
         summary.append(row)
 
     # 5. Output CSV
-    out_csv = os.path.join(args.results_dir, "scaling_sweep_posthoc_eval.csv")
+    if args.output_csv:
+        out_csv = args.output_csv
+    else:
+        out_csv = os.path.join(args.results_dir, "scaling_sweep_posthoc_eval.csv")
+    os.makedirs(os.path.dirname(os.path.abspath(out_csv)), exist_ok=True)
     with open(out_csv, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(summary[0].keys()))
         writer.writeheader()
