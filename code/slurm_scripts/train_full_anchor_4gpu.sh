@@ -28,6 +28,7 @@ eval "$(mamba shell hook --shell bash)"
 mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 
 export PYTHONUNBUFFERED=1
+ulimit -n 65535 2>/dev/null || true
 
 # Multi-Node DDP Rendezvous Configuration
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
@@ -41,8 +42,8 @@ if [ -f "$CKPT" ]; then
     if [ -n "$RESUME_START_EPOCH" ]; then
         START_EPOCH=$RESUME_START_EPOCH
     else
-        # Auto-detect latest completed epoch from previous anchor training log
-        PREV_LOG=$(ls -t logs/train_full_anchor_*.out 2>/dev/null | head -n 1)
+        # Auto-detect latest completed epoch from previous anchor training log (excluding this job)
+        PREV_LOG=$(ls -t logs/train_full_anchor_*.out logs/train_full_anchor_4gpu_*.out 2>/dev/null | grep -v "${SLURM_JOB_ID}" | head -n 1)
         if [ -n "$PREV_LOG" ]; then
             LAST_EPOCH=$(grep -oE "Epoch \[[0-9]{3}/[0-9]{3}\]" "$PREV_LOG" | tail -n 1 | grep -oE "[0-9]{3}" | head -n 1 | sed 's/^0*//')
             if [ -n "$LAST_EPOCH" ]; then
@@ -50,7 +51,7 @@ if [ -f "$CKPT" ]; then
             fi
         fi
     fi
-    echo "[Resumption] Found checkpoint $CKPT. Starting at epoch $START_EPOCH."
+    echo "[Resumption] Found checkpoint $CKPT. Detected prev log: $PREV_LOG (last completed epoch: ${LAST_EPOCH:-unknown}). Starting at epoch $START_EPOCH."
 else
     CKPT="/mnt/scratch/user/chrsong/mp-factory/results/mednext_models/fold_0/best_mednext_gi.pt"
     echo "[Warm-start] Starting from Phase 1 checkpoint $CKPT (epoch 1)."
@@ -82,6 +83,6 @@ srun torchrun \
     --epochs 150 \
     --start_epoch $START_EPOCH \
     --batch_size 2 \
-    --num_workers 14 \
+    --num_workers 4 \
     --lr 2e-4 \
     --use_weak

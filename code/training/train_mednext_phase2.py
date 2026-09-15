@@ -406,6 +406,12 @@ def main():
 
     os.makedirs(args.out_dir, exist_ok=True)
 
+    import torch.multiprocessing as mp
+    try:
+        mp.set_sharing_strategy('file_system')
+    except Exception:
+        pass
+
     # Distributed Data Parallel (DDP) / Multi-GPU setup
     is_ddp = "WORLD_SIZE" in os.environ and int(os.environ.get("WORLD_SIZE", "1")) > 1
     if is_ddp:
@@ -513,7 +519,7 @@ def main():
 
     if is_ddp:
         model = nn.parallel.DistributedDataParallel(
-            model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False
+            model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True
         )
     elif num_gpus > 1:
         model = nn.DataParallel(model)
