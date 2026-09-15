@@ -52,20 +52,20 @@ Below are **four representative clinical showcase cases** prepared for mentor an
 
 ### B. 3-Plane Orthoview (Axial, Coronal, Sagittal)
 Centered at the anatomical center of mass of the gastrointestinal tract:
-![BDMAP_00242131 Orthoview](visualizations/BDMAP_00242131_orthoview.png)
+![BDMAP_00242131 Orthoview](figures/showcase/BDMAP_00242131_orthoview.png)
 
 ### C. Validation Against Expert JHU Radiologist Ground Truth
 Direct 4-panel comparison demonstrating spatial concordance and boundary refinement:
-![BDMAP_00242131 Radiologist Comparison](visualizations/BDMAP_00242131_radiologist_gt_comparison.png)
+![BDMAP_00242131 Radiologist Comparison](figures/showcase/BDMAP_00242131_radiologist_gt_comparison.png)
 * *Key observation:* In Panel D (Concordance Map), green denotes exact spatial agreement. The automated model cleanly isolates the transverse colon (Blue in Panel C) from adjacent jejunal loops, correctly resolving haustral colonic borders that were conflated in coarse manual queues.
 
 ### D. Cranial-to-Caudal Anatomical Progression Montage
 8-slice series following the continuous digestive path from gastric fundus down to pelvic sigmoid loops:
-![BDMAP_00242131 Montage](visualizations/BDMAP_00242131_montage.png)
+![BDMAP_00242131 Montage](figures/showcase/BDMAP_00242131_montage.png)
 
 ### E. 3D Anatomical Surface Projections (Canonical RAS+ Orientation)
 4 multi-angle perspective projections (Anterior, Posterior, RAO 45°, LAO 45°):
-![BDMAP_00242131 3D Renders](visualizations/BDMAP_00242131_3d_renders.png)
+![BDMAP_00242131 3D Renders](figures/showcase/BDMAP_00242131_3d_renders.png)
 
 ---
 
@@ -77,11 +77,11 @@ Direct 4-panel comparison demonstrating spatial concordance and boundary refinem
 * **Organ Volumes:** Stomach: 228.7 cm³, Duodenum: 49.4 cm³, Small Bowel: 819.8 cm³, Colon: 807.4 cm³.
 
 ### B. 3-Plane Orthoview & Cranial-to-Caudal Montage
-![BDMAP_00242114 Orthoview](visualizations/BDMAP_00242114_orthoview.png)
-![BDMAP_00242114 Montage](visualizations/BDMAP_00242114_montage.png)
+![BDMAP_00242114 Orthoview](figures/showcase/BDMAP_00242114_orthoview.png)
+![BDMAP_00242114 Montage](figures/showcase/BDMAP_00242114_montage.png)
 
 ### C. 3D Volumetric Surface Reconstruction
-![BDMAP_00242114 3D Renders](visualizations/BDMAP_00242114_3d_renders.png)
+![BDMAP_00242114 3D Renders](figures/showcase/BDMAP_00242114_3d_renders.png)
 
 ---
 
@@ -96,9 +96,9 @@ Direct 4-panel comparison demonstrating spatial concordance and boundary refinem
 * **Segmentation Result:** The model successfully navigates the tortuous course, accurately mapping 342.1 cm³ of stomach without liver bleeding, and reconstructing the redundant sigmoid loop (Colon volume: 234.9 cm³).
 
 ### B. Visual Deliverables
-![BDMAP_00242136 Orthoview](visualizations/BDMAP_00242136_orthoview.png)
-![BDMAP_00242136 Montage](visualizations/BDMAP_00242136_montage.png)
-![BDMAP_00242136 3D Renders](visualizations/BDMAP_00242136_3d_renders.png)
+![BDMAP_00242136 Orthoview](figures/showcase/BDMAP_00242136_orthoview.png)
+![BDMAP_00242136 Montage](figures/showcase/BDMAP_00242136_montage.png)
+![BDMAP_00242136 3D Renders](figures/showcase/BDMAP_00242136_3d_renders.png)
 
 ---
 
@@ -110,9 +110,9 @@ Direct 4-panel comparison demonstrating spatial concordance and boundary refinem
 * **Organ Volumes:** Stomach: 338.6 cm³, Duodenum: 71.5 cm³, Small Bowel: 886.1 cm³, Colon: 790.8 cm³.
 
 ### B. Visual Deliverables
-![BDMAP_00394224 Orthoview](visualizations/BDMAP_00394224_orthoview.png)
-![BDMAP_00394224 Montage](visualizations/BDMAP_00394224_montage.png)
-![BDMAP_00394224 3D Renders](visualizations/BDMAP_00394224_3d_renders.png)
+![BDMAP_00394224 Orthoview](figures/showcase/BDMAP_00394224_orthoview.png)
+![BDMAP_00394224 Montage](figures/showcase/BDMAP_00394224_montage.png)
+![BDMAP_00394224 3D Renders](figures/showcase/BDMAP_00394224_3d_renders.png)
 
 ---
 
@@ -139,7 +139,7 @@ All measurements are computed in physical space using calibrated voxel dimension
 | | Small Bowel | 1,078,960 | **886.1** | +35.7 | 104.5 | +59.0 | $249.2 \times 129.6 \times 265.0$ |
 | | Colon | 962,916 | **790.8** | -160.9 | 329.2 | -16.0 | $258.3 \times 190.3 \times 280.0$ |
 
-*Summary CSV:* [`organ_volumetric_metrics.csv`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/organ_volumetric_metrics.csv)
+*Summary CSV:* [`organ_volumetric_metrics.csv`](file:///mnt/scratch/user/chrsong/mp-factory/docs/organ_volumetric_metrics.csv)
 
 ---
 

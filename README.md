@@ -9,6 +9,8 @@ filters them and distills clean pseudo-labels into a compact student model.
 **Pipeline in one line:** download → segment (TotalSeg + MedNeXt + Swin-UNETR) →
 ensemble-cleanse → distill (Phase 2) → validate against radiologist ground truth.
 
+> 🌟 **Featured Deliverable: [Executive 3D Segmented GI Organs Showcase](docs/MENTOR_GI_SEGMENTATION_SHOWCASE.md)** — High-resolution 2D orthoviews, cranial-to-caudal progression montages, canonical 3D surface reconstructions, and Johns Hopkins radiologist ground-truth comparisons across 4 clinical cases.
+
 ## 🚀 Key Features
 
 1. **Data Ingestion & HPC Downloading** — automated pulls of large-scale 3D CT datasets (`BodyMaps`/`CancerVerse`) via Hugging Face Hub.
