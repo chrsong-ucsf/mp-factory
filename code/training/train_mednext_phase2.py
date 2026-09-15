@@ -499,7 +499,7 @@ def main():
             train_ds, batch_size=args.batch_size, shuffle=True,
             num_workers=num_workers, pin_memory=True, persistent_workers=(num_workers > 0)
         )
-    val_loader = DataLoader(val_ds, batch_size=max(1, num_gpus), num_workers=min(4, num_workers))
+    val_loader = DataLoader(val_ds, batch_size=1, num_workers=min(4, num_workers))
 
     # Model
     if create_mednext_v1 is None:
