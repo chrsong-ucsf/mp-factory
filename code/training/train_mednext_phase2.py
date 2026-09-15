@@ -24,6 +24,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
 
 # CUDA Optimizations
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -372,8 +374,12 @@ def main():
     parser.add_argument("--fold",             type=int,  default=-1)
     parser.add_argument("--num_folds",        type=int,  default=4)
     parser.add_argument("--epochs",           type=int,  default=150)
+    parser.add_argument("--start_epoch",      type=int,  default=1,
+                        help="Epoch number to start from (useful when resuming from a checkpoint)")
     parser.add_argument("--batch_size",       type=int,  default=1)
     parser.add_argument("--lr",               type=float, default=1e-4)
+    parser.add_argument("--num_workers",      type=int,  default=None,
+                        help="Number of DataLoader workers per process. If None, auto-calculated from CPU cores.")
     parser.add_argument("--val_interval",     type=int,  default=5)
     parser.add_argument("--max_val_samples",  type=int,  default=50)
     parser.add_argument("--use_weak",         action="store_true",
@@ -399,9 +405,28 @@ def main():
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
-    device   = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Distributed Data Parallel (DDP) / Multi-GPU setup
+    is_ddp = "WORLD_SIZE" in os.environ and int(os.environ.get("WORLD_SIZE", "1")) > 1
+    if is_ddp:
+        dist.init_process_group(backend="nccl")
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        global_rank = int(os.environ.get("RANK", 0))
+        world_size = int(os.environ.get("WORLD_SIZE", 1))
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
+    else:
+        local_rank = 0
+        global_rank = 0
+        world_size = 1
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def log(*msg, **kw):
+        if global_rank == 0:
+            print(*msg, **kw, flush=True)
+
     num_gpus = torch.cuda.device_count()
-    print(f"[Phase 2] Device: {device} | GPUs: {num_gpus} | use_weak: {args.use_weak}")
+    log(f"[Phase 2] Device: {device} | Local Rank: {local_rank} | World Size: {world_size} | GPUs (local): {num_gpus} | use_weak: {args.use_weak}")
 
     data_pairs = discover_phase2_dataset(
         data_dir          = args.data_dir,
@@ -414,7 +439,7 @@ def main():
         seed              = args.seed,
     )
     if not data_pairs:
-        print("ERROR: No usable data pairs found.")
+        log("ERROR: No usable data pairs found.")
         sys.exit(1)
 
     # Train / Val Split (use --seed for reproducibility)
@@ -427,30 +452,52 @@ def main():
         train_idx   = np.setdiff1d(indices, val_indices)
         train_pairs = [data_pairs[i] for i in train_idx]
         val_pairs   = [data_pairs[i] for i in val_indices]
-        print(f"[Fold {args.fold}/{args.num_folds}] Train: {len(train_pairs)} | Val: {len(val_pairs)}")
+        log(f"[Fold {args.fold}/{args.num_folds}] Train: {len(train_pairs)} | Val: {len(val_pairs)}")
     else:
         split       = int(0.8 * len(data_pairs))
         train_pairs = [data_pairs[i] for i in indices[:split]]
         val_pairs   = [data_pairs[i] for i in indices[split:]]
-        print(f"[80/20 Split] Train: {len(train_pairs)} | Val: {len(val_pairs)}")
+        log(f"[80/20 Split] Train: {len(train_pairs)} | Val: {len(val_pairs)}")
 
     if args.max_val_samples > 0 and len(val_pairs) > args.max_val_samples:
         val_pairs = [val_pairs[i] for i in np.random.choice(
             len(val_pairs), args.max_val_samples, replace=False)]
-        print(f"  [Fast Val] Subsampled to {len(val_pairs)} scans.")
+        log(f"  [Fast Val] Subsampled to {len(val_pairs)} scans.")
 
     train_tf, val_tf = get_transforms(roi_size=(96, 96, 96))
     train_ds = Dataset(data=train_pairs, transform=train_tf)
     val_ds   = Dataset(data=val_pairs,   transform=val_tf)
 
-    num_workers  = min(16, 4 * max(1, num_gpus))
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size,
-                              shuffle=True, num_workers=num_workers, pin_memory=True)
-    val_loader   = DataLoader(val_ds, batch_size=max(1, num_gpus), num_workers=4)
+    # DataLoader CPU workers allocation
+    num_cpus = os.cpu_count() or 4
+    if args.num_workers is not None:
+        num_workers = args.num_workers
+    else:
+        if is_ddp:
+            num_workers = min(16, max(2, num_cpus // max(1, torch.cuda.device_count())))
+        else:
+            num_workers = min(16, 4 * max(1, num_gpus))
+    log(f"[Phase 2] DataLoader workers per process: {num_workers} (total allocated CPUs on node: {num_cpus})")
+
+    if is_ddp:
+        train_sampler = DistributedSampler(
+            train_ds, num_replicas=world_size, rank=global_rank, shuffle=True, seed=args.seed
+        )
+        train_loader = DataLoader(
+            train_ds, batch_size=args.batch_size, sampler=train_sampler,
+            num_workers=num_workers, pin_memory=True, persistent_workers=(num_workers > 0)
+        )
+    else:
+        train_sampler = None
+        train_loader = DataLoader(
+            train_ds, batch_size=args.batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=True, persistent_workers=(num_workers > 0)
+        )
+    val_loader = DataLoader(val_ds, batch_size=max(1, num_gpus), num_workers=min(4, num_workers))
 
     # Model
     if create_mednext_v1 is None:
-        print("ERROR: Install MedNeXt: pip install git+https://github.com/MIC-DKFZ/MedNeXt.git")
+        log("ERROR: Install MedNeXt: pip install git+https://github.com/MIC-DKFZ/MedNeXt.git")
         sys.exit(1)
 
     model = create_mednext_v1(
@@ -460,22 +507,26 @@ def main():
     ).to(device)
 
     if args.pretrained_ckpt and os.path.exists(args.pretrained_ckpt):
-        print(f"Loading Phase 1 checkpoint: {args.pretrained_ckpt}")
+        log(f"Loading Phase 1/checkpoint: {args.pretrained_ckpt}")
         model.load_state_dict(
             torch.load(args.pretrained_ckpt, map_location=device), strict=False)
 
-    if num_gpus > 1:
+    if is_ddp:
+        model = nn.parallel.DistributedDataParallel(
+            model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False
+        )
+    elif num_gpus > 1:
         model = nn.DataParallel(model)
 
     # --- Loss selection ---
     if args.loss_type == "asymmetric":
         if AsymmetricPDCELoss is None:
-            print("WARNING: AsymmetricPDCELoss import failed; falling back to DiceCEWithIgnoreLoss.")
+            log("WARNING: AsymmetricPDCELoss import failed; falling back to DiceCEWithIgnoreLoss.")
             loss_fn = DiceCEWithIgnoreLoss(num_classes=NUM_CLASSES,
                                            ignore_index=IGNORE_INDEX, ce_weight=0.5)
         else:
-            print(f"[Loss] AsymmetricPDCELoss(alpha={args.alpha}, beta={args.beta}, "
-                  f"ignore_index={IGNORE_INDEX})")
+            log(f"[Loss] AsymmetricPDCELoss(alpha={args.alpha}, beta={args.beta}, "
+                f"ignore_index={IGNORE_INDEX})")
             loss_fn = AsymmetricPDCELoss(
                 apply_softmax=True,
                 ce_weight=0.5,
@@ -485,12 +536,19 @@ def main():
                 ignore_index=IGNORE_INDEX,
             )
     else:
-        print(f"[Loss] DiceCEWithIgnoreLoss(ignore_index={IGNORE_INDEX})")
+        log(f"[Loss] DiceCEWithIgnoreLoss(ignore_index={IGNORE_INDEX})")
         loss_fn = DiceCEWithIgnoreLoss(num_classes=NUM_CLASSES,
                                        ignore_index=IGNORE_INDEX, ce_weight=0.5)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=1e-6)
+
+    # If resuming from a later epoch, advance the LR scheduler accordingly
+    if args.start_epoch > 1:
+        log(f"[Phase 2] Resuming at epoch {args.start_epoch}: advancing LR scheduler {args.start_epoch - 1} steps...")
+        for _ in range(1, args.start_epoch):
+            scheduler.step()
+
     try:
         scaler = torch.cuda.amp.GradScaler()
     except Exception:
@@ -506,10 +564,12 @@ def main():
 
     import hashlib
     _script_hash = hashlib.md5(open(__file__, "rb").read()).hexdigest()[:8]
-    print(f"\n[Phase 2] Starting training ({args.epochs} epochs)...")
-    print(f"[Phase 2] Script hash: {_script_hash}  (must match local: run git log --oneline -1 to verify cluster pulled latest)\n")
+    log(f"\n[Phase 2] Starting training (epochs {args.start_epoch} -> {args.epochs})...")
+    log(f"[Phase 2] Script hash: {_script_hash}  (must match local: run git log --oneline -1 to verify cluster pulled latest)\n")
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(args.start_epoch, args.epochs + 1):
+        if is_ddp and train_sampler is not None:
+            train_sampler.set_epoch(epoch)
         model.train()
         epoch_loss, step = 0.0, 0
 
@@ -518,10 +578,7 @@ def main():
             inputs = batch_data["image"].to(device)
             labels = batch_data["label"].to(device)
             is_gold_standard = batch_data.get("is_gold_standard", False)
-            # Handle case where is_gold_standard might be a tensor or batch
             if isinstance(is_gold_standard, torch.Tensor):
-                # If it's a batch, we need to check if any sample in the batch is gold standard
-                # For simplicity, we'll apply weighting if any sample in the batch is gold standard
                 is_gold_any = is_gold_standard.any().item()
             else:
                 is_gold_any = bool(is_gold_standard)
@@ -543,59 +600,63 @@ def main():
         scheduler.step()
         epoch_loss /= max(step, 1)
         lr_now = scheduler.get_last_lr()[0]
-        print(f"Epoch [{epoch:03d}/{args.epochs}] Loss: {epoch_loss:.4f}  LR: {lr_now:.2e}")
+        log(f"Epoch [{epoch:03d}/{args.epochs}] Loss: {epoch_loss:.4f}  LR: {lr_now:.2e}")
 
-        # Save latest checkpoint
-        raw = model.module if hasattr(model, "module") else model
-        torch.save(raw.state_dict(), last_ckpt_path)
+        # Save latest checkpoint (rank 0 only)
+        if global_rank == 0:
+            raw = model.module if hasattr(model, "module") else model
+            torch.save(raw.state_dict(), last_ckpt_path)
 
-        # Validation
+        # Validation (rank 0 only, all ranks synchronized)
         if epoch % args.val_interval == 0:
-            model.eval()
-            with torch.no_grad():
-                for val_data in val_loader:
-                    vi = val_data["image"].to(device)
-                    vl = val_data["label"].to(device)
-
-                    with torch.cuda.amp.autocast():
-                        vo = sliding_window_inference(vi, (96, 96, 96), 4, model)
-
-                    # ResampleToMatchd in val_transforms guarantees CT and label
-                    # are on the same voxel grid, so shapes must match here.
-                    # Guard retained purely as a safety net for edge cases.
-                    if vo.shape[-3:] != vl.shape[-3:]:
-                        import warnings
-                        warnings.warn(
-                            f"[Val] Unexpected shape mismatch after ResampleToMatchd: "
-                            f"pred {vo.shape[-3:]} vs label {vl.shape[-3:]}. "
-                            "Falling back to trilinear interpolation — check val_transforms.",
-                            RuntimeWarning, stacklevel=2,
-                        )
-                        vo = torch.nn.functional.interpolate(
-                            vo.float(), size=vl.shape[-3:],
-                            mode="trilinear", align_corners=False,
-                        )
-
-                    # Remap ignore pixels to background before metric
-                    vl_clean = torch.where(vl == IGNORE_INDEX,
-                                           torch.zeros_like(vl), vl)
-                    vo_post = [post_pred(i) for i in decollate_batch(vo)]
-                    vl_post = [post_label(i) for i in decollate_batch(vl_clean)]
-                    dice_metric(y_pred=vo_post, y=vl_post)
-
-            mean_val_dice = dice_metric.aggregate().item()
-            dice_metric.reset()
-            print(f"  --> Val Mean Dice: {mean_val_dice:.4f}")
-
-            if mean_val_dice > best_val_dice:
-                best_val_dice = mean_val_dice
+            if is_ddp:
+                dist.barrier()
+            if global_rank == 0:
                 raw = model.module if hasattr(model, "module") else model
-                torch.save(raw.state_dict(), best_ckpt_path)
-                print(f"  [+] New Best! Dice: {best_val_dice:.4f} -> {best_ckpt_path}")
+                raw.eval()
+                with torch.no_grad():
+                    for val_data in val_loader:
+                        vi = val_data["image"].to(device)
+                        vl = val_data["label"].to(device)
 
-    print(f"\n[Phase 2 Complete] Best Val Dice: {best_val_dice:.4f}")
-    print(f"  Best:  {best_ckpt_path}")
-    print(f"  Last:  {last_ckpt_path}")
+                        with torch.amp.autocast(device_type='cuda'):
+                            vo = sliding_window_inference(vi, (96, 96, 96), 4, raw)
+
+                        if vo.shape[-3:] != vl.shape[-3:]:
+                            import warnings
+                            warnings.warn(
+                                f"[Val] Unexpected shape mismatch after ResampleToMatchd: "
+                                f"pred {vo.shape[-3:]} vs label {vl.shape[-3:]}. "
+                                "Falling back to trilinear interpolation — check val_transforms.",
+                                RuntimeWarning, stacklevel=2,
+                            )
+                            vo = torch.nn.functional.interpolate(
+                                vo.float(), size=vl.shape[-3:],
+                                mode="trilinear", align_corners=False,
+                            )
+
+                        vl_clean = torch.where(vl == IGNORE_INDEX,
+                                               torch.zeros_like(vl), vl)
+                        vo_post = [post_pred(i) for i in decollate_batch(vo)]
+                        vl_post = [post_label(i) for i in decollate_batch(vl_clean)]
+                        dice_metric(y_pred=vo_post, y=vl_post)
+
+                mean_val_dice = dice_metric.aggregate().item()
+                dice_metric.reset()
+                log(f"  --> Val Mean Dice: {mean_val_dice:.4f}")
+
+                if mean_val_dice > best_val_dice:
+                    best_val_dice = mean_val_dice
+                    torch.save(raw.state_dict(), best_ckpt_path)
+                    log(f"  [+] New Best! Dice: {best_val_dice:.4f} -> {best_ckpt_path}")
+            if is_ddp:
+                dist.barrier()
+
+    log(f"\n[Phase 2 Complete] Best Val Dice: {best_val_dice:.4f}")
+    log(f"  Best:  {best_ckpt_path}")
+    log(f"  Last:  {last_ckpt_path}")
+    if is_ddp:
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

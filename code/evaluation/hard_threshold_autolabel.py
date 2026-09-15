@@ -143,6 +143,16 @@ def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir):
             result['status'] = 'SKIP: unknown label kind'
             return result
 
+        # If it's a combined mask, remap BDMAP labels if present.
+        if label_kind == "combined":
+            if (human_arr > 4).any():
+                remapped = np.zeros_like(human_arr)
+                remapped[human_arr == 2] = 1
+                remapped[human_arr == 3] = 2
+                remapped[(human_arr == 4) | (human_arr == 5)] = 3
+                remapped[human_arr == 6] = 4
+                human_arr = remapped
+
         # Clamp to 0..4 range.
         human_arr = np.where((human_arr >= 1) & (human_arr <= 4), human_arr, 0).astype(np.uint8)
         human_nii = nib.Nifti1Image(human_arr, human_nii.affine, human_nii.header)
