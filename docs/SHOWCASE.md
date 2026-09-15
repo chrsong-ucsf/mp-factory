@@ -1,9 +1,9 @@
-# Executive Showcase: 3D Gastrointestinal Organ Segmentation
+# 3D Gastrointestinal Organ Segmentation Showcase
 
 **Author:** Chris Song  
 **Research Initiative:** Project 9 (Arm A - GI Organ Segmentation) & Project 10 (Multi-Phase CT Synthesis)  
 **Repository:** `mp-factory` (`/mnt/scratch/user/chrsong/mp-factory`)  
-**Deliverable Directory:** [`results/mentor_showcase/`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/)  
+**Deliverable Directory:** [`results/showcase/`](file:///mnt/scratch/user/chrsong/mp-factory/results/showcase/)  
 **Date:** September 15, 2026  
 
 ---
@@ -23,7 +23,7 @@ The `mp-factory` pipeline resolves these challenges by combining:
 * Spatial uncertainty masking (`ignore_index = 255`) on conflicting organ boundaries.
 * Weakly-supervised student distillation (MedNeXt-B and Swin-UNETR backbones).
 
-Below are **four representative clinical showcase cases** prepared for mentor and clinical review, featuring 2D orthogonal slice overlays, cranial-to-caudal anatomical progression montages, canonical 3D surface reconstructions, interactive 3D WebGL viewers, and validation against Johns Hopkins University (JHU) radiologist ground truth.
+Below are **four representative clinical showcase cases**, featuring 2D orthogonal slice overlays, cranial-to-caudal anatomical progression montages, canonical 3D surface reconstructions, interactive 3D WebGL viewers, and validation against Johns Hopkins University (JHU) radiologist ground truth.
 
 ---
 
@@ -145,32 +145,32 @@ All measurements are computed in physical space using calibrated voxel dimension
 
 ## 8. Interactive 3D WebGL Viewers & Export Assets
 
-To provide the mentor with complete hands-on inspection capabilities, all files have been structured in standard medical imaging formats:
+All files have been structured in standard medical imaging formats for direct inspection, research workflows, and interactive review:
 
 ### A. Standalone Interactive 3D HTML Viewers
 Double-click to open in Google Chrome, Apple Safari, or Mozilla Firefox with zero software installation:
-* **Case 1:** [`BDMAP_00242131_3d_interactive.html`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/interactive_3d/BDMAP_00242131_3d_interactive.html)
-* **Case 2:** [`BDMAP_00242114_3d_interactive.html`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/interactive_3d/BDMAP_00242114_3d_interactive.html)
-* **Case 3:** [`BDMAP_00242136_3d_interactive.html`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/interactive_3d/BDMAP_00242136_3d_interactive.html)
-* **Case 4:** [`BDMAP_00394224_3d_interactive.html`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/interactive_3d/BDMAP_00394224_3d_interactive.html)
+* **Case 1:** [`BDMAP_00242131_3d_interactive.html`](file:///mnt/scratch/user/chrsong/mp-factory/results/showcase/interactive_3d/BDMAP_00242131_3d_interactive.html)
+* **Case 2:** [`BDMAP_00242114_3d_interactive.html`](file:///mnt/scratch/user/chrsong/mp-factory/results/showcase/interactive_3d/BDMAP_00242114_3d_interactive.html)
+* **Case 3:** [`BDMAP_00242136_3d_interactive.html`](file:///mnt/scratch/user/chrsong/mp-factory/results/showcase/interactive_3d/BDMAP_00242136_3d_interactive.html)
+* **Case 4:** [`BDMAP_00394224_3d_interactive.html`](file:///mnt/scratch/user/chrsong/mp-factory/results/showcase/interactive_3d/BDMAP_00394224_3d_interactive.html)
 
 *Features: 360° orbit rotation, mouse-wheel zoom, pan, hover tooltips displaying organ name & volume, and clickable legend to isolate individual organs (e.g., hide small bowel to inspect the retroperitoneal duodenal C-loop).*
 
 ### B. Standard 3D Surface Meshes (Wavefront `.obj`)
 Ready to drag-and-drop into **3D Slicer**, **MeshLab**, **Blender**, or macOS QuickLook:
-* [`3d_meshes/BDMAP_00242131/all_gi_organs.obj`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/3d_meshes/BDMAP_00242131/all_gi_organs.obj) (Combined multi-organ assembly)
+* [`3d_meshes/BDMAP_00242131/all_gi_organs.obj`](file:///mnt/scratch/user/chrsong/mp-factory/results/showcase/3d_meshes/BDMAP_00242131/all_gi_organs.obj) (Combined multi-organ assembly)
 * Individual organ meshes: `stomach.obj`, `duodenum.obj`, `small_bowel.obj`, `colon.obj`.
 
 ### C. Standardized Multi-Class NIfTI Masks (`.nii.gz`)
 Reoriented to canonical RAS+ coordinates with exact CT voxel grid alignment:
-* [`nifti_masks/BDMAP_00242131_gi_multiclass.nii.gz`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/nifti_masks/BDMAP_00242131_gi_multiclass.nii.gz)
-* [`nifti_masks/BDMAP_00242114_gi_multiclass.nii.gz`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/nifti_masks/BDMAP_00242114_gi_multiclass.nii.gz)
-* [`nifti_masks/BDMAP_00242136_gi_multiclass.nii.gz`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/nifti_masks/BDMAP_00242136_gi_multiclass.nii.gz)
-* [`nifti_masks/BDMAP_00394224_gi_multiclass.nii.gz`](file:///mnt/scratch/user/chrsong/mp-factory/results/mentor_showcase/nifti_masks/BDMAP_00394224_gi_multiclass.nii.gz)
+* [`nifti_masks/BDMAP_00242131_gi_multiclass.nii.gz`](file:///mnt/scratch/user/chrsong/mp-factory/results/showcase/nifti_masks/BDMAP_00242131_gi_multiclass.nii.gz)
+* [`nifti_masks/BDMAP_00242114_gi_multiclass.nii.gz`](file:///mnt/scratch/user/chrsong/mp-factory/results/showcase/nifti_masks/BDMAP_00242114_gi_multiclass.nii.gz)
+* [`nifti_masks/BDMAP_00242136_gi_multiclass.nii.gz`](file:///mnt/scratch/user/chrsong/mp-factory/results/showcase/nifti_masks/BDMAP_00242136_gi_multiclass.nii.gz)
+* [`nifti_masks/BDMAP_00394224_gi_multiclass.nii.gz`](file:///mnt/scratch/user/chrsong/mp-factory/results/showcase/nifti_masks/BDMAP_00394224_gi_multiclass.nii.gz)
 
 ---
 
-## 9. Key Conclusions & Talking Points for Mentor Review
+## 9. Key Findings & Discussion
 
 1. **Topological Contiguity Resolved:** The multi-model distillation engine successfully preserves contiguous organ topology (e.g., gastric pylorus smoothly transitioning into the duodenal C-loop and mesenteric small bowel loops).
 2. **Clinical Validation Against External Gold Standard:** On held-out expert ground truth from Johns Hopkins, automated consensus reaches **0.940 Dice on Stomach** and **0.794 Dice on Duodenum**, demonstrating clinical-grade boundary delineation.
