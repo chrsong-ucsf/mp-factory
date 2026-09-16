@@ -562,6 +562,21 @@ def main():
         scaler = torch.amp.GradScaler('cuda')
 
     dice_metric = DiceMetric(include_background=False, reduction="mean")
+    if is_ddp:
+        # MONAI's Cumulative base class detects dist.is_initialized() and attempts an all_gather
+        # during aggregate(). Since validation only executes on global_rank == 0, an uncoordinated
+        # all_gather causes a catastrophic NCCL deadlock against ranks 1..N waiting at barrier().
+        # Override _sync to locally stack tensors without distributed communication.
+        import types
+
+        def _local_sync(self):
+            if self._synced or self._buffers is None:
+                return
+            self._synced_tensors = [torch.stack(b, dim=0) for b in self._buffers]
+            self._synced = True
+
+        dice_metric._sync = types.MethodType(_local_sync, dice_metric)
+
     post_pred   = AsDiscrete(argmax=True, to_onehot=NUM_CLASSES)
     post_label  = AsDiscrete(to_onehot=NUM_CLASSES)
 
