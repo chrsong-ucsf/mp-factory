@@ -5,7 +5,7 @@
 #SBATCH --gpus-per-node=2
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=128G
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --job-name=train_full_anchor_4gpu
 #SBATCH --output=logs/train_full_anchor_4gpu_%j.out
 #SBATCH --error=logs/train_full_anchor_4gpu_%j.err
