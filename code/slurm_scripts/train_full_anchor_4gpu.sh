@@ -28,6 +28,7 @@ eval "$(mamba shell hook --shell bash)"
 mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 
 export PYTHONUNBUFFERED=1
+export NCCL_TIMEOUT=7200
 ulimit -n 65535 2>/dev/null || true
 
 # Multi-Node DDP Rendezvous Configuration
@@ -85,4 +86,5 @@ srun torchrun \
     --batch_size 2 \
     --num_workers 4 \
     --lr 2e-4 \
+    --max_val_samples 25 \
     --use_weak

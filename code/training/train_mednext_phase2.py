@@ -415,7 +415,8 @@ def main():
     # Distributed Data Parallel (DDP) / Multi-GPU setup
     is_ddp = "WORLD_SIZE" in os.environ and int(os.environ.get("WORLD_SIZE", "1")) > 1
     if is_ddp:
-        dist.init_process_group(backend="nccl")
+        from datetime import timedelta
+        dist.init_process_group(backend="nccl", timeout=timedelta(hours=2))
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         global_rank = int(os.environ.get("RANK", 0))
         world_size = int(os.environ.get("WORLD_SIZE", 1))
