@@ -1,7 +1,7 @@
 # Medical data & volumes
 *.nii.gz
 *.nii
-datasets/
+/datasets/
 CancerVerse/
 CancerVerse_data/
 
