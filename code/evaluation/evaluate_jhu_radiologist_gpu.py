@@ -56,6 +56,7 @@ GT_ORGAN_MAP = {
 #   18=stomach, 19=duodenum, 20=small_bowel, 57=colon
 MODEL_LABEL_REMAP = {
     'MedNeXt':             {1: 2, 2: 3, 3: [4, 5], 4: 6},
+    'Anchor_MedNeXt_N1594':{1: 2, 2: 3, 3: [4, 5], 4: 6},
     'Swin-UNETR':          {1: 2, 2: 3, 3: [4, 5], 4: 6},
     'EnsembleConsensus':   {1: 2, 2: 3, 3: [4, 5], 4: 6},
     'TotalSegmentator':    {18: 2, 19: 3, 20: [4, 5], 57: 6},
