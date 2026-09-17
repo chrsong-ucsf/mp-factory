@@ -4,7 +4,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=8:00:00
+#SBATCH --time=48:00:00
 #SBATCH --job-name=p10_reg
 #SBATCH --array=0-7
 #SBATCH --output=logs/p10_reg_%A_%a.out
