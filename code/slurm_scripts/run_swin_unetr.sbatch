@@ -25,7 +25,7 @@ mkdir -p "${OUT_DIR}"
 DATA_DIR="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox"
 
 # Execute Swin-UNETR 3D Training Pipeline (4 parallel GPU tasks: Folds 0..3)
-python -u /mnt/scratch/user/chrsong/mp-factory/code/train_swin_unetr.py \
+python -u /mnt/scratch/user/chrsong/mp-factory/code/training/train_swin_unetr.py \
     --data_dir "${DATA_DIR}" \
     --out_dir "${OUT_DIR}" \
     --fold "${SLURM_ARRAY_TASK_ID}" \

@@ -265,6 +265,67 @@ class FixLiarLabelAffined(MapTransform):
         return d
 
 
+class RemapGILabelTargets(MapTransform):
+    """
+    Guarantees all loaded labels strictly map to the 5-class target:
+        0: Background
+        1: Stomach
+        2: Duodenum
+        3: Small Bowel (Jejunum + Ileum)
+        4: Colon
+        255: IGNORE_INDEX (preserved for WEAK_COARSE boundary masking)
+
+    Handles:
+      - TotalSegmentator full-body / GI labels:
+          18, 50, 55 -> 1 (Stomach)
+          19, 51, 56 -> 2 (Duodenum)
+          20, 52     -> 3 (Small Bowel)  [TotalSeg label 20 -> label 3 fix]
+          57, 53, 58 -> 4 (Colon)
+          5, 6       -> 4 (Colon, when 18/19 present)
+      - BDMAP / AbdomenAtlas multi-organ labels:
+          2 -> 1 (Stomach)
+          3 -> 2 (Duodenum)
+          4, 5 -> 3 (Jejunum, Ileum -> Small Bowel)
+          6 -> 4 (Colon)
+    """
+    def __init__(self, keys=["label"]):
+        super().__init__(keys)
+
+    def __call__(self, data):
+        d = dict(data)
+        for key in self.keys:
+            if key in d:
+                lbl = d[key]
+                cond = (lbl > 4) & (lbl != IGNORE_INDEX)
+                has_large = cond.any().item() if torch.is_tensor(lbl) else cond.any()
+                if has_large:
+                    out = torch.zeros_like(lbl) if torch.is_tensor(lbl) else np.zeros_like(lbl)
+                    out[lbl == IGNORE_INDEX] = IGNORE_INDEX
+
+                    has_ts = ((lbl == 18) | (lbl == 19) | (lbl == 20)).any()
+                    if (has_ts.item() if torch.is_tensor(has_ts) else has_ts):
+                        out[(lbl == 18) | (lbl == 50) | (lbl == 55)] = 1
+                        out[(lbl == 19) | (lbl == 51) | (lbl == 56)] = 2
+                        out[(lbl == 20) | (lbl == 52)] = 3
+                        out[(lbl == 57) | (lbl == 53) | (lbl == 58) | (lbl == 5) | (lbl == 6)] = 4
+                    else:
+                        out[lbl == 2] = 1
+                        out[lbl == 3] = 2
+                        out[(lbl == 4) | (lbl == 5)] = 3
+                        out[lbl == 6] = 4
+
+                    # Carry over any already-valid 1..4 voxels not yet assigned
+                    for c in [1, 2, 3, 4]:
+                        unassigned = (lbl == c) & (out == 0)
+                        out[unassigned] = c
+
+                    from monai.data import MetaTensor
+                    if isinstance(lbl, MetaTensor):
+                        out = MetaTensor(out, affine=lbl.affine, meta=getattr(lbl, "meta", None))
+                    d[key] = out
+        return d
+
+
 def get_transforms(roi_size=(96, 96, 96)):
     # NOTE: ResampleToMatchd MUST appear in BOTH train and val transforms.
     # Consensus labels are generated on a GI-crop sub-volume with a different
@@ -275,6 +336,7 @@ def get_transforms(roi_size=(96, 96, 96)):
     train_transforms = Compose([
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
+        RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
         # Detect and fix Phase 1 "liar affines" on consensus labels before Spacingd mangles them
         FixLiarLabelAffined(keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)),
@@ -301,6 +363,7 @@ def get_transforms(roi_size=(96, 96, 96)):
     val_transforms = Compose([
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
+        RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
         # Detect and fix Phase 1 "liar affines" on consensus labels before Spacingd mangles them
         FixLiarLabelAffined(keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)),

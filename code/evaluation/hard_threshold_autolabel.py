@@ -143,14 +143,22 @@ def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir):
             result['status'] = 'SKIP: unknown label kind'
             return result
 
-        # If it's a combined mask, remap BDMAP labels if present.
+        # If it's a combined mask, remap labels if present (TotalSegmentator or BDMAP).
         if label_kind == "combined":
             if (human_arr > 4).any():
                 remapped = np.zeros_like(human_arr)
-                remapped[human_arr == 2] = 1
-                remapped[human_arr == 3] = 2
-                remapped[(human_arr == 4) | (human_arr == 5)] = 3
-                remapped[human_arr == 6] = 4
+                if ((human_arr == 18) | (human_arr == 19) | (human_arr == 20)).any():
+                    # TotalSegmentator mapping (label 20 -> 3 for small bowel)
+                    remapped[(human_arr == 18) | (human_arr == 50) | (human_arr == 55)] = 1
+                    remapped[(human_arr == 19) | (human_arr == 51) | (human_arr == 56)] = 2
+                    remapped[(human_arr == 20) | (human_arr == 52)] = 3
+                    remapped[(human_arr == 57) | (human_arr == 53) | (human_arr == 58) | (human_arr == 5) | (human_arr == 6)] = 4
+                else:
+                    # BDMAP / AbdomenAtlas mapping
+                    remapped[human_arr == 2] = 1
+                    remapped[human_arr == 3] = 2
+                    remapped[(human_arr == 4) | (human_arr == 5)] = 3
+                    remapped[human_arr == 6] = 4
                 human_arr = remapped
 
         # Clamp to 0..4 range.
