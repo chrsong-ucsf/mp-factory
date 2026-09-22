@@ -805,11 +805,14 @@ def main():
             try:
                 res = evaluate_subject(sub_id, mfiles, model_names, args.out_dir)
                 results.append(res)
+                print(f"[{completed}/{total}] GPU Evaluated subject {sub_id} (triage: {res.get('triage_category', 'UNKNOWN')})", flush=True)
             except Exception as e:
                 print(f"  [ERROR] Subject {sub_id} failed: {e}", flush=True)
 
-            if completed % 50 == 0 or completed == total:
+            if completed % 5 == 0 or completed == total:
                 print(f"[{completed}/{total}] GPU Progress: {completed/total*100:.1f}% complete", flush=True)
+                if results:
+                    pd.DataFrame(results).to_csv(args.out_csv, index=False)
     else:
         # CPU execution: Use multiprocessing.Pool with maxtasksperchild=20.
         # Automatically recycles worker processes every 20 tasks to prevent C-level
