@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
-#SBATCH --time=02:00:00
+#SBATCH --time=08:00:00
 
 # -----------------------------------------------------------------------------
 # End-to-End Pipeline: Inference with Full Anchor Model + JHU Radiologist Benchmark Eval
@@ -43,7 +43,7 @@ echo "====================================================================="
 
 # Step 1: Run inference on the BDMAP evaluation cohort using the trained anchor weights
 echo ""
-echo ">>> STEP 1: Running MedNeXt inference on BDMAP scans..."
+echo ">>> STEP 1: Running MedNeXt inference on BDMAP scans (skipping existing)..."
 python -u "${BASE_DIR}/code/prediction/predict_mednext.py" \
     --data_dir "${DATA_DIR}" \
     --model_path "${CHECKPOINT}" \
@@ -52,8 +52,7 @@ python -u "${BASE_DIR}/code/prediction/predict_mednext.py" \
     --kernel_size 3 \
     --roi_size 96 96 96 \
     --sw_batch_size 4 \
-    --overlap 0.5 \
-    --overwrite
+    --overlap 0.5
 
 # Step 2: Run GPU-accelerated evaluation against expert radiologist ground-truth
 echo ""

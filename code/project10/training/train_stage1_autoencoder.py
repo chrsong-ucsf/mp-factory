@@ -56,7 +56,9 @@ import pandas as pd
 import nibabel as nib
 
 # Project10 modules
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+_REPO_ROOT = str(Path(__file__).resolve().parents[3])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 from code.project10.models.autoencoder_3d import (
     AutoEncoder3DConfig,
     build_autoencoder,

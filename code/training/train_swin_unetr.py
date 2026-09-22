@@ -253,6 +253,7 @@ def main():
     parser.add_argument("--max_val_samples", type=int, default=50, help="Maximum number of validation scans to evaluate per check for fast validation")
     parser.add_argument("--gold_standard_dir", type=str, default=None,
                         help="Directory containing gold standard manual annotations for 10x loss weighting")
+    parser.add_argument("--resume", action="store_true", help="Resume from last_swin_unetr_gi.pt if available in out_dir")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -338,9 +339,28 @@ def main():
 
     best_val_dice = -1.0
     best_model_path = os.path.join(args.out_dir, "best_swin_unetr_gi.pt")
+    last_model_path = os.path.join(args.out_dir, "last_swin_unetr_gi.pt")
+    start_epoch = 1
 
-    print("\nStarting Swin-UNETR Training Loop...")
-    for epoch in range(1, args.epochs + 1):
+    if args.resume:
+        ckpt_to_load = last_model_path if os.path.exists(last_model_path) else (best_model_path if os.path.exists(best_model_path) else None)
+        if ckpt_to_load:
+            print(f"Resuming Swin-UNETR model weights from: {ckpt_to_load}")
+            ckpt = torch.load(ckpt_to_load, map_location=device)
+            raw_model = model.module if hasattr(model, "module") else model
+            if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
+                raw_model.load_state_dict(ckpt["model_state_dict"])
+                if "optimizer_state_dict" in ckpt:
+                    optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+                if "epoch" in ckpt:
+                    start_epoch = ckpt["epoch"] + 1
+                if "best_val_dice" in ckpt:
+                    best_val_dice = ckpt["best_val_dice"]
+            elif isinstance(ckpt, dict):
+                raw_model.load_state_dict(ckpt)
+
+    print(f"\nStarting Swin-UNETR Training Loop from epoch {start_epoch} to {args.epochs}...")
+    for epoch in range(start_epoch, args.epochs + 1):
         model.train()
         epoch_loss = 0
         step = 0
@@ -404,6 +424,15 @@ def main():
                     raw_model = model.module if hasattr(model, "module") else model
                     torch.save(raw_model.state_dict(), best_model_path)
                     print(f"  [+] New Best Model Saved! Dice: {best_val_dice:.4f} -> {best_model_path}", flush=True)
+
+        # Save last checkpoint every epoch for safe resuming
+        raw_model = model.module if hasattr(model, "module") else model
+        torch.save({
+            "epoch": epoch,
+            "model_state_dict": raw_model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "best_val_dice": best_val_dice,
+        }, last_model_path)
 
     print(f"\nTraining Complete! Best Validation Dice: {best_val_dice:.4f}")
 

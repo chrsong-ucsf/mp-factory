@@ -3,10 +3,10 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/swin_unetr_%A_%a.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/swin_unetr_%A_%a.err
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:nvidia_l40s:1
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH --time=12:00:00
+#SBATCH --time=3-00:00:00
 #SBATCH --array=0-3
 
 # Load modules and activate environment
@@ -32,4 +32,5 @@ python -u /mnt/scratch/user/chrsong/mp-factory/code/training/train_swin_unetr.py
     --num_folds 4 \
     --batch_size 1 \
     --lr 0.0001 \
-    --val_interval 2
+    --val_interval 2 \
+    --resume

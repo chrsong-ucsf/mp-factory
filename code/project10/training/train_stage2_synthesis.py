@@ -251,6 +251,17 @@ def main() -> None:
 
     diffusion = DiffusionSchedule(timesteps=args.timesteps).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    if args.resume and os.path.exists(args.resume):
+        res_ckpt = torch.load(args.resume, map_location=device)
+        if "optimizer" in res_ckpt:
+            try:
+                optimizer.load_state_dict(res_ckpt["optimizer"])
+                if is_master:
+                    log.info("Restored optimizer state from checkpoint.")
+            except Exception as e:
+                if is_master:
+                    log.warning(f"Could not restore optimizer state: {e}")
+
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs - start_epoch, eta_min=1e-6
     )

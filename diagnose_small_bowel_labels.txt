@@ -1,0 +1,5 @@
+BDMAP_00242113_consensus.nii.gz {np.int64(0): np.int64(26880329), np.int64(1): np.int64(45041), np.int64(2): np.int64(8274), np.int64(4): np.int64(146556)}
+BDMAP_00242114_consensus.nii.gz {np.int64(0): np.int64(26872344), np.int64(1): np.int64(47137), np.int64(2): np.int64(8170), np.int64(4): np.int64(152549)}
+BDMAP_00242115_consensus.nii.gz {np.int64(0): np.int64(26880139), np.int64(1): np.int64(47816), np.int64(2): np.int64(8663), np.int64(4): np.int64(143582)}
+BDMAP_00242116_consensus.nii.gz {np.int64(0): np.int64(12747769), np.int64(1): np.int64(24705), np.int64(2): np.int64(5338), np.int64(4): np.int64(5388)}
+BDMAP_00242131_consensus.nii.gz {np.int64(0): np.int64(30621505), np.int64(1): np.int64(64971), np.int64(2): np.int64(11853), np.int64(4): np.int64(166371)}

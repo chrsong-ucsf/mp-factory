@@ -70,9 +70,13 @@ class MultiphasePairedDataset(Dataset):
         
         csv_path = os.path.join(base_dir, registration_csv) if not os.path.isabs(registration_csv) else registration_csv
         
-        # Load and filter CSV
+        # Load and filter CSV.
+        # NOTE: registration_log.csv is written WITHOUT a header row by register_multiphase_pairs.py.
+        # Column order: pair_id, patient_id, subject_p0, subject_target, phase_target, status, elapsed_sec, error, out_reg_path
+        _FIELDNAMES = ["pair_id", "patient_id", "subject_p0", "subject_target",
+                       "phase_target", "status", "elapsed_sec", "error", "out_reg_path"]
         try:
-            df = pd.read_csv(csv_path)
+            df = pd.read_csv(csv_path, header=None, names=_FIELDNAMES)
             if 'status' in df.columns:
                 self.df = df[df['status'] == 'OK'].reset_index(drop=True)
             else:
@@ -118,11 +122,17 @@ class MultiphasePairedDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict:
         row = self.df.iloc[idx]
-        subject_p0 = str(row['subject_p0']) if 'subject_p0' in row else f"subject_{idx}"
-        phase_target = str(row['phase_target']) if 'phase_target' in row else 'UNKNOWN'
+        subject_p0 = str(row['subject_p0']) if 'subject_p0' in row.index else f"subject_{idx}"
+        phase_target = str(row['phase_target']) if 'phase_target' in row.index else 'UNKNOWN'
         
-        ncct_path = os.path.join(self.base_dir, "CancerVerse/CancerVerse", subject_p0, "ct.nii.gz")
-        target_path = str(row['out_reg_path']) if 'out_reg_path' in row else ""
+        # Resolve NCCT path — CancerVerse subjects live under CancerVerse/CancerVerse/<id>/ct.nii.gz
+        # (BDMAP subjects would be under CancerVerse_data/<id>/ct.nii.gz but we don't use those here)
+        ncct_path = os.path.join(self.base_dir, "CancerVerse", "CancerVerse", subject_p0, "ct.nii.gz")
+        if not os.path.exists(ncct_path):
+            # Fallback: CancerVerse_dbox layout
+            ncct_path = os.path.join(self.base_dir, "CancerVerse_dbox", subject_p0, "ct.nii.gz")
+        
+        target_path = str(row['out_reg_path']) if 'out_reg_path' in row.index else ""
         
         # Resolve target_path if it's relative
         if target_path and not os.path.isabs(target_path):

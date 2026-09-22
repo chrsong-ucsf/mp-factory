@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:1
 #SBATCH --mem=64G
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --job-name=mednext_p2_sb_fix
 #SBATCH --output=logs/mednext_p2_sb_fix_%j.out
 #SBATCH --error=logs/mednext_p2_sb_fix_%j.err
@@ -47,15 +47,18 @@ START_EPOCH=1
 if [ -f "$LAST_CKPT" ]; then
     echo "[Resumption] Found existing checkpoint: $LAST_CKPT"
     CKPT_ARG="--pretrained_ckpt ${LAST_CKPT}"
-    # Extract last finished epoch from previous log if possible
-    PREV_LOG=$(ls -t logs/mednext_p2_sb_fix_*.out 2>/dev/null | head -n 1)
+    # Extract last finished epoch from previous logs that actually contain epoch lines
+    # Use grep -l to find files containing epoch lines, then sort by modification time
+    PREV_LOG=$(for f in logs/mednext_p2_sb_fix_*.out /home/remote/chrsong/logs/mednext_p2_sb_fix_*.out; do
+        [ -f "$f" ] && grep -qE "Epoch \[[0-9]{3}/[0-9]{3}\]" "$f" 2>/dev/null && echo "$f"
+    done | xargs ls -t 2>/dev/null | head -n 1)
     if [ -n "$PREV_LOG" ]; then
         LAST_EPOCH=$(grep -oE "Epoch \[[0-9]{3}/[0-9]{3}\]" "$PREV_LOG" | tail -n 1 | grep -oE "[0-9]{3}" | head -n 1 | sed 's/^0*//')
         if [ -n "$LAST_EPOCH" ]; then
             START_EPOCH=$((LAST_EPOCH + 1))
         fi
     fi
-    echo "[Resumption] Resuming from epoch $START_EPOCH"
+    echo "[Resumption] Resuming from epoch $START_EPOCH (prev log: ${PREV_LOG:-none})"
 elif [ -f "$PHASE1_CKPT" ]; then
     echo "[Warm-start] Starting from Phase 1 checkpoint: $PHASE1_CKPT"
     CKPT_ARG="--pretrained_ckpt ${PHASE1_CKPT}"

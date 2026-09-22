@@ -13,3 +13,7 @@ __pycache__/
 wandb/
 results/
 logs/
+*.out
+*.err
+code/SyntheticTumors/
+SyntheticTumors/
