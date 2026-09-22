@@ -1,0 +1,50 @@
+#!/bin/bash
+#SBATCH --job-name=mednext_gi
+#SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/mednext_%A_%a.out
+#SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/mednext_%A_%a.err
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=3-00:00:00
+#SBATCH --array=0,1,3
+
+# Load modules and activate environment
+module load CBI
+module load miniforge3/26.3.2-3
+eval "$(mamba shell hook --shell bash)"
+mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
+
+# MedNeXt is already installed in env (pip install may fail due to network restrictions)
+pip install --quiet git+https://github.com/MIC-DKFZ/MedNeXt.git 2>/dev/null || true
+
+# Make directories for outputs and logs
+mkdir -p /mnt/scratch/user/chrsong/mp-factory/logs
+OUT_DIR="/mnt/scratch/user/chrsong/mp-factory/results/mednext_models/fold_${SLURM_ARRAY_TASK_ID}"
+mkdir -p "${OUT_DIR}"
+
+DATA_DIR="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox"
+
+echo "====================================================================="
+echo "  MedNeXt-B Phase 1 Training — Fold ${SLURM_ARRAY_TASK_ID}/4"
+echo "  Date: $(date)"
+echo "  Data: ${DATA_DIR}"
+echo "  Output: ${OUT_DIR}"
+echo "  Fix: Race-condition-free gi_mask temp files (fold-isolated /tmp dir)"
+echo "====================================================================="
+
+# Execute 3D MedNeXt-B Training (fixed race-condition in GIDataset temp files)
+python -u /mnt/scratch/user/chrsong/mp-factory/code/training/train_mednext.py \
+    --data_dir "${DATA_DIR}" \
+    --out_dir "${OUT_DIR}" \
+    --model_id "B" \
+    --kernel_size 3 \
+    --fold "${SLURM_ARRAY_TASK_ID}" \
+    --num_folds 4 \
+    --batch_size 1 \
+    --lr 0.0001 \
+    --val_interval 2
+
+echo "====================================================================="
+echo "  Fold ${SLURM_ARRAY_TASK_ID} complete at $(date)"
+echo "====================================================================="

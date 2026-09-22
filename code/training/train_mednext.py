@@ -134,10 +134,21 @@ def discover_dataset(data_dir, gold_standard_dir=None):
     return data_pairs
 
 class GIDataset(Dataset):
-    """Custom Dataset handler to merge separate organ NIfTI files on-the-fly if needed."""
-    def __init__(self, data_pairs, transform=None):
+    """Custom Dataset handler to merge separate organ NIfTI files on-the-fly if needed.
+
+    The ``fold_id`` and ``pid`` parameters are used to create a job-specific
+    temporary directory for merged GI masks, avoiding the race condition that
+    arises when multiple concurrent fold jobs write to the same
+    ``gi_mask_temp.nii.gz`` file inside the shared data tree.
+    """
+    def __init__(self, data_pairs, transform=None, fold_id=None):
         self.data_pairs = data_pairs
         self.transform = transform
+        # Use a per-fold, per-process temp directory to avoid race conditions
+        # when multiple folds run concurrently on the same data tree.
+        fold_tag = f"fold{fold_id}" if fold_id is not None else "nofold"
+        self._tmp_dir = os.path.join("/tmp", f"mednext_merged_masks_{fold_tag}_{os.getpid()}")
+        os.makedirs(self._tmp_dir, exist_ok=True)
 
     def __len__(self):
         return len(self.data_pairs)
@@ -165,8 +176,12 @@ class GIDataset(Dataset):
                         gt_arr[o_arr] = organ_id
                         break
 
-            # Save temporary merged mask in memory or pass as volume
-            temp_lbl_path = os.path.join(os.path.dirname(img_path), "gi_mask_temp.nii.gz")
+            # Write merged mask to a fold-specific temp directory to avoid
+            # race conditions when multiple concurrent fold jobs share the
+            # same data tree and would otherwise clobber each other's
+            # gi_mask_temp.nii.gz files.
+            subject_id = os.path.basename(os.path.dirname(img_path))
+            temp_lbl_path = os.path.join(self._tmp_dir, f"{subject_id}_gi_mask.nii.gz")
             if not os.path.exists(temp_lbl_path):
                 lbl_nii = nib.Nifti1Image(gt_arr, ct_nii.affine, ct_nii.header)
                 nib.save(lbl_nii, temp_lbl_path)
@@ -348,8 +363,8 @@ def main():
         elastic_prob=args.elastic_prob,
     )
 
-    train_ds = GIDataset(train_pairs, transform=train_tf)
-    val_ds = GIDataset(val_pairs_eval, transform=val_tf)
+    train_ds = GIDataset(train_pairs, transform=train_tf, fold_id=args.fold)
+    val_ds = GIDataset(val_pairs_eval, transform=val_tf, fold_id=args.fold)
 
     num_workers = min(16, 4 * max(1, num_gpus))
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
