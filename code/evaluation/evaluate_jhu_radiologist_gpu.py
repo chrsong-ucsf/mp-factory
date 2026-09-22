@@ -204,15 +204,13 @@ def find_ct_file(subject_id):
 def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
     # Check CUDA availability AND compatibility with installed PyTorch
     if torch.cuda.is_available():
-        # PyTorch supports up to sm_90 (Ada Lovelace). Blackwell is sm_120+.
-        major, minor = torch.cuda.get_device_capability(0)
-        sm = major * 10 + minor
-        supported_sms = {50, 60, 70, 75, 80, 86, 90}
-        if sm not in supported_sms:
-            print(f"[WARNING] GPU sm_{sm} is not compatible with this PyTorch build (supports up to sm_90). Falling back to CPU.")
-            device = torch.device("cpu")
-        else:
+        # PyTorch supports sm_50 through sm_90 (including sm_89 for Ada Lovelace / L40S / RTX 6000 Ada)
+        try:
+            test_t = torch.zeros(1, device="cuda")
             device = torch.device("cuda")
+        except Exception as e:
+            print(f"[WARNING] CUDA test failed ({e}). Falling back to CPU.")
+            device = torch.device("cpu")
     else:
         device = torch.device("cpu")
 
