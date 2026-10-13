@@ -195,4 +195,11 @@ sbatch code/slurm_scripts/run_jhu_radiologist_eval_gpu.sbatch
 - **Paths:** scripts hardcode cluster paths under `/mnt/scratch/user/chrsong/mp-factory`; when editing locally, keep those defaults unless the task says otherwise.
 - **SLURM ↔ script coupling:** `slurm_scripts/*.sbatch` reference scripts by absolute path. After the subdirectory reorg, **12 of the 13** `.sbatch` jobs still point at the old flat `code/<script>.py` location (only `run_jhu_radiologist_eval_gpu.sbatch` was updated to the new `code/evaluation/...` path). Fix the `python -u ...` target to the correct subdirectory (e.g. `code/training/train_mednext.py`, `code/evaluation/evaluate_multi_model_ensemble.py`) before submitting any job.
 - **Organ label map is fixed** (`0..4` above); keep it consistent across training, prediction, and evaluation.
+- **GPU Cluster Hardware & Partition Allocation (CRITICAL):**
+  - **Do NOT restrict GPU jobs to `ggpu1`!** The cluster has multiple GPU hardware tiers available:
+    - `ggpu4-[01-06]`: NVIDIA **H100 NVL** (94GB, highest throughput) in `partition=gpu`
+    - `ggpu1-[06-12]`: NVIDIA **L40S** (48GB) in `partition=gpu`
+    - `ggpu1-[13-19]`: NVIDIA **RTX 6000 Ada** (48GB) in `partition=gpu`
+    - `ggpu3-[17-29]` & `ggpu5-[01-03]`: NVIDIA **H200 / H200 NVL** (141GB) in `partition=large_gpu`
+  - In Slurm `.sbatch` configurations, never pin jobs to specific nodes with `--nodelist` or restrict exclusively to `ggpu1`. Use general resource requests (`#SBATCH --partition=gpu` or `#SBATCH --partition=gpu,large_gpu` with `#SBATCH --qos=gpu` and `#SBATCH --gres=gpu:1`) to allow the scheduler to dispatch immediately across all available H100 NVL, L40S, RTX 6000 Ada, and H200 GPUs as slots open up.
 - **Knowledge graph:** `graphify-out/GRAPH_REPORT.md` is a generated map of modules/relationships; regenerate rather than hand-edit.
