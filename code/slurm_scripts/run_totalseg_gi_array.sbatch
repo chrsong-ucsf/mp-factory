@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=totalseg
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu,large_gpu
+#SBATCH --qos=hpc_core
 #SBATCH --gres=gpu:1
 #SBATCH --array=0-3
 #SBATCH --time=24:00:00

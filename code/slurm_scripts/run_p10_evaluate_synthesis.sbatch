@@ -2,7 +2,8 @@
 #SBATCH --job-name=p10_eval_synth
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/p10_eval_synth_%A_%a.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/p10_eval_synth_%A_%a.err
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu,large_gpu
+#SBATCH --qos=hpc_core
 #SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8

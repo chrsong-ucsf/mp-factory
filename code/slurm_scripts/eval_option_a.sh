@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=eval_sweep_A
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu,large_gpu
+#SBATCH --qos=hpc_core
 #SBATCH --gres=gpu:nvidia_l40s:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G

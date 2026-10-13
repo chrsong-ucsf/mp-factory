@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=totalseg_batch
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu,large_gpu
+#SBATCH --qos=hpc_core
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G

@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=smoke_test
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu,large_gpu
+#SBATCH --qos=hpc_core
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G

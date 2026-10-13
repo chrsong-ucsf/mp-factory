@@ -2,7 +2,8 @@
 #SBATCH --job-name=swin_predict
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/swin_predict_%A_%a.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/swin_predict_%A_%a.err
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu,large_gpu
+#SBATCH --qos=hpc_core
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G

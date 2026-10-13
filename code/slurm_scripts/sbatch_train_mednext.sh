@@ -18,7 +18,8 @@
 #SBATCH --job-name=mednext_b
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/mednext_b_%A_%a.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/mednext_b_%A_%a.err
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu,large_gpu
+#SBATCH --qos=hpc_core
 #SBATCH --gres=gpu:nvidia_l40s:2
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

@@ -2,7 +2,8 @@
 #SBATCH --job-name=jhu_anchor_eval
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_anchor_eval_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_anchor_eval_%j.err
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu,large_gpu
+#SBATCH --qos=hpc_core
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16

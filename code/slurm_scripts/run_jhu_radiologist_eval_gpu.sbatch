@@ -2,7 +2,8 @@
 #SBATCH --job-name=jhu_rad_eval
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_rad_eval_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_rad_eval_%j.err
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu,large_gpu
+#SBATCH --qos=hpc_core
 #SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
