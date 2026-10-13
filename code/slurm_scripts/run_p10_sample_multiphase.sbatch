@@ -35,7 +35,7 @@ echo "====================================================================="
 
 python -u "${BASE_DIR}/code/project10/evaluation/sample_multiphase_diffusion.py" \
     --registered_dir "${BASE_DIR}/results/project10/registered_volumes" \
-    --ae_checkpoint "${BASE_DIR}/results/project10/checkpoints/stage1_ae_ablation/best_stage1_ae.pt" \
+    --ae_checkpoint "${BASE_DIR}/results/project10/checkpoints/stage1_ae/best_stage1_ae.pt" \
     --diffusion_checkpoint "${BASE_DIR}/results/project10/checkpoints/stage2_synthesis/best_synthesis_net.pt" \
     --out_dir "${OUT_DIR}" \
     --num_steps 50 \

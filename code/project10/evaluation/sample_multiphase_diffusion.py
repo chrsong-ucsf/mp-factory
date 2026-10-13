@@ -26,7 +26,13 @@ import torch.nn.functional as F
 BASE_DIR = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(BASE_DIR))
 
-from code.project10.models.autoencoder_3d import AutoEncoder3DConfig, build_autoencoder
+from code.project10.models.autoencoder_3d import (
+    AutoEncoder3DConfig,
+    LightweightAutoEncoder3D,
+    build_autoencoder,
+    normalise_hu,
+    denormalise_hu,
+)
 from code.project10.models.synthesis_net import AnatomyConditionalSynthesisNet
 
 logging.basicConfig(
@@ -114,7 +120,7 @@ class DDIMSampler:
 
 
 def preprocess_ct(ct_path: str, target_shape=(128, 128, 128), spacing_mm=1.5) -> torch.Tensor:
-    """Resample CT volume to 1.5mm isotropic and center-crop/pad to target_shape."""
+    """Resample CT volume to 1.5mm isotropic, pad/crop with -1000 HU air, and normalise."""
     img = sitk.ReadImage(ct_path)
     current_spacing = img.GetSpacing()
     current_size = img.GetSize()
@@ -135,11 +141,9 @@ def preprocess_ct(ct_path: str, target_shape=(128, 128, 128), spacing_mm=1.5) ->
     resampled = resampler.Execute(img)
 
     arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)  # (X, Y, Z)
-    arr = np.clip(arr, -1000.0, 1000.0)
-    arr = arr / 1000.0  # Normalize to [-1, 1]
 
-    # Crop or pad to target_shape
-    vol = np.zeros(target_shape, dtype=np.float32)
+    # Pad or crop to target_shape with air background (-1000 HU)
+    vol = np.full(target_shape, -1000.0, dtype=np.float32)
     min_x = min(arr.shape[0], target_shape[0])
     min_y = min(arr.shape[1], target_shape[1])
     min_z = min(arr.shape[2], target_shape[2])
@@ -149,7 +153,47 @@ def preprocess_ct(ct_path: str, target_shape=(128, 128, 128), spacing_mm=1.5) ->
     sz = (target_shape[2] - min_z) // 2
     vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[:min_x, :min_y, :min_z]
 
-    return torch.from_numpy(vol).unsqueeze(0).unsqueeze(0).float()  # (1, 1, D, H, W)
+    t_vol = torch.from_numpy(vol).unsqueeze(0).unsqueeze(0).float()  # (1, 1, D, H, W)
+    return normalise_hu(t_vol)
+
+
+def load_anatomy_mask(
+    subject_id: str,
+    mask_dirs: list,
+    target_shape=(128, 128, 128),
+    latent_shape=(16, 16, 16),
+    device=torch.device("cpu"),
+) -> torch.Tensor:
+    """
+    Load 5-organ GI mask if available, one-hot encode, and downsample to latent resolution.
+    Falls back to neutral background prior [1, 0, 0, 0, 0] if no mask is found.
+    """
+    for mdir in mask_dirs:
+        for ext in [".nii.gz", ".nii"]:
+            mpath = os.path.join(mdir, f"{subject_id}{ext}")
+            if os.path.exists(mpath):
+                try:
+                    img = sitk.ReadImage(mpath)
+                    resampler = sitk.ResampleImageFilter()
+                    resampler.SetOutputSpacing((1.5, 1.5, 1.5))
+                    resampler.SetSize(target_shape)
+                    resampler.SetOutputOrigin(img.GetOrigin())
+                    resampler.SetOutputDirection(img.GetDirection())
+                    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+                    resampler.SetDefaultPixelValue(0)
+                    resampled = resampler.Execute(img)
+                    arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)
+
+                    mask_t = torch.from_numpy(arr).unsqueeze(0).long().clamp(0, 4)
+                    one_hot = F.one_hot(mask_t, num_classes=5).permute(0, 4, 1, 2, 3).float().to(device)
+                    return F.interpolate(one_hot, size=latent_shape, mode="nearest")
+                except Exception as e:
+                    log.warning(f"Failed loading mask from {mpath}: {e}")
+
+    # Neutral prior
+    dummy = torch.zeros((1, 5, *latent_shape), device=device, dtype=torch.float32)
+    dummy[:, 0] = 1.0
+    return dummy
 
 
 def main():
@@ -157,8 +201,11 @@ def main():
     parser.add_argument("--registered_dir", type=str,
                         default="results/project10/registered_volumes",
                         help="Directory containing registered moving/fixed CT volumes")
+    parser.add_argument("--mask_dirs", nargs="+",
+                        default=["results/totalseg_gi_masks", "results/totalseg_masks"],
+                        help="Directories to search for organ masks")
     parser.add_argument("--ae_checkpoint", type=str,
-                        default="results/project10/checkpoints/stage1_ae_ablation/best_stage1_ae.pt",
+                        default="results/project10/checkpoints/stage1_ae/best_stage1_ae.pt",
                         help="Path to trained Stage 1 Autoencoder checkpoint")
     parser.add_argument("--diffusion_checkpoint", type=str,
                         default="results/project10/checkpoints/stage2_synthesis/best_synthesis_net.pt",
@@ -194,18 +241,19 @@ def main():
 
     # 1. Load Stage 1 Autoencoder
     log.info(f"Loading Stage 1 Autoencoder from: {args.ae_checkpoint}")
-    ae_cfg = AutoEncoder3DConfig(
-        input_size=(128, 128, 128),
-        latent_channels=4,
-        channels=(32, 64, 128, 256),
-        strides=(2, 2, 2, 1),
-        use_vq=True,
-    )
-    ae = build_autoencoder(ae_cfg).to(device)
-    if os.path.exists(args.ae_checkpoint):
-        ckpt_ae = torch.load(args.ae_checkpoint, map_location=device)
-        state_dict_ae = ckpt_ae["model"] if "model" in ckpt_ae else ckpt_ae
-        ae.load_state_dict(state_dict_ae, strict=False)
+    if not os.path.exists(args.ae_checkpoint):
+        raise FileNotFoundError(f"Stage 1 Autoencoder checkpoint not found at: {args.ae_checkpoint}")
+
+    ckpt_ae = torch.load(args.ae_checkpoint, map_location=device)
+    cfg_dict = ckpt_ae.get("cfg", {})
+    if isinstance(cfg_dict, dict):
+        ae_cfg = AutoEncoder3DConfig(**cfg_dict)
+    else:
+        ae_cfg = AutoEncoder3DConfig()
+
+    ae = LightweightAutoEncoder3D(ae_cfg).to(device)
+    state_dict_ae = ckpt_ae["model"] if "model" in ckpt_ae else ckpt_ae
+    ae.load_state_dict(state_dict_ae, strict=True)
     ae.eval()
 
     # 2. Load Stage 2 Diffusion Synthesis Model
@@ -242,32 +290,38 @@ def main():
         log.info(f"[{idx}/{len(my_files)}] Generating synthetic contrast volume for: {pair_name}")
 
         try:
-            # Preprocess volume
+            # Preprocess volume to normalised range [-0.5, 1.0]
             ncct_tensor = preprocess_ct(ct_path).to(device)
+
+            # Extract subject ID for anatomy conditioning (pair_name format: subject_p0--subject_target)
+            subject_p0 = pair_name.split("--")[0]
+            anatomy_mask = load_anatomy_mask(
+                subject_id=subject_p0,
+                mask_dirs=args.mask_dirs,
+                target_shape=(128, 128, 128),
+                latent_shape=(16, 16, 16),
+                device=device,
+            )
 
             with torch.no_grad():
                 # Encode NCCT to latent space: (1, 4, 16, 16, 16)
                 z_ncct = ae.encode(ncct_tensor)
 
-                # Default neutral anatomy mask for conditioning: (1, 5, 16, 16, 16)
-                dummy_mask = torch.zeros((1, 5, 16, 16, 16), device=device, dtype=torch.float32)
-                dummy_mask[:, 0] = 1.0  # Background prior
-
                 # Sample target latent via DDIM
                 z_syn = sampler.sample(
                     model=model,
                     source_latent=z_ncct,
-                    anatomy_mask=dummy_mask,
+                    anatomy_mask=anatomy_mask,
                     num_inference_steps=args.num_steps,
                     eta=0.0,
                 )
 
-                # Decode latent to full 3D CT volume
+                # Decode latent to full 3D CT volume (1, 1, 128, 128, 128)
                 fake_vol = ae.decode(z_syn)
-                fake_arr = fake_vol.squeeze().cpu().numpy()
 
-                # Denormalize back to Hounsfield Units [-1000, 1000]
-                fake_hu = (fake_arr * 1000.0).astype(np.int16)
+                # Denormalize back to real Hounsfield Units [-1000, 2000]
+                fake_hu = denormalise_hu(fake_vol).squeeze().cpu().numpy()
+                fake_hu = np.clip(fake_hu, -1000.0, 2000.0).astype(np.int16)
 
                 # Save as NIfTI
                 affine = np.diag([1.5, 1.5, 1.5, 1.0])
