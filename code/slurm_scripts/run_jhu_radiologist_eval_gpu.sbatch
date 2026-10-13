@@ -3,6 +3,7 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_rad_eval_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_rad_eval_%j.err
 #SBATCH --partition=gpu
+#SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
