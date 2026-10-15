@@ -2,8 +2,7 @@
 #SBATCH --job-name=jhu_rad_eval
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_rad_eval_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_rad_eval_%j.err
-#SBATCH --partition=gpu,large_gpu
-#SBATCH --qos=hpc_core
+#SBATCH --partition=gpu
 #SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -54,13 +53,15 @@ python -u "${BASE_DIR}/code/evaluation/evaluate_jhu_radiologist_gpu.py" \
     --jhu_dir "${JHU_DIR}" \
     --pred_dirs \
         "${RESULTS_DIR}/mednext_predictions" \
+        "${RESULTS_DIR}/mednext_phase2_predictions" \
         "${RESULTS_DIR}/swin_unetr_predictions" \
+        "${RESULTS_DIR}/swin_unetr_phase2_predictions" \
         "${RESULTS_DIR}/totalseg_gi_masks_bdmap" \
         "${RESULTS_DIR}/ensemble_out" \
-    --model_names MedNeXt Swin-UNETR TotalSegmentator EnsembleConsensus \
-    --out_csv "${RESULTS_DIR}/jhu_radiologist_gpu_audit_summary.csv"
+    --model_names MedNeXt MedNeXt_Phase2 Swin-UNETR Swin-UNETR_Phase2 TotalSegmentator EnsembleConsensus \
+    --out_csv "${RESULTS_DIR}/jhu_radiologist_phase2_comparison.csv"
 
 echo "====================================================================="
 echo "  Evaluation completed successfully at $(date)"
-echo "  Summary saved to: ${RESULTS_DIR}/jhu_radiologist_gpu_audit_summary.csv"
+echo "  Summary saved to: ${RESULTS_DIR}/jhu_radiologist_phase2_comparison.csv"
 echo "====================================================================="

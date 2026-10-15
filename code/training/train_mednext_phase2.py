@@ -576,7 +576,11 @@ def main():
         deep_supervision=False,
     ).to(device)
 
-    if args.pretrained_ckpt and os.path.exists(args.pretrained_ckpt):
+    last_ckpt_path = os.path.join(args.out_dir, "last_mednext_phase2.pt")
+    if os.path.isfile(last_ckpt_path) and args.start_epoch > 1:
+        log(f"[Phase 2] Resuming MedNeXt from existing checkpoint: {last_ckpt_path}")
+        model.load_state_dict(torch.load(last_ckpt_path, map_location=device), strict=False)
+    elif args.pretrained_ckpt and os.path.exists(args.pretrained_ckpt):
         log(f"Loading Phase 1/checkpoint: {args.pretrained_ckpt}")
         model.load_state_dict(
             torch.load(args.pretrained_ckpt, map_location=device), strict=False)
