@@ -1,9 +1,13 @@
 # Medical data & volumes
 *.nii.gz
 *.nii
+*.nrrd
+*.npz
 /datasets/
-CancerVerse/
-CancerVerse_data/
+CancerVerse
+CancerVerse_dbox
+CancerVerse_data
+data/
 
 # Environments & Caches
 envs/
@@ -15,5 +19,17 @@ results/
 logs/
 *.out
 *.err
+*.log
+
+# Knowledge Graph Build Caches
+graphify-out/cache/
+graphify-out/2026-*/
+graphify-out/.cloud-cta-shown
+graphify-out/.graphify_analysis.json
+graphify-out/.graphify_labels.json.sig
+
+# Submodules & System
 code/SyntheticTumors/
 SyntheticTumors/
+.DS_Store
+*.tmp

@@ -63,6 +63,13 @@ ORGAN_MAP = {
     4: 'colon',
 }
 
+ORGAN_KEYWORDS = {
+    1: ['stomach'],
+    2: ['duodenum'],
+    3: ['small_bowel', 'small_intestine', 'intestine', 'smallbowel'],
+    4: ['colon', 'rectum'],
+}
+
 
 def resolve_human_label(data_dir, subject_id):
     """Return the primary human label file for a subject, or None.
@@ -82,12 +89,22 @@ def resolve_human_label(data_dir, subject_id):
     return (None, None)
 
 
-def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir):
+def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir, overwrite=False):
     """Process a single WEAK_COARSE subject -> *_autolabel.nii.gz + stats dict."""
     import nibabel as nib
+    import nibabel.processing as nip
 
     result = {'subject_id': subject_id, 'status': 'PROCESSING'}
     try:
+        out_path = os.path.join(out_dir, f"{subject_id}_autolabel.nii.gz")
+        if os.path.isfile(out_path) and os.path.getsize(out_path) > 0 and not overwrite:
+            result.update({
+                'status': 'SUCCESS',
+                'output_path': out_path,
+                'cached': True,
+            })
+            return result
+
         label_kind, label_path = resolve_human_label(data_dir, subject_id)
         if label_kind is None:
             result['status'] = 'SKIP: no human coarse label found'
@@ -108,12 +125,6 @@ def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir):
             ct_nii = nib.load(ct_path)
             ct_arr = np.asanyarray(ct_nii.dataobj).squeeze()
             human_arr = np.zeros_like(ct_arr, dtype=np.uint8)
-            # Affine-aware resampler for cases where seg files are not in CT voxel space.
-            try:
-                from nilearn.image import resample_to_img
-                _have_nilearn = True
-            except ImportError:
-                _have_nilearn = False
 
             seg_dir = label_path
             matched_ids = set()
@@ -124,17 +135,12 @@ def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir):
                 seg_nii = nib.load(os.path.join(seg_dir, fname))
                 seg_arr = np.asanyarray(seg_nii.dataobj).squeeze().astype(np.uint8)
                 # Resample to CT voxel grid if shapes differ.
-                if seg_arr.shape != human_arr.shape and _have_nilearn:
-                    ref_img = nib.Nifti1Image(human_arr.astype(np.float32),
-                                              ct_nii.affine, ct_nii.header)
-                    src_img = nib.Nifti1Image(seg_arr.astype(np.float32),
-                                              seg_nii.affine, seg_nii.header)
-                    seg_arr = np.asanyarray(
-                        resample_to_img(src_img, ref_img, interpolation='nearest',
-                                        copy=False).dataobj).astype(np.uint8)
-                # Guess organ id from filename.
-                for oid, oname in ORGAN_MAP.items():
-                    if oname in base and oid not in matched_ids:
+                if seg_arr.shape != human_arr.shape:
+                    seg_res = nip.resample_from_to(seg_nii, ct_nii, order=0)
+                    seg_arr = np.asanyarray(seg_res.dataobj).squeeze().astype(np.uint8)
+                # Match organ id from keywords.
+                for oid, kws in ORGAN_KEYWORDS.items():
+                    if any(kw in base for kw in kws) and oid not in matched_ids:
                         human_arr[seg_arr > 0] = oid
                         matched_ids.add(oid)
                         break
@@ -171,15 +177,12 @@ def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir):
 
         if cons_arr.shape != human_arr.shape:
             try:
-                from nilearn.image import resample_to_img as _r
-            except ImportError:
-                result['status'] = 'SKIP: nilearn not installed for resampling'
+                import nibabel.processing as nip
+                cons_res = nip.resample_from_to(cons_nii, human_nii, order=0)
+                cons_arr = np.asanyarray(cons_res.dataobj).astype(np.uint8)
+            except Exception as res_err:
+                result['status'] = f'SKIP: resampling failed: {res_err}'
                 return result
-            ref_img = human_nii
-            src_img = nib.Nifti1Image(cons_arr.astype(np.float32), cons_nii.affine, cons_nii.header)
-            cons_arr = np.asanyarray(
-                _r(src_img, ref_img, interpolation='nearest', copy=False).dataobj
-            ).astype(np.uint8)
 
         cons_arr = np.where((cons_arr >= 1) & (cons_arr <= 4), cons_arr, 0).astype(np.uint8)
 
@@ -230,6 +233,10 @@ def main():
                         help="Plain text file with one subject_id per line")
     parser.add_argument("--out_csv", type=str, default=None,
                         help="Output stats CSV path (defaults to <out_dir>/autolabel_summary.csv)")
+    parser.add_argument("--num_workers", type=int, default=16,
+                        help="Number of parallel worker processes (default: 16)")
+    parser.add_argument("--overwrite", action="store_true", default=False,
+                        help="Overwrite existing autolabel masks")
     args = parser.parse_args()
 
     # Resolve subject list
@@ -253,13 +260,26 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     out_csv = args.out_csv or os.path.join(args.out_dir, "autolabel_summary.csv")
 
-    print(f"Processing {len(subjects)} subjects ...")
+    print(f"Processing {len(subjects)} subjects with {args.num_workers} workers ...")
+    from concurrent.futures import ProcessPoolExecutor, as_completed
     results = []
-    for completed, sub_id in enumerate(subjects, 1):
-        res = autolabel_subject(sub_id, args.data_dir, args.consensus_dir, args.out_dir)
-        results.append(res)
-        if completed % 100 == 0 or completed == len(subjects):
-            print(f"  [{completed}/{len(subjects)}] ({completed/len(subjects)*100:.1f}%)", flush=True)
+    if args.num_workers > 1:
+        with ProcessPoolExecutor(max_workers=args.num_workers) as pool:
+            futures = {
+                pool.submit(autolabel_subject, sid, args.data_dir, args.consensus_dir, args.out_dir, args.overwrite): sid
+                for sid in subjects
+            }
+            for completed, fut in enumerate(as_completed(futures), 1):
+                res = fut.result()
+                results.append(res)
+                if completed % 100 == 0 or completed == len(subjects):
+                    print(f"  [{completed}/{len(subjects)}] ({completed/len(subjects)*100:.1f}%)", flush=True)
+    else:
+        for completed, sub_id in enumerate(subjects, 1):
+            res = autolabel_subject(sub_id, args.data_dir, args.consensus_dir, args.out_dir, args.overwrite)
+            results.append(res)
+            if completed % 100 == 0 or completed == len(subjects):
+                print(f"  [{completed}/{len(subjects)}] ({completed/len(subjects)*100:.1f}%)", flush=True)
 
     df_out = pd.DataFrame(results)
     os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)

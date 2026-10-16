@@ -2,11 +2,11 @@
 #SBATCH --job-name=mednext_p2
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/mednext_p2_%A_%a.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/mednext_p2_%A_%a.err
-#SBATCH --partition=gpu,large_gpu
-#SBATCH --qos=hpc_core
+#SBATCH --partition=gpu
+#SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
+#SBATCH --mem=80G
 #SBATCH --time=16:00:00
 #SBATCH --array=0-3
 
@@ -16,8 +16,8 @@ module load miniforge3/26.3.2-3
 eval "$(mamba shell hook --shell bash)"
 mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 
-# Install MedNeXt if not already installed
-pip install --quiet git+https://github.com/MIC-DKFZ/MedNeXt.git
+# Install MedNeXt if not already installed (already installed in env)
+# pip install --quiet git+https://github.com/MIC-DKFZ/MedNeXt.git
 
 export PYTHONUNBUFFERED=1
 
@@ -39,6 +39,12 @@ mkdir -p /mnt/scratch/user/chrsong/mp-factory/logs
 
 echo "[Phase 2] Starting MedNeXt-B Fold ${FOLD} on GPU: ${CUDA_VISIBLE_DEVICES}"
 echo "[Phase 2] Prerequisite: hard_threshold_autolabel.py must have been run to populate ${AUTOLABEL_DIR}"
+
+if [ ! -d "${DATA_DIR}" ]; then
+    echo "ERROR: DATA_DIR does not exist: ${DATA_DIR}" >&2
+    echo "Please ensure CancerVerse_dbox is loaded before running Phase 2 training." >&2
+    exit 1
+fi
 
 python -u /mnt/scratch/user/chrsong/mp-factory/code/training/train_mednext_phase2.py \
     --data_dir         "${DATA_DIR}" \
