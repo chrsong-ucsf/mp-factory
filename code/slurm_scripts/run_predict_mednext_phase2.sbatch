@@ -21,11 +21,13 @@ export PYTHONUNBUFFERED=1
 mkdir -p /mnt/scratch/user/chrsong/mp-factory/logs
 mkdir -p /mnt/scratch/user/chrsong/mp-factory/results/mednext_phase2_predictions
 
-echo "[MedNeXt-B Phase 2 Pred] Starting Worker ${SLURM_ARRAY_TASK_ID}/4 on GPU: ${CUDA_VISIBLE_DEVICES}"
+BEST_FOLD=${BEST_FOLD:-1}
+
+echo "[MedNeXt-B Phase 2 Pred] Starting Worker ${SLURM_ARRAY_TASK_ID}/4 using Fold ${BEST_FOLD} on GPU: ${CUDA_VISIBLE_DEVICES}"
 
 python -u /mnt/scratch/user/chrsong/mp-factory/code/prediction/predict_mednext.py \
     --data_dir   "/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox" \
-    --model_path "/mnt/scratch/user/chrsong/mp-factory/results/mednext_phase2/fold_0/best_mednext_phase2.pt" \
+    --model_path "/mnt/scratch/user/chrsong/mp-factory/results/mednext_phase2/fold_${BEST_FOLD}/best_mednext_phase2.pt" \
     --out_dir    "/mnt/scratch/user/chrsong/mp-factory/results/mednext_phase2_predictions" \
     --model_id   B \
     --kernel_size 3 \
@@ -34,4 +36,5 @@ python -u /mnt/scratch/user/chrsong/mp-factory/code/prediction/predict_mednext.p
     --overlap    0.5 \
     --array_id   "${SLURM_ARRAY_TASK_ID}" \
     --total_workers 4 \
-    --save_probs
+    --save_probs \
+    --overwrite
