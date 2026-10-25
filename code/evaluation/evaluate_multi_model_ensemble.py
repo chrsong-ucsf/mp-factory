@@ -149,18 +149,57 @@ def compute_hd95_fast(gt_mask, pred_mask, voxel_spacing=(1.5, 1.5, 2.0)):
     return float(max(np.percentile(hd_gt_to_pred, 95), np.percentile(hd_pred_to_gt, 95)))
 
 
+def adjusted_rand_score_fast(labels_true, labels_pred):
+    """Pure NumPy implementation of Adjusted Rand Index."""
+    labels_true = np.asarray(labels_true)
+    labels_pred = np.asarray(labels_pred)
+    n = len(labels_true)
+    if n == 0:
+        return 1.0
+
+    classes_true, idx_true = np.unique(labels_true, return_inverse=True)
+    classes_pred, idx_pred = np.unique(labels_pred, return_inverse=True)
+    n_classes_true = len(classes_true)
+    n_classes_pred = len(classes_pred)
+
+    if n_classes_true <= 1 and n_classes_pred <= 1:
+        return 1.0
+
+    contingency = np.zeros((n_classes_true, n_classes_pred), dtype=np.int64)
+    np.add.at(contingency, (idx_true, idx_pred), 1)
+
+    sum_comb_c = np.sum(contingency * (contingency - 1) // 2)
+    sum_a = np.sum(contingency, axis=1)
+    sum_b = np.sum(contingency, axis=0)
+    sum_comb_a = np.sum(sum_a * (sum_a - 1) // 2)
+    sum_comb_b = np.sum(sum_b * (sum_b - 1) // 2)
+
+    total_pairs = n * (n - 1) // 2
+    if total_pairs == 0:
+        return 1.0
+
+    expected_index = (sum_comb_a * sum_comb_b) / total_pairs
+    max_index = (sum_comb_a + sum_comb_b) / 2.0
+
+    denominator = max_index - expected_index
+    if denominator == 0:
+        return 1.0
+    return float((sum_comb_c - expected_index) / denominator)
+
+
 def compute_clustering_metrics(gt_arr, pred_arr):
     """Compute Adjusted Rand Index (ARI) and Variation of Information (VOI)."""
-    from sklearn.metrics import adjusted_rand_score
-    from skimage.metrics import variation_of_information
+    try:
+        from skimage.metrics import variation_of_information
+        gt_flat = gt_arr.ravel()[::50]
+        pred_flat = pred_arr.ravel()[::50]
 
-    gt_flat = gt_arr.ravel()[::50]
-    pred_flat = pred_arr.ravel()[::50]
-
-    ari = adjusted_rand_score(gt_flat, pred_flat)
-    split, merge = variation_of_information(gt_flat, pred_flat)
-    voi = split + merge
-    return float(ari), float(voi)
+        ari = adjusted_rand_score_fast(gt_flat, pred_flat)
+        split, merge = variation_of_information(gt_flat, pred_flat)
+        voi = split + merge
+        return float(ari), float(voi)
+    except Exception:
+        return np.nan, np.nan
 
 
 def compute_classification_metrics(gt_mask, pred_mask):
@@ -380,6 +419,13 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
             loaded_masks.append(arr)
             loaded_niis.append(nii)
 
+        # Ensure all masks are 3D
+        for idx in range(len(loaded_masks)):
+            if loaded_masks[idx].ndim == 2:
+                loaded_masks[idx] = loaded_masks[idx][:, :, np.newaxis]
+            elif loaded_masks[idx].ndim > 3:
+                loaded_masks[idx] = loaded_masks[idx].squeeze()
+
         # Shape-align any remaining masks (non-TotalSeg models at different resolutions)
         # using PyTorch nearest-neighbor interpolation for speed.
         target_shape = loaded_masks[0].shape
@@ -387,9 +433,11 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
         resampled_masks = []
         for arr in loaded_masks:
             if arr.shape != target_shape:
-                t_arr = torch.tensor(arr, dtype=torch.float32, device=device).unsqueeze(0).unsqueeze(0)
+                t_arr = torch.tensor(arr, dtype=torch.float32, device=device)
+                while t_arr.ndim < 5:
+                    t_arr = t_arr.unsqueeze(0)
                 t_res = torch.nn.functional.interpolate(t_arr, size=target_shape, mode='nearest')
-                arr = t_res.squeeze(0).squeeze(0).to(torch.uint8).cpu().numpy()
+                arr = t_res.view(target_shape).to(torch.uint8).cpu().numpy()
             resampled_masks.append(arr)
 
         model_masks = np.stack(resampled_masks, axis=0)  # (N_models, X, Y, Z)
@@ -435,14 +483,10 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
         clamped = torch.clamp(consensus_probs_t, epsilon, 1.0 - epsilon)
         uncertainty_t = -(clamped * torch.log2(clamped)).sum(dim=0)  # (X, Y, Z)
 
-        if skip_saving:
-            # Load saved files as the authoritative source for reporting metrics
-            # (the saved consensus is from the original run and is the ground truth).
-            consensus_mask = nib.load(consensus_path).get_fdata().astype(np.uint8)
-            uncertainty_map = nib.load(uncertainty_path).get_fdata()
-        else:
-            consensus_mask = consensus_mask_t.cpu().numpy()
-            uncertainty_map = uncertainty_t.cpu().numpy()
+        consensus_mask = consensus_mask_t.cpu().numpy()
+        uncertainty_map = uncertainty_t.cpu().numpy()
+
+        if not skip_saving:
             os.makedirs(out_dir, exist_ok=True)
             nib.save(nib.Nifti1Image(consensus_mask, affine=affine), consensus_path)
             nib.save(nib.Nifti1Image(uncertainty_map.astype(np.float32), affine=affine), uncertainty_path)

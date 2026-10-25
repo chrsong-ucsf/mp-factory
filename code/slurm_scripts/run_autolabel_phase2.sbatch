@@ -23,14 +23,25 @@ mkdir -p /mnt/scratch/user/chrsong/mp-factory/results/dataset_splits_phase2
 DATA_DIR="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox"
 CONSENSUS_DIR="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_phase2_out"
 AUDIT_CSV="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_phase2_audit_summary.csv"
-SPLITS_FILE="/mnt/scratch/user/chrsong/mp-factory/results/dataset_splits_phase2/ensemble_split_WEAK_COARSE.txt"
+SPLITS_DIR="/mnt/scratch/user/chrsong/mp-factory/results/dataset_splits_phase2"
+SPLITS_FILE="${SPLITS_DIR}/ensemble_split_WEAK_COARSE.txt"
 AUTOLABEL_DIR="/mnt/scratch/user/chrsong/mp-factory/results/autolabel_phase2_out"
 OUT_CSV="/mnt/scratch/user/chrsong/mp-factory/results/autolabel_phase2_summary.csv"
 
 echo "====================================================================="
-echo "  Executing Phase 2 Hard-Threshold Auto-Labeling"
+echo "  Step 1: Merging Ensemble Chunks & Materializing Dataset Splits"
 echo "  Date: $(date)"
 echo "  Node: $(hostname)"
+echo "====================================================================="
+
+python -u /mnt/scratch/user/chrsong/mp-factory/code/utilities/merge_ensemble_chunks.py \
+    --pattern "/mnt/scratch/user/chrsong/mp-factory/results/ensemble_phase2_audit_summary_*.csv" \
+    --out_csv "${AUDIT_CSV}" \
+    --splits_dir "${SPLITS_DIR}" \
+    --ensemble_out_dir "${CONSENSUS_DIR}"
+
+echo "====================================================================="
+echo "  Step 2: Executing Phase 2 Hard-Threshold Auto-Labeling"
 echo "  Workers: ${SLURM_CPUS_PER_TASK:-16}"
 echo "====================================================================="
 
@@ -45,7 +56,7 @@ python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluation/hard_threshold_au
     --overwrite
 
 echo "====================================================================="
-echo "  Building Unified Dataset Manifest & Verifying NIfTI Integrity"
+echo "  Step 3: Building Unified Dataset Manifest & Verifying NIfTI Integrity"
 echo "====================================================================="
 
 python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluation/unified_gastro_dataset.py \
@@ -55,7 +66,7 @@ python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluation/unified_gastro_da
     --autolabel_dir "${AUTOLABEL_DIR}" \
     --use_weak \
     --verify \
-    --out_dir "/mnt/scratch/user/chrsong/mp-factory/results/dataset_splits_phase2"
+    --out_dir "${SPLITS_DIR}"
 
 echo "====================================================================="
 echo "  Phase 2 Auto-Labeling and Dataset Verification Completed: $(date)"
