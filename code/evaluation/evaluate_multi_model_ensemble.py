@@ -799,7 +799,13 @@ def main():
         print("ERROR: No common subjects found across prediction directories. Check directory contents.")
         sys.exit(1)
 
-    # --- Smart Fast Resume Logic ---
+    # 1. Deterministic Sharded Chunk Division
+    if args.num_chunks > 1:
+        chunk_subjects = [sub for i, sub in enumerate(common_subjects) if i % args.num_chunks == args.chunk_idx]
+        print(f"GPU Worker [{args.chunk_idx}/{args.num_chunks}]: Assigned {len(chunk_subjects)} / {len(common_subjects)} total scans.")
+        common_subjects = chunk_subjects
+
+    # 2. Smart Fast Resume Logic for this Worker's Partition
     results = []
     already_processed = set()
     if os.path.exists(args.out_csv):
@@ -813,29 +819,11 @@ def main():
         except Exception as e:
             print(f"Warning: Could not read existing CSV for resume: {e}")
 
-    # Also check on-disk consensus NIfTI files in case CSV fell behind.
-    # For subjects with a saved consensus mask but no CSV row, we re-read
-    # the consensus mask and recompute lightweight metrics so the final CSV
-    # is complete with all 1,734 rows.
-    disk_only_subjects = []
-    for sub_id in common_subjects:
-        if sub_id in already_processed:
-            continue
-        consensus_path = os.path.join(args.out_dir, f"{sub_id}_consensus.nii.gz")
-        if os.path.exists(consensus_path):
-            already_processed.add(sub_id)
-            disk_only_subjects.append(sub_id)
-
-    # Collect subjects that still need evaluation or metric computation
-    subjects_to_process = [sub for sub in common_subjects if sub not in already_processed or sub in disk_only_subjects]
-    print(f"Skipping {len(already_processed) - len(disk_only_subjects):,} already-audited subjects (found in CSV).")
-    print(f"Processing {len(subjects_to_process):,} subjects across {args.num_workers} parallel workers ({len(disk_only_subjects)} on-disk consensus + {len(common_subjects) - len(already_processed)} new).")
+    # Collect subjects assigned to this worker that still need evaluation
+    subjects_to_process = [sub for sub in common_subjects if sub not in already_processed]
+    print(f"Skipping {len(already_processed):,} already-audited subjects (found in {args.out_csv}).")
+    print(f"Processing {len(subjects_to_process):,} remaining subjects for worker [{args.chunk_idx}/{args.num_chunks}] (out of {len(common_subjects)} assigned).")
     common_subjects = subjects_to_process
-
-    if args.num_chunks > 1:
-        chunk_subjects = [sub for i, sub in enumerate(common_subjects) if i % args.num_chunks == args.chunk_idx]
-        print(f"GPU Worker [{args.chunk_idx}/{args.num_chunks}]: Processing {len(chunk_subjects)} / {len(common_subjects)} assigned scans.")
-        common_subjects = chunk_subjects
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Executing Deep Ensemble Audit on Device: {device} (Remaining Subjects: {len(common_subjects)})", flush=True)

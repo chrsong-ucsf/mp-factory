@@ -35,7 +35,7 @@ echo "  Node: $(hostname)"
 echo "====================================================================="
 
 python -u /mnt/scratch/user/chrsong/mp-factory/code/utilities/merge_ensemble_chunks.py \
-    --pattern "/mnt/scratch/user/chrsong/mp-factory/results/ensemble_phase2_audit_summary_*.csv" \
+    --pattern "/mnt/scratch/user/chrsong/mp-factory/results/ensemble_phase2_audit_summary_[0-9].csv" \
     --out_csv "${AUDIT_CSV}" \
     --splits_dir "${SPLITS_DIR}" \
     --ensemble_out_dir "${CONSENSUS_DIR}"
