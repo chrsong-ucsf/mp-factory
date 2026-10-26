@@ -104,6 +104,86 @@ class TestPipelineDryRun(unittest.TestCase):
             self.assertIsNotNone(ckpt_med)
             self.assertIsNotNone(ckpt_swin)
 
+    def test_06_discover_phase2_dataset_filters_degenerate_scans(self):
+        """Verify discover_phase2_dataset excludes 2D localizers, corrupt files, and thin scout scans."""
+        _TRAIN_DIR = os.path.join(_ROOT, "code", "training")
+        if _TRAIN_DIR not in sys.path:
+            sys.path.insert(0, _TRAIN_DIR)
+        from train_mednext_phase2 import discover_phase2_dataset as discover_mednext
+        from train_swin_unetr_phase2 import discover_phase2_dataset as discover_swin
+        import nibabel as nib
+
+        data_dir = os.path.join(_ROOT, "CancerVerse_dbox")
+        audit_csv = os.path.join(_ROOT, "results", "ensemble_phase2_audit_summary.csv")
+        ensemble_out = os.path.join(_ROOT, "results", "ensemble_phase2_out")
+        autolabel_dir = os.path.join(_ROOT, "results", "autolabel_phase2_out")
+        gold_std_dir = os.path.join(_ROOT, "JHU_data_radiologist_corrected")
+
+        for name, discover_fn in [("MedNeXt", discover_mednext), ("Swin-UNETR", discover_swin)]:
+            pairs = discover_fn(
+                data_dir=data_dir,
+                audit_csv=audit_csv,
+                ensemble_out_dir=ensemble_out,
+                autolabel_dir=autolabel_dir,
+                use_weak=True,
+                gold_standard_dir=gold_std_dir,
+            )
+            sub_ids = {p["subject_id"] for p in pairs}
+            # Degenerate 2D and scout scans MUST be filtered out
+            self.assertNotIn("BDMAP_00242583", sub_ids, f"{name}: 2D scan BDMAP_00242583 was not filtered!")
+            self.assertNotIn("BDMAP_00243195", sub_ids, f"{name}: scout scan BDMAP_00243195 was not filtered!")
+            self.assertEqual(len(pairs), 109, f"{name}: expected 109 valid pairs, got {len(pairs)}")
+
+            # Verify every retained pair has valid 3D shapes
+            for p in pairs[:5]:
+                ct_shape = nib.load(p["image"]).header.get_data_shape()
+                lbl_shape = nib.load(p["label"]).header.get_data_shape()
+                self.assertEqual(len(ct_shape), 3, f"CT {p['image']} is not 3D: {ct_shape}")
+                self.assertEqual(len(lbl_shape), 3, f"Label {p['label']} is not 3D: {lbl_shape}")
+                self.assertGreaterEqual(min(ct_shape), 16)
+                self.assertGreaterEqual(min(lbl_shape), 16)
+
+    def test_07_training_transforms_and_dataloader_batch_step(self):
+        """Verify training transforms, collate, and DataLoader batch extraction work end-to-end."""
+        _TRAIN_DIR = os.path.join(_ROOT, "code", "training")
+        if _TRAIN_DIR not in sys.path:
+            sys.path.insert(0, _TRAIN_DIR)
+        from train_mednext_phase2 import discover_phase2_dataset, get_transforms
+        from monai.data import Dataset, DataLoader
+
+        data_dir = os.path.join(_ROOT, "CancerVerse_dbox")
+        audit_csv = os.path.join(_ROOT, "results", "ensemble_phase2_audit_summary.csv")
+        ensemble_out = os.path.join(_ROOT, "results", "ensemble_phase2_out")
+        autolabel_dir = os.path.join(_ROOT, "results", "autolabel_phase2_out")
+        gold_std_dir = os.path.join(_ROOT, "JHU_data_radiologist_corrected")
+
+        pairs = discover_phase2_dataset(
+            data_dir=data_dir,
+            audit_csv=audit_csv,
+            ensemble_out_dir=ensemble_out,
+            autolabel_dir=autolabel_dir,
+            use_weak=True,
+            gold_standard_dir=gold_std_dir,
+        )
+        train_transforms, _ = get_transforms(roi_size=(96, 96, 96))
+        # Test on 2 sample pairs (one CLEAN, one WEAK)
+        clean_pair = next(p for p in pairs if p["category"] == "CLEAN_HIGH_CONFIDENCE")
+        weak_pair = next(p for p in pairs if p["category"] == "WEAK_COARSE")
+
+        ds = Dataset(data=[clean_pair, weak_pair], transform=train_transforms)
+        loader = DataLoader(ds, batch_size=1, num_workers=0, shuffle=False)
+
+        batch_count = 0
+        for batch in loader:
+            img = batch["image"]
+            lbl = batch["label"]
+            self.assertEqual(img.shape[1:], (1, 96, 96, 96))
+            self.assertEqual(lbl.shape[1:], (1, 96, 96, 96))
+            batch_count += 1
+            if batch_count >= 2:
+                break
+        self.assertEqual(batch_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

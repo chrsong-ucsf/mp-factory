@@ -180,6 +180,27 @@ def discover_phase2_dataset(
             # CLEAN_HIGH_CONFIDENCE, or WEAK without autolabel_dir
             label_path = consensus_path
 
+        # Verify valid 3D scan geometry and prevent scout/corrupt volumes from crashing DataLoader
+        try:
+            import nibabel as nib
+            ct_hdr = nib.load(ct_path).header
+            ct_shape = ct_hdr.get_data_shape()
+            lbl_hdr = nib.load(label_path).header
+            lbl_shape = lbl_hdr.get_data_shape()
+        except Exception as e:
+            print(f"  WARNING: Skipping {sub_id} due to corrupt NIfTI header: {e}")
+            continue
+
+        if len(ct_shape) != 3:
+            print(f"  WARNING: Skipping {sub_id} because CT is not 3D (shape {ct_shape})")
+            continue
+        if len(lbl_shape) != 3:
+            print(f"  WARNING: Skipping {sub_id} because label is not 3D (shape {lbl_shape})")
+            continue
+        if min(ct_shape) < 16 or min(lbl_shape) < 16:
+            print(f"  WARNING: Skipping {sub_id} because scan is too small/scout (CT shape {ct_shape}, label shape {lbl_shape})")
+            continue
+
         is_gold_standard = sub_id in gold_standard_ids
 
         data_pairs.append({
