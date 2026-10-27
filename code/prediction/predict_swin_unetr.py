@@ -125,6 +125,8 @@ def main():
     ).to(device)
 
     state_dict = torch.load(args.model_path, map_location=device)
+    if isinstance(state_dict, dict) and "model_state_dict" in state_dict:
+        state_dict = state_dict["model_state_dict"]
     # Strip DataParallel prefix if present
     if any(k.startswith("module.") for k in state_dict.keys()):
         state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
