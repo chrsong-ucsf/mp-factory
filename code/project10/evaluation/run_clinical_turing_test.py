@@ -108,6 +108,10 @@ def main():
                         help="Output evaluation CSV")
     parser.add_argument("--num_cases", type=int, default=50,
                         help="Number of representative paired cases to test")
+    parser.add_argument("--array_id", type=int, default=0,
+                        help="Worker array index for sharding")
+    parser.add_argument("--total_workers", type=int, default=1,
+                        help="Total parallel workers")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -134,8 +138,14 @@ def main():
     log.info("Model loaded and set to evaluation mode.")
 
     # 2. Discover pairs
-    synth_files = sorted(glob.glob(os.path.join(args.synthetic_dir, "*_synthetic_contrast.nii.gz")))
-    log.info(f"Found {len(synth_files)} synthetic volumes in {args.synthetic_dir}")
+    all_synth_files = sorted(glob.glob(os.path.join(args.synthetic_dir, "*_synthetic_contrast.nii.gz")))
+    log.info(f"Found {len(all_synth_files)} synthetic volumes in {args.synthetic_dir}")
+
+    chunk_size = (len(all_synth_files) + args.total_workers - 1) // args.total_workers
+    start_idx = args.array_id * chunk_size
+    end_idx = min(start_idx + chunk_size, len(all_synth_files))
+    synth_files = all_synth_files[start_idx:end_idx]
+    log.info(f"[Worker {args.array_id}/{args.total_workers}] Assigned {len(synth_files)} volumes (indices {start_idx}..{end_idx-1})")
 
     records = []
     processed = 0

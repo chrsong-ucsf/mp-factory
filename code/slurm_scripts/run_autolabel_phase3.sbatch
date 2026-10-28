@@ -3,8 +3,8 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/autolabel_phase3_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/autolabel_phase3_%j.err
 #SBATCH --partition=cpu
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
 #SBATCH --time=02:00:00
 
 module load CBI
@@ -27,7 +27,7 @@ python -u /mnt/scratch/user/chrsong/mp-factory/code/evaluation/hard_threshold_au
     --consensus_dir /mnt/scratch/user/chrsong/mp-factory/results/ensemble_phase3_out \
     --out_dir /mnt/scratch/user/chrsong/mp-factory/results/autolabel_phase3_out \
     --audit_csv /mnt/scratch/user/chrsong/mp-factory/results/ensemble_phase3_audit_summary.csv \
-    --num_workers 32
+    --num_workers 12
 
 echo "====================================================================="
 echo "  Autolabeling completed at $(date)"
