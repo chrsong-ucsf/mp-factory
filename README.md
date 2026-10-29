@@ -1,13 +1,10 @@
-# mp-factory (Massive Processing Factory)
+# MultiPhase-GI (`mp-factory`)
 
-**mp-factory** is an HPC-scale medical image processing and deep learning factory built
-around the **CancerVerse** and **BodyMaps/AbdomenAtlas** CT datasets. It delivers
-**Project 9 (GI Organ Segmentation)** through a fully-automated, "under-annotation-tolerant"
-pipeline: instead of hand-correcting noisy labels across ~22,000 scans, it mathematically
-filters them and distills clean pseudo-labels into a compact student model.
+**MultiPhase-GI** (Multi-Phase Contrast & Gastrointestinal Foundation Factory) is an HPC-scale medical image processing and deep learning factory built around the **CancerVerse** and **BodyMaps/AbdomenAtlas** CT datasets. It unifies **Project 9 (GI Organ Segmentation)** and **Project 10 (Multi-Phase Contrast CT Synthesis & Latent Diffusion)** through a fully-automated, "under-annotation-tolerant" foundation architecture.
 
-**Pipeline in one line:** download → segment (TotalSeg + MedNeXt + Swin-UNETR) →
-ensemble-cleanse → distill (Phase 2) → validate against radiologist ground truth.
+Instead of hand-correcting noisy labels across ~22,000 scans, MultiPhase-GI mathematically filters topological outliers and distills clean pseudo-labels into a compact 3D student model, while simultaneously learning multi-phase contrast dynamics and procedural tumor kinetics.
+
+**Pipeline in one line:** download → segment (TotalSeg + MedNeXt + Swin-UNETR) → ensemble-cleanse → distill (MedNeXt-Pool873) → synthesize multi-phase contrast (SPADE-Diffusion/VQ-VAE) → validate against JHU radiologist ground truth.
 
 > 🌟 **Featured Deliverable: [3D GI Organ Segmentation Showcase](docs/SHOWCASE.md)** — High-resolution 2D orthoviews, cranial-to-caudal progression montages, canonical 3D surface reconstructions, and Johns Hopkins radiologist ground-truth comparisons across 4 clinical cases.
 

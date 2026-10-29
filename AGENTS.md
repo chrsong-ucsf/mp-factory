@@ -2,16 +2,13 @@
 
 ## 📌 Repository Overview
 
-This repository is **mp-factory** (Massive Processing Factory), an HPC-scale medical
+This repository is **MultiPhase-GI** (`mp-factory`), an HPC-scale medical
 image processing and deep learning factory built around the **CancerVerse** and
 **BodyMaps/AbdomenAtlas** CT datasets. On the cluster it lives at
 `/mnt/scratch/user/chrsong/mp-factory`.
 
-The project delivers **Project 9 (GI Organ Segmentation)** of the wider research plan
-via a *fully-automated data-cleansing and weakly-supervised distillation* pipeline
-(see `ENSEMBLE_FIX_PLAN.md`). It is designed to be "under-annotation-tolerant": rather
-than manually correcting noisy masks, it mathematically filters ~22,000 scans and
-distills clean pseudo-labels into a student model.
+The project unites **Project 9 (GI Organ Segmentation)** and **Project 10 (Multi-Phase Contrast CT Synthesis)**
+via a *fully-automated data-cleansing, weakly-supervised distillation, and 4D contrast diffusion* pipeline.
 
 The codebase supports:
 1. **Data Ingestion & HPC Downloading** — pull and manage large-scale 3D CT datasets from Hugging Face.

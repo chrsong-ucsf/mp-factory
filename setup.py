@@ -1,14 +1,14 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="mp-factory",
+    name="multiphase-gi",
     version="1.0.0",
     author="Chris Song",
     author_email="chrissong@example.com",
-    description="Massive Processing Factory for medical image processing and deep learning",
+    description="MultiPhase-GI: Multi-Phase Contrast CT Synthesis and Gastrointestinal Foundation Factory",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/chrissong/mp-factory",
+    url="https://github.com/chrsong-ucsf/mp-factory",
     packages=find_packages(include=['code*', 'code.*']),
     package_dir={
         'code': 'code',
@@ -35,9 +35,9 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'mp-factory-train=code.training.train_mednext:main',
-            'mp-factory-predict=code.prediction.predict_mednext:main',
-            'mp-factory-evaluate=code.evaluation.evaluate_gi_masks:main',
+            'mp-train=code.training.train_mednext:main',
+            'mp-predict=code.prediction.predict_mednext:main',
+            'mp-evaluate=code.evaluation.evaluate_gi_masks:main',
         ],
     },
 )
