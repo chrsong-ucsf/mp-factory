@@ -55,13 +55,14 @@ python -u "${BASE_DIR}/code/evaluation/evaluate_jhu_radiologist_gpu.py" \
         "${RESULTS_DIR}/mednext_predictions" \
         "${RESULTS_DIR}/mednext_phase2_predictions" \
         "${RESULTS_DIR}/mednext_phase3_predictions" \
+        "${RESULTS_DIR}/mednext_pool873_predictions" \
         "${RESULTS_DIR}/swin_unetr_predictions" \
         "${RESULTS_DIR}/swin_unetr_phase2_predictions" \
         "${RESULTS_DIR}/swin_unetr_phase3_predictions" \
         "${RESULTS_DIR}/totalseg_gi_masks_bdmap" \
         "${RESULTS_DIR}/ensemble_phase3_out" \
-    --model_names MedNeXt MedNeXt_Phase2 MedNeXt_Phase3 Swin-UNETR Swin-UNETR_Phase2 Swin-UNETR_Phase3 TotalSegmentator EnsembleConsensus \
-    --out_csv "${RESULTS_DIR}/jhu_radiologist_phase3_comparison.csv"
+    --model_names MedNeXt MedNeXt_Phase2 MedNeXt_Phase3 MedNeXt_Pool873 Swin-UNETR Swin-UNETR_Phase2 Swin-UNETR_Phase3 TotalSegmentator EnsembleConsensus \
+    --out_csv "${RESULTS_DIR}/jhu_radiologist_master_comparison.csv"
 
 echo "====================================================================="
 echo "  Evaluation completed successfully at $(date)"

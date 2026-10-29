@@ -58,6 +58,7 @@ MODEL_LABEL_REMAP = {
     'MedNeXt':             {1: 2, 2: 3, 3: [4, 5], 4: 6},
     'MedNeXt_Phase2':      {1: 2, 2: 3, 3: [4, 5], 4: 6},
     'MedNeXt_Phase3':      {1: 2, 2: 3, 3: [4, 5], 4: 6},
+    'MedNeXt_Pool873':     {1: 2, 2: 3, 3: [4, 5], 4: 6},
     'Anchor_MedNeXt_N1594':{1: 2, 2: 3, 3: [4, 5], 4: 6},
     'Swin-UNETR':          {1: 2, 2: 3, 3: [4, 5], 4: 6},
     'Swin-UNETR_Phase2':   {1: 2, 2: 3, 3: [4, 5], 4: 6},

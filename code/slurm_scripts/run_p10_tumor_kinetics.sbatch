@@ -2,14 +2,13 @@
 #SBATCH --job-name=p10_tumor_kin
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/p10_tumor_kin_%A_%a.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/p10_tumor_kin_%A_%a.err
-#SBATCH --partition=gpu,large_gpu
-#SBATCH --qos=hpc_core
+#SBATCH --partition=gpu
 #SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00
-#SBATCH --array=0-5
+#SBATCH --array=0-3
 
 # -----------------------------------------------------------------------------
 # Module Loading & Environment Activation
@@ -38,6 +37,7 @@ echo "====================================================================="
 python -u "${BASE_DIR}/code/project10/kinetics/generate_multiphase_tumors.py" \
     --volumes_dir "${BASE_DIR}/results/project10/synthetic_volumes" \
     --mask_dirs \
+        "${BASE_DIR}/results/mednext_pool873_predictions" \
         "${BASE_DIR}/results/totalseg_gi_masks" \
         "${BASE_DIR}/results/totalseg_gi_masks_bdmap" \
         "${BASE_DIR}/results/totalseg_masks" \
@@ -45,7 +45,7 @@ python -u "${BASE_DIR}/code/project10/kinetics/generate_multiphase_tumors.py" \
     --tumor_types hcc pdac hemangioma metastasis \
     --phases ncct arterial venous \
     --array_id "${SLURM_ARRAY_TASK_ID}" \
-    --total_workers 6
+    --total_workers 4
 
 echo "====================================================================="
 echo "  Worker ${SLURM_ARRAY_TASK_ID} finished at $(date)"
