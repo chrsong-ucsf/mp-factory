@@ -504,7 +504,7 @@ def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_pat
     print(f"Saved radiologist comparison figure to {out_fig_path}")
 
 
-def process_subject(subject_id, data_dir, jhu_dir, out_base_dir):
+def process_subject(subject_id, data_dir, jhu_dir, out_base_dir, mask_dir=None):
     """
     Executes the full showcase pipeline for a single subject:
     1. Loads native CT and verified GI masks.
@@ -524,9 +524,18 @@ def process_subject(subject_id, data_dir, jhu_dir, out_base_dir):
     print(f"=======================================================")
 
     ct_path = os.path.join(data_dir, subject_id, "ct.nii.gz")
-    gi_path = os.path.join(data_dir, subject_id, "gi_mask_temp.nii.gz")
+    if mask_dir:
+        candidates = [
+            os.path.join(mask_dir, f"{subject_id}_consensus.nii.gz"),
+            os.path.join(mask_dir, f"{subject_id}_gi_seg.nii.gz"),
+            os.path.join(mask_dir, f"{subject_id}_autolabel.nii.gz"),
+            os.path.join(mask_dir, f"{subject_id}.nii.gz"),
+        ]
+        gi_path = next((p for p in candidates if os.path.exists(p)), None)
+    else:
+        gi_path = os.path.join(data_dir, subject_id, "gi_mask_temp.nii.gz")
 
-    if not os.path.exists(ct_path) or not os.path.exists(gi_path):
+    if not os.path.exists(ct_path) or not gi_path or not os.path.exists(gi_path):
         print(f"[ERROR] Missing CT or GI mask for {subject_id}")
         return None
 
@@ -539,6 +548,10 @@ def process_subject(subject_id, data_dir, jhu_dir, out_base_dir):
 
     ct_arr = np.asanyarray(ct_nii.dataobj)
     mask_arr = np.asanyarray(gi_nii.dataobj).astype(np.uint8)
+    if ct_arr.shape != mask_arr.shape:
+        print(f"[WARN] CT shape {ct_arr.shape} != Mask shape {mask_arr.shape} for {subject_id}. Resampling mask...")
+        zoom_factors = [c / float(m) for c, m in zip(ct_arr.shape, mask_arr.shape)]
+        mask_arr = ndi.zoom(mask_arr, zoom_factors, order=0).astype(np.uint8)
     voxel_zooms = ct_nii.header.get_zooms()[:3]
     voxel_volume_cm3 = np.prod(voxel_zooms) / 1000.0  # mm³ -> cm³ (mL)
 
@@ -673,6 +686,8 @@ def main():
                         help="Path to CancerVerse CT scans")
     parser.add_argument("--jhu_dir", default="/mnt/scratch/user/chrsong/mp-factory/JHU_data_radiologist_corrected",
                         help="Path to JHU radiologist ground truth")
+    parser.add_argument("--mask_dir", default=None,
+                        help="Path to predictions, consensus, or autolabel masks directory")
     parser.add_argument("--out_dir", default="/mnt/scratch/user/chrsong/mp-factory/results/showcase",
                         help="Path to showcase output directory")
     parser.add_argument("--subjects", nargs="+",
@@ -684,7 +699,7 @@ def main():
     all_metrics_rows = []
 
     for sid in args.subjects:
-        rows = process_subject(sid, args.data_dir, args.jhu_dir, args.out_dir)
+        rows = process_subject(sid, args.data_dir, args.jhu_dir, args.out_dir, mask_dir=args.mask_dir)
         if rows:
             all_metrics_rows.extend(rows)
 

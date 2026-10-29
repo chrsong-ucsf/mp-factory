@@ -265,13 +265,34 @@ def main():
 
     if args.out_dir:
         os.makedirs(args.out_dir, exist_ok=True)
-        ds = UnifiedGI3Dataset(manifest)
+        manifest_df = pd.DataFrame(manifest)
+        if args.verify and errors:
+            bad_sids = set(e['subject_id'] for e in errors)
+            manifest_df['valid'] = ~manifest_df['subject_id'].isin(bad_sids)
+            valid_df = manifest_df[manifest_df['valid']]
+        else:
+            manifest_df['valid'] = True
+            valid_df = manifest_df
+        
+        manifest_csv = os.path.join(args.out_dir, "dataset_manifest.csv")
+        manifest_df.to_csv(manifest_csv, index=False)
+        valid_csv = os.path.join(args.out_dir, "dataset_manifest_valid.csv")
+        valid_df.to_csv(valid_csv, index=False)
+        
+        valid_sids = valid_df['subject_id'].tolist()
+        with open(os.path.join(args.out_dir, "valid_subjects.txt"), 'w') as f:
+            f.write('\n'.join(valid_sids) + '\n')
+        print(f"\nSaved manifest to {manifest_csv} ({len(manifest_df)} total, {len(valid_df)} valid)")
+
+        ds = UnifiedGI3Dataset(valid_df.to_dict('records'))
         dl = DataLoader(ds, batch_size=1, num_workers=0)
         cnt = 0
         for batch in dl:
             cnt += 1
             if cnt == 1:
-                print(f"\nSample batch: keys={list(batch.keys())}, shapes: image={batch['image'].shape} label={batch['label'].shape} category={batch['category']}")
+                img_val = batch['image'][0] if isinstance(batch['image'], (list, tuple)) else batch['image']
+                lbl_val = batch['label'][0] if isinstance(batch['label'], (list, tuple)) else batch['label']
+                print(f"\nSample batch: keys={list(batch.keys())}, image={img_val} label={lbl_val} category={batch['category']}")
             if cnt >= 3:
                 break
         print(f"\nDataLoader: produced {cnt} batch(es)")

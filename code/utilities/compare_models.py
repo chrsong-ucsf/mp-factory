@@ -51,24 +51,32 @@ def load_ground_truth(subject_dir):
     seg_dir = os.path.join(subject_dir, "segmentations")
     search_dir = seg_dir if os.path.exists(seg_dir) else subject_dir
 
+    ct_path = os.path.join(subject_dir, "ct.nii.gz")
+    ct_nii  = nib.load(ct_path)
+
     # Check for combined mask first
     combined_mask = os.path.join(subject_dir, "gi_mask.nii.gz")
     if os.path.exists(combined_mask):
-        return nib.load(combined_mask).get_fdata().astype(np.uint8)
+        return nib.load(combined_mask).get_fdata().astype(np.uint8), ct_nii
 
-    ct_path = os.path.join(subject_dir, "ct.nii.gz")
-    ct_nii  = nib.load(ct_path)
     gt_arr  = np.zeros(ct_nii.shape, dtype=np.uint8)
 
     for organ_id, aliases in ORGAN_ALIASES.items():
         for alias in aliases:
             fpath = os.path.join(search_dir, f"{alias}.nii.gz")
             if os.path.exists(fpath):
-                o_arr = nib.load(fpath).get_fdata() > 0
+                o_nii = nib.load(fpath)
+                o_data = np.asanyarray(o_nii.dataobj).squeeze()
+                if o_data.shape != ct_nii.shape:
+                    import nibabel.processing as nip
+                    o_res = nip.resample_from_to(nib.Nifti1Image(o_data.astype(np.uint8), o_nii.affine, o_nii.header), ct_nii, order=0)
+                    o_arr = np.asanyarray(o_res.dataobj) > 0
+                else:
+                    o_arr = o_data > 0
                 gt_arr[o_arr] = organ_id
                 break
 
-    return gt_arr
+    return gt_arr, ct_nii
 
 
 def main():
@@ -146,13 +154,27 @@ def main():
             print(f"  [{idx}/{len(evaluated)}] {subject_id}", flush=True)
 
             try:
-                gt_arr      = load_ground_truth(sub_dir)
-                swin_arr    = nib.load(os.path.join(args.swin_pred_dir,    f"{subject_id}_gi_seg.nii.gz")).get_fdata().astype(np.uint8)
-                mednext_arr = nib.load(os.path.join(args.mednext_pred_dir, f"{subject_id}_gi_seg.nii.gz")).get_fdata().astype(np.uint8)
+                import nibabel.processing as nip
 
-                # Squeeze channel dim if present
-                if swin_arr.ndim == 4:    swin_arr    = swin_arr[0]
-                if mednext_arr.ndim == 4: mednext_arr = mednext_arr[0]
+                gt_arr, ct_nii = load_ground_truth(sub_dir)
+
+                swin_nii = nib.load(os.path.join(args.swin_pred_dir, f"{subject_id}_gi_seg.nii.gz"))
+                swin_data = np.asanyarray(swin_nii.dataobj).squeeze().astype(np.uint8)
+                swin_3d = nib.Nifti1Image(swin_data, swin_nii.affine, swin_nii.header)
+                if swin_data.shape != ct_nii.shape or not np.allclose(swin_nii.affine, ct_nii.affine):
+                    swin_res = nip.resample_from_to(swin_3d, ct_nii, order=0)
+                    swin_arr = np.asanyarray(swin_res.dataobj).astype(np.uint8)
+                else:
+                    swin_arr = swin_data
+
+                mednext_nii = nib.load(os.path.join(args.mednext_pred_dir, f"{subject_id}_gi_seg.nii.gz"))
+                mednext_data = np.asanyarray(mednext_nii.dataobj).squeeze().astype(np.uint8)
+                mednext_3d = nib.Nifti1Image(mednext_data, mednext_nii.affine, mednext_nii.header)
+                if mednext_data.shape != ct_nii.shape or not np.allclose(mednext_nii.affine, ct_nii.affine):
+                    mednext_res = nip.resample_from_to(mednext_3d, ct_nii, order=0)
+                    mednext_arr = np.asanyarray(mednext_res.dataobj).astype(np.uint8)
+                else:
+                    mednext_arr = mednext_data
 
                 row = {'subject_id': subject_id}
                 swin_dices    = []

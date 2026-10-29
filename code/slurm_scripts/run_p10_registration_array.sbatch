@@ -1,6 +1,5 @@
 #!/bin/bash
-#SBATCH --partition=gpu,large_gpu
-#SBATCH --qos=hpc_core
+#SBATCH --partition=cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
@@ -8,15 +7,15 @@
 #SBATCH --time=48:00:00
 #SBATCH --job-name=p10_reg
 #SBATCH --array=0-7
-#SBATCH --output=logs/p10_reg_%A_%a.out
-#SBATCH --error=logs/p10_reg_%A_%a.err
+#SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/p10_reg_%A_%a.out
+#SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/p10_reg_%A_%a.err
 
 # ---------------------------------------------------------------------------
 # Project 10 Phase 1 Step 1.2: 3D Deformable Multi-Phase CT Co-Registration
 # ---------------------------------------------------------------------------
 # SLURM array job: 8 workers sharing the multiphase_pairs.csv manifest.
 # Each task processes its shard (chunk_idx = SLURM_ARRAY_TASK_ID).
-# Total pairs ~438; each worker handles ~55 pairs.
+# Total pairs ~1545; each worker handles ~193 pairs.
 #
 # SimpleITK pipeline: Rigid -> Affine -> B-Spline (Mattes MI).
 # Saves registered NIfTI + displacement vector field (DVF) per pair.
@@ -30,6 +29,8 @@
 cd /mnt/scratch/user/chrsong/mp-factory
 mkdir -p logs results/project10/registered_volumes
 
+module load CBI
+module load miniforge3/26.3.2-3
 eval "$(mamba shell hook --shell bash)"
 mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 

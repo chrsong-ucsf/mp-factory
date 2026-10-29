@@ -17,9 +17,9 @@ export PYTHONUNBUFFERED=1
 mkdir -p /mnt/scratch/user/chrsong/mp-factory/logs
 mkdir -p /mnt/scratch/user/chrsong/mp-factory/results
 
-python -u /mnt/scratch/user/chrsong/mp-factory/code/compare_models.py \
+python -u /mnt/scratch/user/chrsong/mp-factory/code/utilities/compare_models.py \
     --data_dir          "/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox" \
-    --swin_pred_dir     "/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_predictions" \
-    --mednext_pred_dir  "/mnt/scratch/user/chrsong/mp-factory/results/mednext_predictions" \
-    --out_csv           "/mnt/scratch/user/chrsong/mp-factory/results/model_comparison.csv" \
-    --max_subjects 200
+    --swin_pred_dir     "/mnt/scratch/user/chrsong/mp-factory/results/swin_unetr_phase3_predictions" \
+    --mednext_pred_dir  "/mnt/scratch/user/chrsong/mp-factory/results/mednext_phase3_predictions" \
+    --out_csv           "/mnt/scratch/user/chrsong/mp-factory/results/model_comparison_phase3.csv" \
+    --max_subjects 500

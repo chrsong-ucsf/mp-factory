@@ -69,6 +69,44 @@ def compute_binary_dice(m1: np.ndarray, m2: np.ndarray) -> float:
     return float(2.0 * inter / denom)
 
 
+def resample_real_to_target(
+    real_path: str,
+    target_shape: tuple = (128, 128, 128),
+    spacing_mm: float = 1.5,
+) -> np.ndarray:
+    """Resample ground-truth registered CT volume to 1.5mm isotropic, pad/crop with -1000 HU air."""
+    img = sitk.ReadImage(str(real_path))
+    cur_spacing = img.GetSpacing()
+    cur_size = img.GetSize()
+
+    new_spacing = (spacing_mm, spacing_mm, spacing_mm)
+    new_size = [
+        int(round(cur_size[i] * cur_spacing[i] / new_spacing[i])) for i in range(3)
+    ]
+
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetOutputSpacing(new_spacing)
+    resampler.SetSize(new_size)
+    resampler.SetOutputOrigin(img.GetOrigin())
+    resampler.SetOutputDirection(img.GetDirection())
+    resampler.SetInterpolator(sitk.sitkLinear)
+    resampler.SetDefaultPixelValue(-1000.0)
+    resampled = resampler.Execute(img)
+
+    arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)  # (X, Y, Z)
+
+    vol = np.full(target_shape, -1000.0, dtype=np.float32)
+    min_x = min(arr.shape[0], target_shape[0])
+    min_y = min(arr.shape[1], target_shape[1])
+    min_z = min(arr.shape[2], target_shape[2])
+
+    sx = (target_shape[0] - min_x) // 2
+    sy = (target_shape[1] - min_y) // 2
+    sz = (target_shape[2] - min_z) // 2
+    vol[sx:sx+min_x, sy:sy+min_y, sz:sz+min_z] = arr[:min_x, :min_y, :min_z]
+    return vol
+
+
 def run_model_inference(ct_vol: np.ndarray, model: torch.nn.Module, device: torch.device) -> np.ndarray:
     """Runs sliding window inference on CT volume (HU normalized to [0, 1])."""
     # Soft tissue abdominal window: [-175, 250] HU -> [0, 1]
@@ -120,10 +158,11 @@ def main():
     # 1. Load frozen MedNeXt-B model
     log.info(f"Loading frozen Project 9 MedNeXt-B model from {args.model_path}")
     model = create_mednext_v1(
+        num_input_channels=1,
         num_classes=5,
         model_id="B",
         kernel_size=3,
-        checkpoint_style=None
+        deep_supervision=False,
     ).to(device)
 
     ckpt = torch.load(args.model_path, map_location=device)
@@ -159,13 +198,10 @@ def main():
 
         try:
             s_nii = nib.load(s_path)
-            r_nii = nib.load(real_path)
-
             s_arr = np.asanyarray(s_nii.dataobj).astype(np.float32)
-            r_arr = np.asanyarray(r_nii.dataobj).astype(np.float32)
 
-            if s_arr.shape != r_arr.shape:
-                continue
+            # Resample real registered CT to matching target shape and spacing
+            r_arr = resample_real_to_target(real_path, target_shape=s_arr.shape)
 
             # Run MedNeXt segmentation on both real and synthetic contrast CTs
             pred_real = run_model_inference(r_arr, model, device)
