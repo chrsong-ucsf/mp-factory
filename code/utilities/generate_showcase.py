@@ -400,7 +400,7 @@ def render_3d_multiangle(organ_meshes, out_fig_path, subject_id, metrics):
     print(f"Saved 3D multi-angle renders to {out_fig_path}")
 
 
-def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_path, subject_id):
+def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_path, subject_id, raw_ct_affine=None):
     """
     Renders direct side-by-side comparison between JHU expert radiologist ground truth
     and automated pipeline consensus segmentation for benchmark case.
@@ -416,8 +416,14 @@ def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_pat
     gt_mapped[nrrd_data == 4] = 3  # small bowel (intestine)
     gt_mapped[(nrrd_data == 5) | (nrrd_data == 6)] = 4  # large bowel (colon & rectum)
 
-    # If raw shapes match, find representative slice with stomach & duodenum
+    # Reorient GT to canonical RAS+ matching ct_arr and model_mask
+    if raw_ct_affine is not None:
+        gt_nii = nib.Nifti1Image(gt_mapped, raw_ct_affine)
+        gt_mapped = np.asanyarray(nib.as_closest_canonical(gt_nii).dataobj).astype(np.uint8)
+
+    # If shapes match, find representative slice with stomach & duodenum
     if gt_mapped.shape != model_mask.shape:
+        print(f"[WARN] GT mapped shape {gt_mapped.shape} != model mask shape {model_mask.shape} for {subject_id}")
         return
 
     ct_norm = apply_window(ct_arr)
@@ -495,19 +501,25 @@ def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_pat
 
     # Compute case-specific empirical Dice dynamically
     def calc_dice_single(m1, m2):
-        denom = np.sum(m1) + np.sum(m2)
-        if denom == 0:
-            return 1.0
-        return float(2.0 * np.sum(m1 & m2) / denom)
+        s1 = np.sum(m1)
+        s2 = np.sum(m2)
+        if s1 == 0 and s2 == 0:
+            return np.nan
+        if s1 == 0 or s2 == 0:
+            return 0.0
+        return float(2.0 * np.sum(m1 & m2) / (s1 + s2))
 
     case_stom = calc_dice_single(model_mask == 1, gt_mapped == 1)
     case_duod = calc_dice_single(model_mask == 2, gt_mapped == 2)
     case_sb = calc_dice_single(model_mask == 3, gt_mapped == 3)
     case_col = calc_dice_single(model_mask == 4, gt_mapped == 4)
 
+    def _fmt(val):
+        return f"{val:.3f}" if not np.isnan(val) else "N/A (empty)"
+
     fig.suptitle(
         f"Validation Against Expert Radiologist Annotations: {subject_id}\n"
-        f"Automated Pipeline vs JHU Ground Truth (Stomach: {case_stom:.3f}, Duodenum: {case_duod:.3f}, SB: {case_sb:.3f}, Colon: {case_col:.3f} DSC)",
+        f"Automated Pipeline vs JHU Ground Truth (Stomach: {_fmt(case_stom)}, Duodenum: {_fmt(case_duod)}, SB: {_fmt(case_sb)}, Colon: {_fmt(case_col)} DSC)",
         fontsize=14, fontweight='bold', y=0.98
     )
 
@@ -687,10 +699,8 @@ def process_subject(subject_id, data_dir, jhu_dir, out_base_dir, mask_dir=None):
     # 6. Radiologist Ground Truth Comparison (if available)
     jhu_nrrd_file = os.path.join(jhu_dir, f"{subject_id}.seg.nrrd")
     if os.path.exists(jhu_nrrd_file):
-        raw_mask_arr = np.asanyarray(raw_gi_nii.dataobj).astype(np.uint8)
-        raw_ct_arr = np.asanyarray(raw_ct_nii.dataobj)
         comp_path = os.path.join(vis_dir, f"{subject_id}_radiologist_gt_comparison.png")
-        render_radiologist_comparison(raw_ct_arr, raw_mask_arr, jhu_nrrd_file, comp_path, subject_id)
+        render_radiologist_comparison(ct_arr, mask_arr, jhu_nrrd_file, comp_path, subject_id, raw_ct_affine=raw_ct_nii.affine)
 
     return subject_rows
 

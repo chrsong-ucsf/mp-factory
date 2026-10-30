@@ -303,19 +303,26 @@ def main():
 
             # Resolve true native NCCT scan (preventing target leakage from registered contrast)
             ncct_input_file = None
+            cands = []
             if args.ncct_dir and os.path.exists(args.ncct_dir):
-                cands = [
+                cands.extend([
                     os.path.join(args.ncct_dir, f"{subject_p0}.nii.gz"),
                     os.path.join(args.ncct_dir, subject_p0, "ct.nii.gz")
-                ]
-                for c in cands:
-                    if os.path.exists(c):
-                        ncct_input_file = c
-                        break
+                ])
+            cands.extend([
+                os.path.join(REPO_ROOT, "CancerVerse", "CancerVerse", subject_p0, "ct.nii.gz"),
+                os.path.join(REPO_ROOT, "CancerVerse_dbox", subject_p0, "ct.nii.gz")
+            ])
+            for c in cands:
+                if os.path.exists(c):
+                    ncct_input_file = c
+                    break
 
             if ncct_input_file is None:
-                log.warning(f"Native NCCT file for {subject_p0} not found in {args.ncct_dir}. Using registered pair baseline.")
-                ncct_input_file = ct_path
+                raise FileNotFoundError(
+                    f"CRITICAL: Native NCCT file for {subject_p0} not found in {args.ncct_dir} or CancerVerse. "
+                    "Aborting sample to strictly prevent target leakage from registered contrast CT."
+                )
 
             # Preprocess volume to normalised range [-0.5, 1.0]
             ncct_tensor = preprocess_ct(ncct_input_file).to(device)

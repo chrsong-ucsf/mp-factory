@@ -1,27 +1,44 @@
 #!/usr/bin/env python3
 """
 code/project10/evaluation/generate_project10_showcase_figures.py
-==============================================================
-Regenerates publication-quality, non-saturated visual showcase figures
-for Project 10 using standardized abdominal CT soft-tissue windowing
-(WL: 40, WW: 400 -> [-160, +240] HU) and diverging residual maps.
+===============================================================
+Generates high-resolution publication-quality showcase figures for Project 10:
+  1. Clinical Turing Comparison (NCCT -> Synthesised Contrast -> Real Contrast -> Residual)
+     Rendered in standardized abdominal soft-tissue windows
+     (WL: 40, WW: 400 -> [-160, +240] HU) with dynamic empirical metrics.
+  2. Multi-Phase Procedural Tumor Hemodynamics (HCC wash-in & venous washout)
+     with clear background abdominal anatomy.
 """
 
 import os
 import sys
+from pathlib import Path
 import numpy as np
 import nibabel as nib
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import SimpleITK as sitk
+from scipy.stats import pearsonr
+from skimage.metrics import structural_similarity as ssim
 
-BASE_DIR = "/mnt/scratch/user/chrsong/mp-factory"
+from monai.transforms import (
+    Compose,
+    LoadImaged,
+    EnsureChannelFirstd,
+    Spacingd,
+    ResizeWithPadOrCropd,
+)
+
+BASE_DIR = Path(__file__).resolve().parents[3]
 OUT_FIG_DIR = os.path.join(BASE_DIR, "docs/figures")
 os.makedirs(OUT_FIG_DIR, exist_ok=True)
 
 
 def apply_ct_window(arr: np.ndarray, wl: float = 40.0, ww: float = 400.0) -> np.ndarray:
-    """Standard clinical CT windowing: window level (WL) and window width (WW)."""
+    """
+    Applies standard diagnostic CT windowing and normalizes to [0, 1].
+    Default is Abdominal Soft Tissue: Window Level (WL) = +40 HU, Window Width (WW) = 400 HU.
+    """
     vmin = wl - (ww / 2.0)  # default: -160 HU
     vmax = wl + (ww / 2.0)  # default: +240 HU
     clipped = np.clip(arr, vmin, vmax)
@@ -29,43 +46,44 @@ def apply_ct_window(arr: np.ndarray, wl: float = 40.0, ww: float = 400.0) -> np.
 
 
 def generate_comparison_figure():
-    """Generates Real vs Synthetic Contrast CT comparison with true soft-tissue windowing."""
-    pair_id = "CV_00013410--CV_00007344"
+    """Renders 4-panel comparison of true native NCCT, synthesis, real contrast, and residual."""
+    pair_id = "CV_00000042--CV_00007115"
     synth_path = os.path.join(BASE_DIR, f"results/project10/synthetic_volumes/{pair_id}_synthetic_contrast.nii.gz")
     reg_path = os.path.join(BASE_DIR, f"results/project10/registered_volumes/{pair_id}_reg.nii.gz")
-
-    if not os.path.exists(synth_path) or not os.path.exists(reg_path):
-        print(f"[!] Primary pair files missing for {pair_id}, falling back to available pair.")
-        pair_id = "CV_00000042--CV_00007115"
-        synth_path = os.path.join(BASE_DIR, f"results/project10/synthetic_volumes/{pair_id}_synthetic_contrast.nii.gz")
-        reg_path = os.path.join(BASE_DIR, f"results/project10/registered_volumes/{pair_id}_reg.nii.gz")
+    ncct_path = os.path.join(BASE_DIR, "CancerVerse/CancerVerse/CV_00000042/ct.nii.gz")
+    if not os.path.exists(ncct_path):
+        ncct_path = os.path.join(BASE_DIR, "CancerVerse_dbox/CV_00000042/ct.nii.gz")
 
     print(f"Rendering comparison figure for: {pair_id}")
     synth_nii = nib.load(synth_path)
     synth_arr = np.asanyarray(synth_nii.dataobj).astype(np.float32)
 
-    # Real registered scan
-    reg_img = sitk.ReadImage(reg_path)
-    # Resample to match synthetic grid
-    resampler = sitk.ResampleImageFilter()
-    resampler.SetOutputSpacing((1.5, 1.5, 1.5))
-    resampler.SetSize((synth_arr.shape[0], synth_arr.shape[1], synth_arr.shape[2]))
-    resampler.SetInterpolator(sitk.sitkLinear)
-    resampler.SetDefaultPixelValue(-1000.0)
-    res_reg = resampler.Execute(reg_img)
-    reg_arr = sitk.GetArrayFromImage(res_reg).transpose(2, 1, 0)
+    # Transform native NCCT and registered target CT into exact model patch space
+    t = Compose([
+        LoadImaged(keys=["ncct", "reg"], image_only=True),
+        EnsureChannelFirstd(keys=["ncct", "reg"]),
+        Spacingd(keys=["ncct", "reg"], pixdim=(1.5, 1.5, 1.5), mode=("bilinear", "bilinear")),
+        ResizeWithPadOrCropd(keys=["ncct", "reg"], spatial_size=(128, 128, 128), mode="constant", value=-1000.0)
+    ])
 
-    # Simulated NCCT from registered pair (unenhanced baseline)
-    ncct_arr = np.clip(reg_arr - 60.0, -1000.0, 1000.0)
-    ncct_arr[reg_arr < -500] = -1000.0  # Preserve air
+    data = t({"ncct": ncct_path, "reg": reg_path})
+    ncct_arr = data["ncct"][0].numpy()
+    reg_arr = data["reg"][0].numpy()
 
     # Residual map
     residual_arr = synth_arr - reg_arr
 
+    # Empirical correlation and SSIM on visceral tissue
+    mask = (reg_arr > -200.0) & (reg_arr < 300.0)
+    r_val, _ = pearsonr(synth_arr[mask].flatten(), reg_arr[mask].flatten())
+
+    synth_norm = np.clip((synth_arr - (-160.0)) / 400.0, 0.0, 1.0)
+    reg_norm = np.clip((reg_arr - (-160.0)) / 400.0, 0.0, 1.0)
+    s_val = ssim(synth_norm, reg_norm, data_range=1.0)
+
     # Find slice with maximum visceral tissue
     body_mask = (reg_arr > -500.0)
-    slice_scores = body_mask.sum(axis=(0, 1))
-    best_z = int(np.argmax(slice_scores))
+    best_z = int(np.argmax(body_mask.sum(axis=(0, 1))))
     if best_z < 10 or best_z > synth_arr.shape[2] - 10:
         best_z = synth_arr.shape[2] // 2
 
@@ -73,7 +91,7 @@ def generate_comparison_figure():
 
     # 1. Non-Contrast Input
     axes[0].imshow(apply_ct_window(ncct_arr[:, :, best_z]).T, cmap='gray', origin='lower')
-    axes[0].set_title(f"A. Non-Contrast Input CT (NCCT)\nSlice Z={best_z}", fontsize=12, fontweight='bold')
+    axes[0].set_title(f"A. Non-Contrast Input CT (NCCT)\n(True Native Acquisition, Slice Z={best_z})", fontsize=12, fontweight='bold')
     axes[0].axis('off')
 
     # 2. Project 10 Generative Synthesis
@@ -97,7 +115,7 @@ def generate_comparison_figure():
 
     fig.suptitle(
         f"Project 10 Generative Contrast CT Verification: Subject {pair_id}\n"
-        f"Standard Abdominal Soft-Tissue Window (WL: 40, WW: 400 HU) | Pearson R = 0.911, SSIM = 0.759",
+        f"Standard Abdominal Soft-Tissue Window (WL: 40, WW: 400 HU) | Empirical Pearson R = {r_val:.3f}, SSIM = {s_val:.3f}",
         fontsize=14, fontweight='bold', y=0.98
     )
 

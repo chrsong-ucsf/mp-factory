@@ -67,8 +67,8 @@ def test_jhu_remaps_default_totalseg_to_radiologist_labels():
     source = np.zeros((1, 1, 10), dtype=np.uint8)
     source[0, 0] = [0, 5, 6, 18, 19, 20, 55, 56, 57, 58]
     expected = np.zeros_like(source)
-    # TotalSegmentator: 18 -> 2 (stomach), 19 -> 3 (duodenum), 20 -> 4 (small bowel), 57 -> 5 (colon)
-    expected[0, 0] = [0, 0, 0, 2, 3, 4, 0, 0, 5, 0]
+    # TotalSegmentator v2: 6 -> 2 (stomach), 19 -> 3 (duodenum), 18 -> 4 (small bowel), 20 -> 5 (colon)
+    expected[0, 0] = [0, 0, 2, 4, 3, 5, 0, 0, 0, 0]
     np.testing.assert_array_equal(remap_prediction_labels(source, 'TotalSegmentator'), expected)
 
 
