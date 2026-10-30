@@ -142,16 +142,21 @@ def preprocess_ct(ct_path: str, target_shape=(128, 128, 128), spacing_mm=1.5) ->
 
     arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)  # (X, Y, Z)
 
-    # Pad or crop to target_shape with air background (-1000 HU)
+    # Pad or crop symmetrically to target_shape with air background (-1000 HU)
     vol = np.full(target_shape, -1000.0, dtype=np.float32)
     min_x = min(arr.shape[0], target_shape[0])
     min_y = min(arr.shape[1], target_shape[1])
     min_z = min(arr.shape[2], target_shape[2])
 
-    sx = (target_shape[0] - min_x) // 2
-    sy = (target_shape[1] - min_y) // 2
-    sz = (target_shape[2] - min_z) // 2
-    vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[:min_x, :min_y, :min_z]
+    sx = max(0, (target_shape[0] - arr.shape[0]) // 2)
+    sy = max(0, (target_shape[1] - arr.shape[1]) // 2)
+    sz = max(0, (target_shape[2] - arr.shape[2]) // 2)
+
+    cx = max(0, (arr.shape[0] - target_shape[0]) // 2)
+    cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
+    cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
+
+    vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
 
     t_vol = torch.from_numpy(vol).unsqueeze(0).unsqueeze(0).float()  # (1, 1, D, H, W)
     return normalise_hu(t_vol)
@@ -163,9 +168,11 @@ def load_anatomy_mask(
     target_shape=(128, 128, 128),
     latent_shape=(16, 16, 16),
     device=torch.device("cpu"),
+    totalseg_task="auto",
 ) -> torch.Tensor:
     """
-    Load 5-organ GI mask if available, one-hot encode, and downsample to latent resolution.
+    Load 5-organ GI mask if available, semantically remap TotalSeg if needed,
+    one-hot encode, and downsample to latent resolution.
     Falls back to neutral background prior [1, 0, 0, 0, 0] if no mask is found.
     """
     for mdir in mask_dirs:
@@ -174,9 +181,15 @@ def load_anatomy_mask(
             if os.path.exists(mpath):
                 try:
                     img = sitk.ReadImage(mpath)
+                    current_spacing = img.GetSpacing()
+                    current_size = img.GetSize()
+                    new_size = [
+                        int(round(current_size[i] * current_spacing[i] / 1.5))
+                        for i in range(3)
+                    ]
                     resampler = sitk.ResampleImageFilter()
                     resampler.SetOutputSpacing((1.5, 1.5, 1.5))
-                    resampler.SetSize(target_shape)
+                    resampler.SetSize(new_size)
                     resampler.SetOutputOrigin(img.GetOrigin())
                     resampler.SetOutputDirection(img.GetDirection())
                     resampler.SetInterpolator(sitk.sitkNearestNeighbor)
@@ -184,7 +197,42 @@ def load_anatomy_mask(
                     resampled = resampler.Execute(img)
                     arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)
 
-                    mask_t = torch.from_numpy(arr).unsqueeze(0).long().clamp(0, 4)
+                    # Symmetric center crop / pad
+                    vol = np.zeros(target_shape, dtype=np.uint8)
+                    min_x = min(arr.shape[0], target_shape[0])
+                    min_y = min(arr.shape[1], target_shape[1])
+                    min_z = min(arr.shape[2], target_shape[2])
+
+                    sx = max(0, (target_shape[0] - arr.shape[0]) // 2)
+                    sy = max(0, (target_shape[1] - arr.shape[1]) // 2)
+                    sz = max(0, (target_shape[2] - arr.shape[2]) // 2)
+
+                    cx = max(0, (arr.shape[0] - target_shape[0]) // 2)
+                    cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
+                    cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
+
+                    vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
+
+                    # Semantic remapping to 5-class GI scheme (0=bg, 1=stomach, 2=duodenum, 3=small bowel, 4=colon)
+                    mapped = np.zeros_like(vol, dtype=np.uint8)
+                    if (19 in vol) or (18 in vol) or (20 in vol) or (totalseg_task == "total"):
+                        # TotalSegmentator v2 full body: 6=stomach, 19=duodenum, 18=small_bowel, 20=colon
+                        mapped[vol == 6] = 1
+                        mapped[vol == 19] = 2
+                        mapped[vol == 18] = 3
+                        mapped[vol == 20] = 4
+                    elif (56 in vol) or (55 in vol) or (57 in vol) or (totalseg_task == "total_v1"):
+                        # TotalSegmentator v1: 6=stomach, 56=duodenum, 55=small_bowel, 57=colon
+                        mapped[vol == 6] = 1
+                        mapped[vol == 56] = 2
+                        mapped[vol == 55] = 3
+                        mapped[vol == 57] = 4
+                    else:
+                        # Standard GI 5-class mask (0..4)
+                        for organ_id in (1, 2, 3, 4):
+                            mapped[vol == organ_id] = organ_id
+
+                    mask_t = torch.from_numpy(mapped).unsqueeze(0).long().clamp(0, 4)
                     one_hot = F.one_hot(mask_t, num_classes=5).permute(0, 4, 1, 2, 3).float().to(device)
                     return F.interpolate(one_hot, size=latent_shape, mode="nearest")
                 except Exception as e:
@@ -219,6 +267,8 @@ def main():
     parser.add_argument("--num_steps", type=int, default=50, help="Number of DDIM sampling steps (default: 50)")
     parser.add_argument("--array_id", type=int, default=0, help="SLURM array task index")
     parser.add_argument("--total_workers", type=int, default=1, help="Total number of parallel array workers")
+    parser.add_argument("--totalseg_task", type=str, default="auto", choices=["auto", "total", "total_v1", "gi"],
+                        help="Producer schema for TotalSegmentator masks ('auto', 'total', 'total_v1', 'gi')")
     parser.add_argument("--max_samples", type=int, default=None, help="Maximum scans to sample per worker")
     args = parser.parse_args()
 
@@ -286,6 +336,8 @@ def main():
     sampler = DDIMSampler(timesteps=1000).to(device)
 
     # 3. Inference Loop
+    success_count = 0
+    failed_count = 0
     for idx, ct_path in enumerate(my_files, start=1):
         filename = os.path.basename(ct_path)
         pair_name = filename.replace("_reg.nii.gz", "")
@@ -293,6 +345,7 @@ def main():
 
         if os.path.exists(out_path):
             log.info(f"[{idx}/{len(my_files)}] Skipping existing: {pair_name}")
+            success_count += 1
             continue
 
         log.info(f"[{idx}/{len(my_files)}] Generating synthetic contrast volume for: {pair_name}")
@@ -310,8 +363,8 @@ def main():
                     os.path.join(args.ncct_dir, subject_p0, "ct.nii.gz")
                 ])
             cands.extend([
-                os.path.join(REPO_ROOT, "CancerVerse", "CancerVerse", subject_p0, "ct.nii.gz"),
-                os.path.join(REPO_ROOT, "CancerVerse_dbox", subject_p0, "ct.nii.gz")
+                os.path.join(str(BASE_DIR), "CancerVerse", "CancerVerse", subject_p0, "ct.nii.gz"),
+                os.path.join(str(BASE_DIR), "CancerVerse_dbox", subject_p0, "ct.nii.gz")
             ])
             for c in cands:
                 if os.path.exists(c):
@@ -333,6 +386,7 @@ def main():
                 target_shape=(128, 128, 128),
                 latent_shape=(16, 16, 16),
                 device=device,
+                totalseg_task=args.totalseg_task,
             )
 
             with torch.no_grad():
@@ -360,11 +414,15 @@ def main():
                 nii = nib.Nifti1Image(fake_hu, affine)
                 nib.save(nii, out_path)
                 log.info(f"  [+] Saved synthetic CT volume -> {out_path}")
+                success_count += 1
 
         except Exception as e:
+            failed_count += 1
             log.error(f"Failed processing {pair_name}: {e}")
 
-    log.info(f"Worker {args.array_id} completed all assigned inference scans!")
+    log.info(f"Worker {args.array_id} summary: {success_count} succeeded, {failed_count} failed out of {len(my_files)} assigned.")
+    if failed_count > 0 and success_count == 0:
+        raise RuntimeError(f"All {failed_count} assigned inference scans failed on worker {args.array_id}.")
 
 
 if __name__ == "__main__":

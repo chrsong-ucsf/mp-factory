@@ -80,6 +80,7 @@ def extract_host_parenchyma_mask(
     ct_volume: np.ndarray,
     organ_mask: Optional[np.ndarray],
     organ_type: str = "liver",
+    totalseg_task: str = "total",
 ) -> np.ndarray:
     """
     Extract boolean host parenchyma mask strictly for the target organ.
@@ -89,7 +90,7 @@ def extract_host_parenchyma_mask(
         log.warning(f"No segmentation mask found for {organ_type}. Soft-tissue fallback disabled.")
         return np.zeros_like(ct_volume, dtype=bool)
 
-    # Check for TotalSegmentator standard IDs (Liver=5, Pancreas=7 in v2 / 10 in v1) or organ-specific masks
+    # Check for TotalSegmentator standard IDs (Liver=5; Pancreas=7 in v2/total, 10 in v1)
     if organ_type == "liver":
         if 5 in organ_mask:
             parenchyma = (organ_mask == 5)
@@ -99,16 +100,15 @@ def extract_host_parenchyma_mask(
             log.warning("Organ mask provided does not contain valid liver label.")
             return np.zeros_like(ct_volume, dtype=bool)
     elif organ_type == "pancreas":
-        # In TotalSegmentator v2, label 7 is pancreas (label 10 is lung_upper_lobe_left).
-        # In TotalSegmentator v1, label 10 was pancreas.
-        if 7 in organ_mask:
-            parenchyma = (organ_mask == 7)
-        elif 10 in organ_mask and np.max(organ_mask) <= 104 and 7 not in organ_mask:
-            parenchyma = (organ_mask == 10)
+        # In TotalSegmentator v2 (total), label 7 is pancreas (label 10 is lung_upper_lobe_left).
+        # In TotalSegmentator v1 (total_v1), label 10 was pancreas.
+        target_label = 10 if totalseg_task == "total_v1" else 7
+        if target_label in organ_mask:
+            parenchyma = (organ_mask == target_label)
         elif np.max(organ_mask) == 1:
             parenchyma = (organ_mask == 1)
         else:
-            log.warning("Organ mask provided does not contain valid pancreas label (checked 7 for v2, 10 for v1).")
+            log.warning(f"Organ mask provided does not contain valid pancreas label {target_label} for schema '{totalseg_task}'.")
             return np.zeros_like(ct_volume, dtype=bool)
     else:
         parenchyma = (organ_mask > 0)

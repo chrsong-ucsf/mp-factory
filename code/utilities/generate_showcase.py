@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import nrrd
 import nibabel as nib
+import SimpleITK as sitk
 import scipy.ndimage as ndi
 from skimage import measure
 
@@ -400,26 +401,45 @@ def render_3d_multiangle(organ_meshes, out_fig_path, subject_id, metrics):
     print(f"Saved 3D multi-angle renders to {out_fig_path}")
 
 
-def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_path, subject_id, raw_ct_affine=None):
+def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_path, subject_id, ct_path=None, raw_ct_affine=None, mask_path=None):
     """
     Renders direct side-by-side comparison between JHU expert radiologist ground truth
     and automated pipeline consensus segmentation for benchmark case.
+    Uses physical SimpleITK coordinate space resampling to ensure true 3D spatial alignment.
     """
     if not os.path.exists(jhu_nrrd_path):
         return
 
-    nrrd_data, _ = nrrd.read(jhu_nrrd_path)
+    # Use true physical SimpleITK resampling onto the native CT coordinate space
+    if ct_path and os.path.exists(ct_path):
+        ref_itk = sitk.ReadImage(jhu_nrrd_path)
+        ct_itk = sitk.ReadImage(ct_path)
+        res_ref = sitk.Resample(ref_itk, ct_itk, sitk.Transform(), sitk.sitkNearestNeighbor, 0)
+        nrrd_data = sitk.GetArrayFromImage(res_ref).transpose(2, 1, 0).astype(np.uint8)
+        ct_arr = sitk.GetArrayFromImage(ct_itk).transpose(2, 1, 0).astype(np.float32)
+
+        if mask_path and os.path.exists(mask_path):
+            mask_itk = sitk.ReadImage(mask_path)
+            res_mask = sitk.Resample(mask_itk, ct_itk, sitk.Transform(), sitk.sitkNearestNeighbor, 0)
+            model_mask = sitk.GetArrayFromImage(res_mask).transpose(2, 1, 0).astype(np.uint8)
+    else:
+        nrrd_data, _ = nrrd.read(jhu_nrrd_path)
+
+    # Remap TotalSegmentator v2 IDs if present (6: stom, 19: duod, 18: small bowel, 20: colon)
+    if np.any(np.isin(model_mask, [6, 18, 19, 20])):
+        ts_remap = np.zeros_like(model_mask, dtype=np.uint8)
+        ts_remap[model_mask == 6] = 1
+        ts_remap[model_mask == 19] = 2
+        ts_remap[model_mask == 18] = 3
+        ts_remap[model_mask == 20] = 4
+        model_mask = ts_remap
+
     # Map JHU GT: 2: stomach, 3: duodenum, 4: intestine (small bowel), 5: colon, 6: rectum
     gt_mapped = np.zeros_like(nrrd_data, dtype=np.uint8)
     gt_mapped[nrrd_data == 2] = 1  # stomach
     gt_mapped[nrrd_data == 3] = 2  # duodenum
     gt_mapped[nrrd_data == 4] = 3  # small bowel (intestine)
     gt_mapped[(nrrd_data == 5) | (nrrd_data == 6)] = 4  # large bowel (colon & rectum)
-
-    # Reorient GT to canonical RAS+ matching ct_arr and model_mask
-    if raw_ct_affine is not None:
-        gt_nii = nib.Nifti1Image(gt_mapped, raw_ct_affine)
-        gt_mapped = np.asanyarray(nib.as_closest_canonical(gt_nii).dataobj).astype(np.uint8)
 
     # If shapes match, find representative slice with stomach & duodenum
     if gt_mapped.shape != model_mask.shape:
@@ -700,7 +720,7 @@ def process_subject(subject_id, data_dir, jhu_dir, out_base_dir, mask_dir=None):
     jhu_nrrd_file = os.path.join(jhu_dir, f"{subject_id}.seg.nrrd")
     if os.path.exists(jhu_nrrd_file):
         comp_path = os.path.join(vis_dir, f"{subject_id}_radiologist_gt_comparison.png")
-        render_radiologist_comparison(ct_arr, mask_arr, jhu_nrrd_file, comp_path, subject_id, raw_ct_affine=raw_ct_nii.affine)
+        render_radiologist_comparison(ct_arr, mask_arr, jhu_nrrd_file, comp_path, subject_id, ct_path=ct_path, raw_ct_affine=raw_ct_nii.affine, mask_path=gi_path)
 
     return subject_rows
 

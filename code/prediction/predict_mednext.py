@@ -137,7 +137,7 @@ def main():
                         overlap=args.overlap,
                     )
 
-            pred_label = post_pred(pred_logits[0])
+            pred_label = post_pred(pred_logits[0]).squeeze(0)
             pred_np = pred_label.cpu().numpy().astype(np.uint8)
 
             # Save prediction in resampled space (1.5×1.5×2.0 mm RAS).

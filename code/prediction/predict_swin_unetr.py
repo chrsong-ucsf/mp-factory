@@ -176,8 +176,8 @@ def main():
                         overlap=args.overlap,
                     )
 
-            # Argmax over class dimension → (1, H, W, D)
-            pred_label = post_pred(pred_logits[0])   # (H, W, D)
+            # Argmax over class dimension → (H, W, D)
+            pred_label = post_pred(pred_logits[0]).squeeze(0)
             pred_np = pred_label.cpu().numpy().astype(np.uint8)
 
             # Save prediction in resampled space (1.5×1.5×2.0 mm RAS).

@@ -68,16 +68,21 @@ def resample_real_to_target(
 
     arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)  # (X, Y, Z)
 
-    # Pad or crop to target_shape with air background (-1000 HU)
+    # Pad or crop symmetrically to target_shape with air background (-1000 HU)
     vol = np.full(target_shape, -1000.0, dtype=np.float32)
     min_x = min(arr.shape[0], target_shape[0])
     min_y = min(arr.shape[1], target_shape[1])
     min_z = min(arr.shape[2], target_shape[2])
 
-    sx = (target_shape[0] - min_x) // 2
-    sy = (target_shape[1] - min_y) // 2
-    sz = (target_shape[2] - min_z) // 2
-    vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[:min_x, :min_y, :min_z]
+    sx = max(0, (target_shape[0] - arr.shape[0]) // 2)
+    sy = max(0, (target_shape[1] - arr.shape[1]) // 2)
+    sz = max(0, (target_shape[2] - arr.shape[2]) // 2)
+
+    cx = max(0, (arr.shape[0] - target_shape[0]) // 2)
+    cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
+    cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
+
+    vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
 
     return np.clip(vol, -1000.0, 2000.0)
 
