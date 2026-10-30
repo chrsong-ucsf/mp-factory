@@ -1,0 +1,235 @@
+FULL SHOWCASE AND SUPPORTING PIPELINE AUDIT
+October 30, 2026
+
+VERDICT
+
+Not ready for clinical verification or publication claims. Several earlier
+fixes are real, but the current sampler has a new execution blocker, physical
+evaluation remains demonstrably wrong, and the document still mixes old and
+new evidence. Passing unit tests does not cover these failure paths.
+
+Audited HEAD:09dd79f. Compared with b37ce8f and the original662a381 audit.
+Scope: every section of docs/SHOWCASE.md; all20 available P9/P10 showcase
+PNGs, including17 embedded images; six local annotation headers; volumetric
+CSV; P9 GPU/CPU evaluation, rendering, table compilation; P10 dataset,
+training, inference, synthesis evaluation, anatomy conditioning, procedural
+tumors, figure generation, stress metrics; relevant launchers and tests.
+No cluster jobs were started or altered. No source or original figure was
+modified. This report is review feedback, not a remediation claim.
+
+FRESH VALIDATION RESULTS
+
+1. Full local pytest:75 passed,5 failed,0 collection errors,6 warnings,
+   19.01seconds. Command:
+   python -m pytest --continue-on-collection-errors -q
+   All five failures are data/checkpoint-dependent methods in
+   tests/test_pipeline_e2e_dryrun.py: merge/export, real autolabel execution,
+   checkpoint loading, dataset discovery, and real data-loader execution.
+   Required production results and CT/checkpoint files are absent locally.
+
+2. Built-in project_wide_sanity_check.py:31 checks,10 pass,17 warnings,
+   4 failures; exit1. Reported failures: absent Pool873 checkpoints, missing
+   ensemble audit CSV, missing multiphase manifest, and unavailable
+   nnunet_mednext during the empty-mask check. The Pool873 item is passed as
+   INFO by the checker but classified as FAIL by its status handler.
+   Its32.3% health score measures this local inventory, not scientific validity.
+
+3. AST syntax:85 Python files pass. bash-n:75 shell/SLURM files pass.
+   Pyflakes finds two undefined-name references to REPO_ROOT in the sampler.
+   Git working tree was clean at audit start; git diff --check was clean.
+
+4. All17 embedded PNGs exist and decode. All20 associated showcase PNGs were
+   visually inspected. Ten local links are unavailable: one results directory
+   and nine individual HTML/OBJ/NIfTI outputs. Links also mix showcase_phase3
+   with older showcase paths.
+
+5. All16 volume rows match docs/organ_volumetric_metrics.csv. Using actual
+   NRRD-header voxel sizes, the largest count-to-volume rounding residual is
+   0.0049375cm3. These arithmetic checks do not validate the segmentation.
+
+IMPLEMENTATION FINDINGS
+
+I1 [P1] Fresh sampling fails before input selection, then reports completion.
+   sample_multiphase_diffusion.py:312-315 references undefined REPO_ROOT;
+   the module defines BASE_DIR. Executing the exact input-resolution block
+   raises NameError even when candidate NCCT paths were supplied. The broad
+   handler at364-367 logs individual errors and still announces completion.
+   Fix the name, exercise a full small inference path, and propagate failed
+   sample counts/nonzero status. Existing outputs skipped at294-296 also need
+   run provenance before being accepted as regenerated results.
+
+I2 [P1] JHU evaluator ignores physical displacement in its fast path.
+   evaluate_jhu_radiologist_gpu.py:315-316 accepts equal size/direction without
+   checking origin or spacing. A fresh actual-evaluator test on temporary
+   5x5x5 masks with prediction origin shifted1000mm gave stomach Dice1.0;
+   identity-transform physical resampling gives0.0. Use all grid metadata,
+   or always resample onto the reference physical grid.
+
+I3 [P1] Other valid prediction geometry is overwritten.
+   evaluate_jhu_radiologist_gpu.py:326-340 infers spacing from size ratios
+   and replaces direction/origin when directions differ. A second fresh
+   actual-evaluator test represented the same physical mask with opposite
+   X direction and corresponding origin. Correct physical Dice was1.0;
+   the evaluator returned0.0. Do not invent a source grid from GT extent.
+   If prediction metadata is known corrupt, repair from producer provenance
+   explicitly, rather than treating a different direction as corruption.
+
+I4 [P1] Training/sampling/rendering evaluate different image patches.
+   Dataset preprocessing uses MONAI center cropping at
+   multiphase_paired_dataset.py:116-120. Sampling takes the low-index corner
+   at sample_multiphase_diffusion.py:145-154. A20-cubed ramp cropped to8-cubed
+   gave xHU[0,10,...70] in sampling versus[60,70,...130] in training/figures.
+   The new figure generator:65-73 uses the centered crop, but
+   evaluate_synthesis.py:71-80 still uses the corner. Share one preprocessing
+   implementation and preserve its crop transform in outputs.
+
+I5 [P1] Inference anatomy conditioning differs from training semantics.
+   sample_multiphase_diffusion.py:171-187 discovers only subject.nii(.gz)
+   and clamps labels to0..4. A full-body duodenum label19 becomes class4
+   (colon), rather than GI class2. Missing suffix variants silently lead to
+   a neutral background prior at193-196. Training now supports several
+   filenames and explicit semantic remapping. Reuse that contract during
+   inference; reject incompatible or missing conditioning when required.
+
+I6 [P1] Stage2 launch defaults still reinterpret full-body organ labels.
+   run_p10_stage2_synth.sbatch:68 selects results/totalseg_masks without
+   --totalseg_task, while trainer:280 and dataset:65 default to'gi'.
+   Current full-body labels1..4 are not the four GI targets, but dataset
+   lines225-228 retain them as such. Supply and validate producer schema in
+   the launcher and checkpoint/inference manifests, not only in unit tests.
+
+I7 [P1] Pancreas-schema guessing can still accept current-version lung.
+   generate_multiphase_tumors.py:104-107 prefers pancreas7, then accepts10
+   if7 is absent and maximum label<=104. That condition also matches a
+   current-total partial mask containing lung_upper_lobe_left10. Exact-function
+   probes accept1000 voxels for both7 and10. The installed maps confirm
+   pancreas7 in total and10 in total_v1; provenance must choose the schema.
+   Binary host masks also require explicit organ identity.
+
+I8 [P1] Showcase export assigns geometry without proving alignment.
+   generate_showcase.py:411 discards NRRD geometry;421 wraps annotation
+   voxels with the raw CT affine. Lines575-580 accept equal-sized model masks
+   or shape-zoom them without a physical transform;680 stamps CT metadata
+   onto the result. This may produce a well-formed yet misregistered NIfTI.
+   Load GT metadata and resample both labels into actual CT physical space.
+
+I9 [P1] CPU and GPU JHU routes remain incompatible.
+   evaluate_jhu_radiologist_set.py:25-31 retains the old wrong bowel/colon map,
+   includes esophagus, and105-107 compares raw GI prediction IDs without
+   remapping. The documented CPU counterpart can therefore return different
+   and anatomically invalid results. Share validated targets/geometry or
+   clearly retire this route before it is used as validation evidence.
+
+I10 [P1] Minimum-coverage flags do not control pass decisions.
+    Clinical evaluator235-241 and stress evaluator331-336 record>50-voxel
+    flags but score every non-NaN Dice. A one-voxel matching organ can yield
+    a mean1.0 while every coverage flag is false. Both-empty NaN handling
+    is fixed; adequate anatomical coverage is not. Define the evaluated
+    organ set/coverage criterion and report per-organ eligible denominators.
+
+I11 [P2] Validation independence and patient counts are not established.
+    train_stage2_synthesis.py:364-369 random-splits pair rows, ignoring
+    patient_id; multiple phases from a patient can cross train/validation.
+    Actual overlap requires the unavailable production manifest to quantify.
+    compile_manuscript_tables.py:154 still counts distinct scan subject_id
+    values as patients despite explicit phase reuse. Group both splitting
+    and patient-level reporting by verified patient identity.
+
+I12 [P2] Inference output geometry cannot establish anatomical containment.
+    sample_multiphase_diffusion.py:358-360 writes a zero-origin diagonal
+    affine, losing patient origin/direction and crop translation. Tumor masks
+    are independently resampled at generate_multiphase_tumors.py:63-72,
+    using their own origin instead of the synthetic reference. Equal shapes
+    do not prove that a lesion lies in the intended physical host organ.
+
+EVIDENCE AND DOCUMENT FINDINGS
+
+E1 [P1] Conclusions directly contradict the new stress table.
+   SHOWCASE.md:275 still claims>=97% retention. The revised table:178-185
+   reports0.731 under-20HU,0.704 low noise, down to0.140 under+50HU, with
+   pass rates0-6% for perturbations. Baseline itself passes only14%(7/50).
+   Means exclude missing values while pass percentages count all cases;
+   expose eligible counts so conditional agreement is not read as cohort
+   performance. The zero-hallucinated-component statement at187 has no
+   computed component/localization endpoint in the stress implementation.
+
+E2 [P1] P9 case evidence remains mixed and contradictory.
+   JHU comparison PNGs for BDMAP_00242131,BDMAP_00242114,andBDMAP_00242136
+   remain unchanged since the original
+   audit, retaining old title scores and foreground-only concordance.
+   Only BDMAP_00394224 was regenerated. Its new PNG displays stomach0.000,
+   duodenum0.000, small bowel0.000, colon0.127, while prose still claims
+   stomach0.9382/duodenum0.8385. The new scores cannot themselves establish
+   true model performance until geometry is corrected. Regenerate all
+   figures and tables from one identified, physically validated run.
+
+E3 [P1] The current P10 image does not support the physiological narrative.
+   The figure now loads native NCCT and computes displayed R/SSIM dynamically;
+   its current displayed values are R0.191/SSIM0.062. NCCT/reference panels
+   contain anatomy, but the synthetic panel remains largely saturated white
+   and the residual is broadly saturated at its positive limit. Text at
+   SHOWCASE.md:131-133 still asserts accurate vascular enhancement and low
+   boundary residual. Check the spatial-patch mismatch first, then evaluate
+   actual HU and regional fidelity; do not infer these from this image.
+
+E4 [P2] Tumor case values and scientific interpretation remain overstated.
+   The displayed case labels106.0/195.9/121.3HU, whereas prose uses cohort
+   means74.9/188.1/81.9HU. Its background remains saturated. Procedural
+   phase-specific HU offsets/ring templates are not an independently fitted
+   or validated pharmacokinetic perfusion model. Organ identity, relative
+   liver enhancement, and spatial enhancement pattern require direct checks.
+   Lesion-boundary clipping in corrected code does not establish that the
+   historical1990-lesion files were regenerated with verified host masks.
+
+E5 [P2] Table provenance and interpretation remain unsupported.
+   Table1 literals are called a literature reference without a citation in
+   compile_manuscript_tables.py:85-117. Table3's L1 thresholds classify
+   outputs and attach vascular/air-offset/saturation mechanisms at191-194;
+   those mechanisms are not measured merely by crossing an L1 threshold.
+   Figure correlation uses a restricted tissue mask and windowed3D SSIM,
+   whereas synthesis evaluator:112-140 uses whole-volume correlation and
+   mean axial SSIM over3000HU. State these different definitions explicitly.
+   Raw CSVs, checkpoint hashes, input manifests, and corrected-run provenance
+   are unavailable locally; the reported cohort numbers cannot be regenerated.
+
+E6 [P2] Built-in audit produces false assurance from text and file presence.
+   project_wide_sanity_check.py:294-296 declares strict input/checkpoint
+   enforcement from substrings despite the sampler NameError. Lines320-323
+   call the reporting fully defensible from an empty-mask heading and absence
+   of cluster file links, while contradictory statements remain. Image file
+   size is not visual verification. Replace these success claims with behavior
+   checks and narrow what inventory checks assert. Exit-on-failure is now fixed.
+
+VERIFIED IMPROVEMENTS
+
+-Current TotalSegmentator JHU map matches installed total schema:
+ [6,18,19,20] maps to JHU[2,4,3,5]. This previous finding is fixed.
+-Pancreas7 is recognized; missing diffusion checkpoints fail; the explicit
+ contrast-target fallback is removed. Sampling nevertheless fails via I1.
+-The figure generator no longer fabricates NCCT by subtracting60HU, and its
+ displayed correlation/SSIM are calculated rather than hardcoded.
+-Both-empty Dice is NaN and all-empty cases do not pass; strict zero-bleed
+ lesion updates remain implemented and pass the containment probe.
+-JHU source target semantics and case spacing passed to HD95 are corrected;
+ GT-score-maximizing flips are removed. Full geometry is still wrong(I2-I3).
+-The stress table/curve now expose severe degradation rather than the old
+ perfect hollow-organ scores; the old>=97% conclusion was not removed.
+-Test collection is repaired and75 tests pass, including dataset/checkpoint
+ contract checks. No undefined-name coverage exists for the new sampler block.
+
+PRIORITIZED ACCEPTANCE GATE
+
+1. Repair sampler execution/error status, unify preprocessing and mask schema,
+   and verify a complete temporary-data inference path before production use.
+2. Use actual physical resampling for all prediction/GT grids; retain the two
+   physical-identity/displacement cases as meaningful regression tests.
+3. Align train/inference conditioning and enforce coverage/patient grouping.
+4. Regenerate outputs, metrics, tables, and all affected figures into a new
+   run directory with checkpoint/input/schema/transform hashes and counts.
+5. Make all document conclusions agree with those regenerated measurements;
+   identify unavailable endpoints and remove unmeasured clinical assertions.
+
+The audit was comprehensive for locally available showcase evidence and its
+supporting pipeline. It was not a cluster rerun: CT datasets, weights, results,
+and production manifests were absent. Local absence cannot prove remote
+absence, and source fixes alone cannot establish corrected historical results.
