@@ -26,7 +26,6 @@ Instead of hand-correcting noisy labels across ~22,000 scans, MultiPhase-GI math
 ```
 mp-factory/
 ├── AGENTS.md                       # Detailed architecture & agent guide
-├── ENSEMBLE_FIX_PLAN.md            # Automated-cleansing & distillation design doc
 ├── requirements.txt / setup.py     # Packaging (environment.yml for conda)
 ├── CancerVerse/                    # Dataset repo, metadata, HF specs (data gitignored)
 ├── JHU_data_radiologist_corrected/ # Expert radiologist GT (*.seg.nrrd) + clinical notes

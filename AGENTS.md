@@ -29,7 +29,6 @@ The 5 GI organ classes throughout are: `0` background, `1` stomach, `2` duodenum
 mp-factory/
 ├── AGENTS.md                       # This guide
 ├── README.md                       # User-facing overview
-├── ENSEMBLE_FIX_PLAN.md            # Automated-cleansing & distillation design doc
 ├── requirements.txt / setup.py     # Python packaging (environment.yml for conda)
 ├── CancerVerse/                    # Dataset repo, metadata CSV, HF download specs (data gitignored)
 ├── JHU_data_radiologist_corrected/ # Expert radiologist GT (*.seg.nrrd) + clinical feedback notes
