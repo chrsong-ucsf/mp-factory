@@ -1,0 +1,249 @@
+SHOWCASE SANITY REVIEW
+
+Verdict: the current showcase does not support its clinical verification or
+publication-ready conclusions. Several evaluation defects require corrected
+outputs, rather than wording changes alone.
+
+Scope: all 272 lines of docs/SHOWCASE.md; all 17 embedded image references;
+all 20 available showcase/Project 10 PNGs, including three additional JHU
+comparisons; figure generation, evaluation, sampling, registration, tumor
+generation, manuscript-table code, six local JHU annotation headers, and the
+16-row volumetric CSV. Reviewed checkout HEAD:
+662a38157bd0e1eb451eac36f36b63ed8ad2298a, including existing untracked tests.
+Document instructions and example commands were treated as content to inspect.
+No cluster jobs were submitted, modified, or restarted. Original showcase,
+source code, and figures were left unchanged.
+
+CONFIRMED BLOCKERS
+
+1. Incorrect JHU label semantics invalidate bowel/colon comparisons.
+   Actual embedded NRRD segment definitions are 2=stomach, 3=duodenum,
+   4=intestine, 5=colon, 6=rectum; one annotation omits rectum. The GPU
+   evaluator instead calls 4 jejunum, 5 ileum, 6 colon and splits predicted
+   small bowel into invented jejunum/ileum halves. The showcase renderer
+   merges labels 4+5 as small bowel and uses label6 as colon. Read semantics
+   from annotation metadata; explicitly define whether rectum belongs in the
+   colon endpoint; regenerate affected masks, figures, and metrics.
+   Evidence: code/evaluation/evaluate_jhu_radiologist_gpu.py:43-48,306-311;
+   code/utilities/generate_showcase.py:411-417; all six local *.seg.nrrd headers.
+
+2. Project 10 sampling uses the registered contrast target as the NCCT input.
+   Registration writes moving contrast resampled onto the fixed NCCT grid.
+   Sampling discovers those *_reg files and encodes them as ncct_tensor.
+   This is target leakage relative to the advertised NCCT-to-contrast task.
+   Resolve the true NCCT from the pair manifest and regenerate outputs.
+   Evidence: code/project10/datasets/register_multiphase_pairs.py:263-289,
+   369-372; code/project10/evaluation/sample_multiphase_diffusion.py:226-227,
+   281-308; SHOWCASE.md:122-132.
+
+3. Empty organ predictions can earn perfect preservation scores.
+   Executing the exact Dice functions on two all-background 8x8x8 prediction
+   arrays gives [1,1,1,1], mean1.0, passing both0.70 and0.85 thresholds.
+   Both-empty handling alone can be a valid convention, but counting absent
+   organs as successful anatomical preservation without coverage gates makes
+   these endpoints unsafe. The almost binary mean/SD patterns and near-zero
+   Phase3 scores warrant auditing foreground counts per case and class.
+   Actual prevalence of empty masks cannot be determined without prediction
+   files. Require verified organ presence/coverage and report absence separately.
+   Evidence: run_clinical_turing_test.py:61-69,218-227 and
+   stress_test_contrast_perturbation.py:76-84,319-327, both under
+   code/project10/evaluation/.
+
+4. No clinical Turing test or interchangeability endpoint is implemented.
+   The reported test is agreement between the same frozen segmenter's
+   predictions on real and synthetic CT. It has no blinded reader study,
+   independent organ GT, vascular enhancement measurement, or hallucination
+   localization. Dice>=0.70 is a prediction-consistency threshold. It cannot
+   establish indistinguishability, clinical interchangeability, accurate
+   vascular uptake, or absence of hallucinations. Pair count also does not
+   establish unique-patient count. Rename the endpoint and narrow conclusions;
+   retain clinical claims only after an appropriate independent evaluation.
+   Evidence: code/project10/evaluation/run_clinical_turing_test.py:179-227;
+   SHOWCASE.md:124-140,222-230,270.
+
+5. JHU alignment is optimized using the evaluation GT.
+   Predictions are resized by array shape, then the best of eight flips is
+   selected by maximizing GT Dice. This ignores physical image transforms
+   and makes the result optimistically selected. Use NIfTI/NRRD geometry for
+   alignment; fix orientation before evaluating and never select it on GT score.
+   Evidence: code/evaluation/evaluate_jhu_radiologist_gpu.py:284-342.
+
+6. Reported JHU HD95 millimeters use the wrong voxel spacing.
+   The metric call omits spacing, so every case uses default(1.5,1.5,2.0).
+   Local headers use(0.84765625,0.84765625,1.5), or(0.90625,0.90625,1.0).
+   Pass physical spacing from the aligned evaluation grid and recompute.
+   Evidence: code/evaluation/evaluate_jhu_radiologist_gpu.py:135,371.
+
+7. Some displayed benchmark evidence is hardcoded.
+   Table1's entire TotalSegmentator column is inserted as literal
+   "approximate benchmarks", not measured from the same499-scan CSV.
+   Every JHU comparison figure title inserts stomach0.940/duodenum0.794,
+   without calculating case-specific Dice. Table3's369/400 sentence is also
+   literal even when surrounding counts are recomputed. These values may
+   have historical sources, but the current generation path does not prove
+   them. Compute every field from named, versioned source results and fail
+   on missing inputs.
+   Evidence: code/manuscript/compile_manuscript_tables.py:81-95,207,221;
+   code/utilities/generate_showcase.py:494-497. All four available JHU
+   comparison PNGs visibly repeat the same title scores.
+
+8. The green concordance panel hides organ-class errors.
+   It compares union-of-foreground masks, so predicted colon overlapping
+   annotated small bowel becomes green. Green therefore means foreground
+   overlap, not correct organ assignment. It cannot substantiate the claim
+   that colon has been distinguished from adjacent jejunum.
+   Evidence: code/utilities/generate_showcase.py:462-476; SHOWCASE.md:52,269.
+
+9. Stress testing measures segmenter consistency on perturbed outputs.
+   It loads already-generated synthetic CT, adds HU shifts/noise, then runs
+   MedNeXt. It neither perturbs generator inputs nor runs diffusion. The
+   baseline1.000 is self-comparison by construction. No extraperitoneal
+   false-positive or hallucination endpoint is computed; the generated
+   "Zero Hallucination Confirmed" conclusion is fixed prose. Uniform HU
+   shifts/additive Gaussian noise should be described as simplified intensity
+   perturbations, not validated contrast-dose/kVp/radiation-dose simulation.
+   Evidence: code/project10/evaluation/stress_test_contrast_perturbation.py:
+   110-124,221-225,278-327; SHOWCASE.md:167-188,272.
+
+10. Tumor placement does not enforce liver/pancreas anatomy.
+    extract_host_parenchyma_mask ignores organ_type and accepts any positive
+    mask label. Defaults include GI masks lacking liver and pancreas; its
+    fallback is broad interior20-140HU tissue. A record labeled "liver" or
+    "pancreas" is consequently insufficient evidence of anatomical placement.
+    Require correctly mapped, physically aligned host-organ masks and verify
+    every lesion's containment before assigning pathology-specific meaning.
+    Evidence: code/project10/kinetics/generate_multiphase_tumors.py:79-96,
+    112-115,204-215.
+
+11. Procedural HU offsets are overstated as validated pharmacokinetics.
+    The implementation uses phase-specific HU-offset parameters, Gaussian
+    texture, and ring morphology, rather than a fitted time-dependent
+    perfusion model. Gaussian smoothing changes voxels outside the lesion,
+    and apply_kinetics never uses its organ_mask to constrain output; it only
+    freezes air/bone. An isolated-function synthetic probe changed2704
+    outside-lesion voxels by>0.01HU, max55.54HU, on a constant60HU32-cubed
+    volume with an8-cubed lesion. Thus "strictly inside" is false.
+    Enhancement curves summarize procedural rules; they do not independently
+    validate physiology or LI-RADS concordance. Relative enhancement against
+    background liver and spatial morphology need evaluation.
+    Evidence: code/project10/kinetics/multiphase_tumor_kinetics.py:98-168,
+    242-304; SHOWCASE.md:145,151-163,271.
+    Clinical reference: ACR LI-RADS CT/MRI v2018 core,
+    https://www.acr.org/-/media/ACR/Files/RADS/LI-RADS/LI-RADS-2018-Core.pdf
+
+12. Missing diffusion checkpoints silently allow random-weight sampling.
+    The sampler only loads weights if the file exists, then always samples.
+    Fail before generating any output if the trained checkpoint is missing.
+    Record checkpoint hash, AE identity, input paths, preprocessing, and seed.
+    Evidence: code/project10/evaluation/sample_multiphase_diffusion.py:259-276.
+
+ADDITIONAL CORRECTIONS AND PROVENANCE GAPS
+
+13. Table2's39 evaluations are pooled model-by-scan rows, not a common n per
+    model. Individual rows need their own n, unique-patient counts, missingness,
+    and a shared-cohort comparison. np.std(ddof=0) produces zero for singleton
+    groups; displayed +/-0 must not imply replicated precision. Global mean
+    averages five mislabeled GI targets while the table exposes only three.
+    Evidence: compile_manuscript_tables.py:48-56,126-165;
+    evaluate_jhu_radiologist_gpu.py:360-380.
+
+14. Selected-case model provenance is unverified. The launcher uses ensemble
+    Phase3 masks, while prose attributes examples to MedNeXt. The renderer
+    accepts consensus, prediction, autolabel, or temporary masks without a
+    source manifest. Near-zero benchmark scores need investigation; selected
+    figures cannot establish that those benchmark failures are resolved.
+    Evidence: code/slurm_scripts/run_generate_showcase.sbatch:27-31;
+    code/utilities/generate_showcase.py:526-536; SHOWCASE.md:77,194-218,269.
+
+15. Exact CT-grid exports are not guaranteed. Only shape disagreement triggers
+    array zoom; matching affines are not checked. The original canonical mask
+    object is saved even if a resized mask array was used for rendering.
+    Resample physically onto CT geometry and export that same checked object.
+    Evidence: code/utilities/generate_showcase.py:542-555,654.
+
+16. The Project10 comparison and tumor PNGs are visually unsuitable for their
+    stated verification purpose. NCCT/synthetic panels are largely saturated
+    white, unlike the real-contrast panel. The residual panel is predominantly
+    at the yellow/high-error end of its scale, contradicting the description
+    of near-zero structural drift and localized bowel-gas error. Tumor panels
+    also obscure surrounding anatomy, preventing convincing host-organ or
+    relative-enhancement inspection. Recheck HU scaling, display window,
+    geometry, slice correspondence, and residual color limits from raw arrays.
+    The PNGs alone cannot determine which upstream cause produced saturation.
+    Evidence: docs/figures/project10_clinical_turing_comparison.png;
+    docs/figures/project10_4d_tumor_hemodynamics_showcase.png;
+    SHOWCASE.md:131-133,151-154.
+
+17. Arithmetic/threshold fixes:500+499+495+496=1990 lesions. Three phase files
+    plus one mask per lesion imply7960 outputs, not7968; identify any extras
+    with an inventory. The worst mean stress Dice is displayed as0.970, so
+    strict">97%" is unsupported at the reported precision; the+50HU pass rate
+    is88%, not97%. Figure reference lines0.90/0.75 also differ from table
+    acceptance0.85 and need explanation. Three phase samples should be named
+    clearly; they are not a densely sampled perfusion time series.
+
+18. All11 file:// links point to cluster-local paths unavailable here; nine
+    are individual downloadable artifacts. The heading names showcase_phase3,
+    while individual links point to older showcase/. Publish reachable,
+    version-consistent artifacts. Interactive HTML generation uses Plotly CDN,
+    so the viewers are not self-contained offline files.
+    Evidence: SHOWCASE.md:6,249-263;
+    code/utilities/generate_showcase.py:168.
+
+CHECKS THAT PASSED
+
+-84 Python files parsed successfully with ast.parse.
+-74 shell/SLURM files passed bash-n syntax checking. This does not verify
+ scheduler policies, paths, dependencies, or successful execution.
+-All17 embedded PNGs exist and decode successfully;20 associated PNGs were
+ visually inspected, including all four JHU comparisons.
+-All16 volume-table rows agree with docs/organ_volumetric_metrics.csv.
+ Voxel count times actual NRRD-header voxel volume differs from CSV volume
+ by less than0.005cm3, consistent with rounding. Displayed spacing is rounded;
+ using0.85 instead of0.84765625 should not be treated as a volume defect.
+-Reported scan dimensions/rounded spacing agree with the local annotation
+ headers. WL40/WW400 correctly implies[-160,240]HU.
+-Radiologist notes support the described difficult anatomy and phase-reuse
+ relationships; they do not demonstrate that model errors were resolved.
+-369/400=92.25%, and50x8=400 evaluations are arithmetically consistent;
+ the underlying run counts remain unverified.
+
+FULL LOCAL TEST RESULT
+
+Command: python -m pytest --continue-on-collection-errors -q
+Result:26 passed,43 failed,6 collection errors,6 warnings in9.48seconds.
+
+The43 failures comprise22 dataset tests,16 Stage2-checkpoint tests, and5
+data/checkpoint-dependent pipeline dry-run tests. Existing untracked tests
+expect APIs absent from this checkout, e.g. totalseg_task and checkpoint
+validation helpers. These mismatches need reconciliation; their failure is
+not evidence that every individual expected safeguard was independently
+exercised. Five integration failures require absent local production outputs.
+
+Collection errors:
+-statistical_significance_test.py creates a cluster output directory on import
+ and fails against unavailable/read-only /mnt.
+-test_totalseg_label_maps.py imports absent normalize_prediction_mask.
+-run_clinical_turing_test.py requires unavailable nnunet_mednext.
+-legacy_fixes/test_mapping.py reads absent cluster CT on import.
+-test_active_learning.py imports unresolved active_learning.
+-test_fix.py reads absent cluster CT on import.
+
+The built-in project_wide_sanity_check.py is not a substitute for these checks:
+it hardcodes cluster paths, validates only a small file sample, treats no
+sample files as clean, counts artifacts rather than proving model quality,
+and does not exit nonzero when its reported checks fail.
+
+BOUNDARY AND NEXT GATE
+
+Production results/, prediction masks, checkpoint files, and Project10 result
+CSVs are absent locally. The400-pair clinical metrics,499-scan benchmark,
+39 pooled JHU rows,1990-lesion manifest, trained weights, and online cluster
+state were not regenerated or verified. Confirmed source defects identify
+why these claims cannot currently be trusted, but do not establish the exact
+magnitude of error in historical runs without their provenance and artifacts.
+
+Before circulation: correct annotation semantics, geometry, input sourcing,
+checkpoint validation, and empty-mask handling; enforce host-organ constraints;
+regenerate independent validation with complete run manifests; recompute all
+tables/figures from source rows; then narrow prose to measured endpoints.
