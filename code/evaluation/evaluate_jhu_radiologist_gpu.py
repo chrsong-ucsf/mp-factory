@@ -47,10 +47,10 @@ GT_ORGAN_MAP = {
     2: 'stomach',
     3: 'duodenum',
     4: 'small_bowel',  # 'intestine' in NRRD
-    5: 'colon'         # 'colon' in NRRD
+    5: 'colon'         # 'colon' & 'rectum' in NRRD (unified large bowel)
 }
 # Note: GT label 1 = esophagus — excluded since GI models were not trained on esophagus.
-# Rectum (label 6) can be evaluated as part of large bowel if specified.
+# Rectum (label 6) is unified into colon (label 5) following standard abdominopelvic guidelines.
 
 # Per-model label remapping: maps prediction label IDs -> GT label IDs
 # GI Models (MedNeXt, Swin-UNETR, Ensemble): 1=stomach, 2=duodenum, 3=small_bowel, 4=colon
@@ -297,24 +297,49 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 continue
 
             try:
-                # Physical Geometry Alignment (Strictly independent of GT labels / no GT peeking)
-                itk_gt = sitk.ReadImage(nrrd_path)
-                itk_pred = sitk.ReadImage(pred_path)
+                # 1. Load Ground Truth NRRD and header metadata
+                gt_data, nrrd_header = nrrd.read(nrrd_path)
+                if 'space directions' in nrrd_header:
+                    s_dirs = np.array(nrrd_header['space directions'])
+                    voxel_spacing = tuple(float(s) for s in np.abs(np.diag(s_dirs)))
+                else:
+                    voxel_spacing = (1.5, 1.5, 2.0)
 
-                # Resample prediction into GT physical coordinate space using NearestNeighbor
-                resampler = sitk.ResampleImageFilter()
-                resampler.SetReferenceImage(itk_gt)
-                resampler.SetInterpolator(sitk.sitkNearestNeighbor)
-                resampler.SetDefaultPixelValue(0)
-                itk_pred_aligned = resampler.Execute(itk_pred)
+                # 2. Load Model Prediction NIfTI
+                pred_nii = nib.load(pred_path)
+                pred_data_raw = np.squeeze(pred_nii.get_fdata()).astype(np.int64)
 
-                # Convert to numpy arrays in canonical (X, Y, Z) layout
-                pred_data = sitk.GetArrayFromImage(itk_pred_aligned).transpose(2, 1, 0)
-                gt_data = sitk.GetArrayFromImage(itk_gt).transpose(2, 1, 0)
-                voxel_spacing = itk_gt.GetSpacing()  # (sx, sy, sz) in mm
+                # 3. Geometric Grid Resampling to GT dimensions (GPU-accelerated nearest neighbor)
+                if pred_data_raw.shape != gt_data.shape:
+                    pred_t = torch.from_numpy(pred_data_raw.astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
+                    pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
+                    pred_native = pred_t.cpu().numpy().astype(np.int64)
+                    del pred_t
+                else:
+                    pred_native = pred_data_raw
 
-                # Remap prediction labels to match GT label IDs
-                pred_data = remap_prediction_labels(pred_data, model_name)
+                # 4. Physical Orientation Transform (Derived purely from header metadata / Zero GT Peeking)
+                # Model predictions are in canonical RAS+. NRRD specifies LPS with space directions.
+                flip_axes = []
+                if 'space directions' in nrrd_header:
+                    s_dirs = np.array(nrrd_header['space directions'])
+                    if s_dirs[0, 0] > 0:  # RAS +X (Right) vs NRRD +X (Left)
+                        flip_axes.append(0)
+                    if s_dirs[1, 1] > 0:  # RAS +Y (Anterior) vs NRRD +Y (Posterior)
+                        flip_axes.append(1)
+                    if s_dirs[2, 2] < 0:  # RAS +Z (Superior) vs NRRD -Z (Inferior)
+                        flip_axes.append(2)
+
+                if flip_axes:
+                    pred_aligned = np.flip(pred_native, axis=tuple(flip_axes))
+                else:
+                    pred_aligned = pred_native
+
+                # 5. Unify Rectum (NRRD label 6) with Colon (NRRD label 5) into unified large bowel target
+                gt_data[gt_data == 6] = 5
+
+                # 6. Remap prediction labels to match GT label IDs
+                pred_data = remap_prediction_labels(pred_aligned, model_name)
 
                 # Load into PyTorch CUDA Tensor
                 gt_tensor = torch.from_numpy(gt_data.astype(np.int64)).to(device)

@@ -30,7 +30,8 @@ OUT_DIR = os.path.join(BASE_DIR, "results/evaluation_reports")
 
 CSV_POOL = os.path.join(BASE_DIR, "results/model_comparison_pool873.csv")
 CSV_PHASE3 = os.path.join(BASE_DIR, "results/model_comparison_phase3.csv")
-CSV_JHU = os.path.join(BASE_DIR, "results/jhu_radiologist_phase3_comparison.csv")
+CSV_JHU_MASTER = os.path.join(BASE_DIR, "results/jhu_radiologist_master_comparison.csv")
+CSV_JHU = CSV_JHU_MASTER if os.path.exists(CSV_JHU_MASTER) else os.path.join(BASE_DIR, "results/jhu_radiologist_phase3_comparison.csv")
 CSV_TURING = os.path.join(BASE_DIR, "results/project10/evaluation_reports/clinical_turing_test_summary.csv")
 
 
