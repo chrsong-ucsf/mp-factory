@@ -26,6 +26,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # ---------------------------------------------------------------------------
 CSV_MODEL_COMP_POOL = os.path.join(BASE_DIR, "results/model_comparison_pool873.csv")
 CSV_MODEL_COMP_PHASE3 = os.path.join(BASE_DIR, "results/model_comparison_phase3.csv")
+CSV_JHU_MASTER = os.path.join(BASE_DIR, "results/jhu_radiologist_master_comparison.csv")
 CSV_JHU_PHASE3 = os.path.join(BASE_DIR, "results/jhu_radiologist_phase3_comparison.csv")
 CSV_JHU_PHASE2 = os.path.join(BASE_DIR, "results/jhu_radiologist_phase2_comparison.csv")
 CSV_TURING = os.path.join(BASE_DIR, "results/project10/evaluation_reports/clinical_turing_test_summary.csv")
@@ -115,13 +116,29 @@ def build_table_1():
 
 def build_table_2():
     """Table 2: JHU Radiologist Expert Ground-Truth Benchmark."""
-    csv_file = CSV_JHU_PHASE3 if os.path.exists(CSV_JHU_PHASE3) else CSV_JHU_PHASE2
+    csv_file = CSV_JHU_MASTER if os.path.exists(CSV_JHU_MASTER) else (
+        CSV_JHU_PHASE3 if os.path.exists(CSV_JHU_PHASE3) else CSV_JHU_PHASE2
+    )
     if not os.path.exists(csv_file):
         print(f"[Warning] No JHU comparison CSV found at {csv_file}")
         return None, None
 
     df = pd.read_csv(csv_file)
-    models = df["model_name"].unique()
+    avail_models = df["model_name"].unique().tolist()
+    preferred_order = [
+        "MedNeXt",
+        "MedNeXt_Phase2",
+        "MedNeXt_Phase3",
+        "MedNeXt_Pool873",
+        "Swin-UNETR",
+        "Swin-UNETR_Phase2",
+        "Swin-UNETR_Phase3",
+        "TotalSegmentator",
+        "EnsembleConsensus",
+    ]
+    models = [m for m in preferred_order if m in avail_models] + [
+        m for m in avail_models if m not in preferred_order
+    ]
 
     rows_latex = []
     rows_md = []

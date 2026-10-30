@@ -84,7 +84,7 @@ def main():
 
     axes[0].set_ylabel("Attenuation (Hounsfield Units, HU)", fontsize=12, fontweight="semibold")
     fig.suptitle(
-        "Project 10: Multi-Phase Pharmacokinetic CT Contrast Enhancement Curves (N = 1,977 Lesions)\n"
+        f"Project 10: Multi-Phase Pharmacokinetic CT Contrast Enhancement Curves (N = {len(df):,} Lesions)\n"
         "Procedural 3D Tumors Generated with Physiologically Constrained LI-RADS / PDAC Kinetics",
         fontsize=14,
         fontweight="bold",
