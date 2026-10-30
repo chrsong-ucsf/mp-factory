@@ -14,18 +14,18 @@ import torch.nn as nn
 import sys
 import os
 
-# Ensure src is in python path to load the loss
+# Ensure training dir is in python path to load the loss
 _this_dir = os.path.dirname(os.path.abspath(__file__))
-# _this_dir = utilities
-# _this_dir/.. = code
-# _this_dir/../.. = mp-factory
-# _this_dir/../../.. = 02_Projects
-# _this_dir/../../../.. = research_su26
-_vault_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_this_dir))))
-if _vault_root not in sys.path:
-    sys.path.insert(0, _vault_root)
+_code_dir = os.path.dirname(_this_dir)
+_training_dir = os.path.join(_code_dir, "training")
+for p in (_code_dir, _training_dir):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
-from src.segmentation.losses.asymmetric_loss import AsymmetricPDCELoss
+try:
+    from asymmetric_loss import AsymmetricPDCELoss
+except ImportError:
+    from training.asymmetric_loss import AsymmetricPDCELoss
 
 
 def test_probability_clamping_no_nan():

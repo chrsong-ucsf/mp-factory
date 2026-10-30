@@ -10,22 +10,23 @@ spatially conditioned on the Project 9 5-organ GI segmentation mask.
 
 Pipeline
 --------
-  1. Load co-registered multi-phase pairs via MultiphasePairedDataset:
+  1. Load and validate frozen Stage 1 continuous AutoEncoder.
+  2. Load co-registered multi-phase pairs via MultiphasePairedDataset:
        - Source CT (NCCT/P0 phase)
        - Registered target CT (Arterial / Portal-Venous)
        - Organ mask (5-class TotalSegmentator / Project 9 prior)
-  2. Encode CT volumes into latent space using frozen Stage 1 AutoEncoder:
+  3. Encode CT volumes into latent space using frozen Stage 1 AutoEncoder:
        - z_ncct   = AE.encode(ncct)    -> (B, 4, 16, 16, 16)
        - z_target = AE.encode(target)  -> (B, 4, 16, 16, 16)
-  3. Prepare SPADE condition mask:
+  4. Prepare SPADE condition mask:
        - Convert mask (0..4) to one-hot (B, 5, 128, 128, 128)
        - Downsample to latent resolution -> (B, 5, 16, 16, 16)
-  4. Forward Diffusion:
+  5. Forward Diffusion:
        - Sample random diffusion timestep t in [0, T-1]
        - Add scheduled Gaussian noise: z_t = sqrt(alpha_bar_t)*z_target + sqrt(1-alpha_bar_t)*eps
        - Predict noise: eps_pred = SynthesisNet(z_t, t, z_ncct, mask_down)
        - Loss = MSE(eps_pred, eps)
-  5. Save best and last checkpoints to results/project10/checkpoints/stage2_synthesis/
+  6. Save audited checkpoints with complete resume state and conditioning identity.
 
 Usage
 -----
@@ -40,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import logging
 import math
 import os
@@ -74,6 +76,163 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint and Provenance Helpers
+# ---------------------------------------------------------------------------
+def checkpoint_sha256(path: Path | str) -> str:
+    """Calculate SHA256 hex digest of a checkpoint file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def mask_conditioning_identity(totalseg_task: str, base_dir: Path | str, mask_dir: Path | str) -> dict:
+    """Construct canonical identity metadata for spatial mask conditioning."""
+    base = Path(base_dir).resolve()
+    m_dir = Path(mask_dir)
+    resolved_mask_dir = m_dir.resolve() if m_dir.is_absolute() else (base / m_dir).resolve()
+    return {
+        "totalseg_task": totalseg_task,
+        "mask_dir": str(resolved_mask_dir),
+    }
+
+
+def load_stage1_autoencoder(path: Path | str, device: torch.device) -> nn.Module:
+    """
+    Load a frozen Stage 1 continuous 3D AutoEncoder.
+    Rejects missing files, discrete VQ-VAE checkpoints, and partial/incompatible weights.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Stage 1 AutoEncoder checkpoint not found at {path}")
+
+    ckpt = torch.load(path, map_location=device, weights_only=False)
+    cfg_dict = ckpt.get("cfg", {})
+    if cfg_dict.get("use_vq", False):
+        raise ValueError("Stage 1 checkpoint must be continuous (use_vq=False required for latent diffusion Stage 2)")
+
+    cfg = AutoEncoder3DConfig(**cfg_dict) if cfg_dict else AutoEncoder3DConfig(use_vq=False)
+    ae = build_autoencoder(cfg).to(device)
+    try:
+        ae.load_state_dict(ckpt["model"], strict=True)
+    except RuntimeError as e:
+        raise RuntimeError(f"Checkpoint model weights are incompatible: {e}") from e
+
+    ae.eval()
+    for param in ae.parameters():
+        param.requires_grad = False
+    return ae
+
+
+def stage2_checkpoint_payload(
+    epoch: int,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler._LRScheduler,
+    best_val_loss: float,
+    ae_checkpoint_sha256: str,
+    conditioning: dict,
+) -> dict:
+    """Build complete checkpoint payload with training state and provenance."""
+    raw_model = model.module if hasattr(model, "module") else model
+    return {
+        "epoch": epoch,
+        "model": raw_model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "best_val_loss": best_val_loss,
+        "ae_checkpoint_sha256": ae_checkpoint_sha256,
+        "conditioning": conditioning,
+    }
+
+
+def restore_stage2_checkpoint(
+    path: Path | str,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler._LRScheduler,
+    device: torch.device,
+    total_epochs: int,
+    ae_checkpoint_sha256: str,
+    conditioning: dict,
+    allow_legacy_ae_resume: bool = False,
+) -> Tuple[int, float]:
+    """
+    Restore Stage 2 training state from checkpoint with strict provenance auditing.
+    Returns (epoch, best_val_loss).
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Stage 2 checkpoint not found at {path}")
+
+    ckpt = torch.load(path, map_location=device, weights_only=False)
+
+    # 1. AE Identity Validation
+    ckpt_ae_sha = ckpt.get("ae_checkpoint_sha256")
+    if ckpt_ae_sha is not None:
+        if ckpt_ae_sha != ae_checkpoint_sha256:
+            raise ValueError(
+                f"Checkpoint {path} was trained with a different Stage 1 AE ({ckpt_ae_sha} vs {ae_checkpoint_sha256})"
+            )
+    else:
+        if not allow_legacy_ae_resume:
+            raise ValueError(
+                f"Legacy checkpoint {path} lacks Stage 1 AE identity. "
+                "Explicit override required via --allow_legacy_ae_resume."
+            )
+
+    # 2. Conditioning Identity Validation
+    ckpt_cond = ckpt.get("conditioning")
+    if ckpt_cond is not None:
+        if ckpt_cond != conditioning:
+            raise ValueError(
+                f"Checkpoint {path} was trained with different mask conditioning: {ckpt_cond} vs {conditioning}"
+            )
+    else:
+        if not allow_legacy_ae_resume:
+            raise ValueError(
+                f"Legacy checkpoint {path} has unaudited mask conditioning. "
+                "Explicit override required via --allow_legacy_ae_resume."
+            )
+
+    # 3. Model weights
+    raw_model = model.module if hasattr(model, "module") else model
+    raw_model.load_state_dict(ckpt["model"], strict=True)
+
+    # 4. Epoch
+    epoch = ckpt.get("epoch", 0)
+
+    # 5. Optimizer
+    if "optimizer" in ckpt:
+        optimizer.load_state_dict(ckpt["optimizer"])
+
+    # 6. Scheduler & LR state
+    if "scheduler" in ckpt:
+        scheduler.load_state_dict(ckpt["scheduler"])
+    else:
+        scheduler.last_epoch = epoch
+        base_lr = scheduler.base_lrs[0] if hasattr(scheduler, "base_lrs") else optimizer.param_groups[0]["lr"]
+        eta_min = getattr(scheduler, "eta_min", 1e-6)
+        expected_lr = eta_min + (base_lr - eta_min) * (1 + math.cos(math.pi * epoch / total_epochs)) / 2
+        for pg in optimizer.param_groups:
+            pg["lr"] = expected_lr
+
+    # 7. Best validation loss
+    if "best_val_loss" in ckpt:
+        best_val_loss = float(ckpt["best_val_loss"])
+    else:
+        best_path = path.parent / "best_synthesis_net.pt"
+        if best_path.exists():
+            best_ckpt = torch.load(best_path, map_location=device, weights_only=False)
+            best_val_loss = float(best_ckpt.get("val_loss", best_ckpt.get("best_val_loss", float("inf"))))
+        else:
+            best_val_loss = float("inf")
+
+    return epoch, best_val_loss
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +277,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--mask_dir", type=str,
                    default="results/totalseg_masks",
                    help="Directory containing organ masks")
+    p.add_argument("--totalseg_task", type=str, default="gi",
+                   choices=["gi", "total", "total_v1"],
+                   help="TotalSegmentator mask label scheme ('gi', 'total', 'total_v1')")
     p.add_argument("--ae_checkpoint", type=str,
                    default="results/project10/checkpoints/stage1_ae/best_stage1_ae.pt",
                    help="Path to Stage 1 frozen autoencoder checkpoint")
@@ -132,6 +294,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--val_interval", type=int, default=5)
     p.add_argument("--resume", type=str, default="",
                    help="Path to Stage 2 checkpoint to resume from")
+    p.add_argument("--allow_legacy_ae_resume", action="store_true",
+                   help="Allow resuming from legacy checkpoints without recorded AE SHA256 or conditioning identity")
     return p.parse_args()
 
 
@@ -166,19 +330,29 @@ def main() -> None:
         log.info(f"  Registration CSV: {args.registration_csv}")
         log.info(f"  Base Dir:         {args.base_dir}")
         log.info(f"  Stage 1 AE Ckpt:  {args.ae_checkpoint}")
+        log.info(f"  Mask Dir:         {args.mask_dir}")
+        log.info(f"  TotalSeg Task:    {args.totalseg_task}")
         log.info(f"  Output Dir:       {args.out_dir}")
         log.info(f"  Epochs:           {args.epochs}")
         log.info(f"  Batch size:       {args.batch_size} (effective: {args.batch_size * world_size})")
         log.info(f"  Device:           {device}")
         log.info("=" * 60)
 
-    # 1. Dataset & DataLoaders
+    # 1. Stage 1 Autoencoder (Frozen Latent Compressor) — validate FIRST
+    ae = load_stage1_autoencoder(args.ae_checkpoint, device)
+    ae_sha = checkpoint_sha256(args.ae_checkpoint)
+    conditioning = mask_conditioning_identity(args.totalseg_task, args.base_dir, args.mask_dir)
+    if is_master:
+        log.info(f"Loaded Stage 1 AE (SHA256: {ae_sha[:12]}...)")
+
+    # 2. Dataset & DataLoaders
     full_ds = MultiphasePairedDataset(
         registration_csv=args.registration_csv,
         base_dir=args.base_dir,
         mask_dir=args.mask_dir,
         target_shape=(128, 128, 128),
         spacing_mm=1.5,
+        totalseg_task=args.totalseg_task,
     )
     n_total = len(full_ds)
     if n_total == 0:
@@ -205,28 +379,6 @@ def main() -> None:
     if is_master:
         log.info(f"Loaded {n_total} pairs ({n_train} train, {n_val} val).")
 
-    # 2. Stage 1 Autoencoder (Frozen Latent Compressor)
-    ae_cfg = AutoEncoder3DConfig(
-        input_size=(128, 128, 128),
-        latent_channels=4,
-        channels=(32, 64, 128, 256),
-        strides=(2, 2, 2, 1),
-        use_vq=True,
-    )
-    ae = build_autoencoder(ae_cfg).to(device)
-    if os.path.exists(args.ae_checkpoint):
-        ckpt = torch.load(args.ae_checkpoint, map_location=device)
-        ae.load_state_dict(ckpt["model"], strict=False)
-        if is_master:
-            log.info(f"Loaded Stage 1 AE checkpoint from {args.ae_checkpoint}")
-    else:
-        if is_master:
-            log.warning(f"Stage 1 checkpoint {args.ae_checkpoint} not found. Running with initialized AE weights.")
-
-    ae.eval()
-    for p in ae.parameters():
-        p.requires_grad = False
-
     # 3. Stage 2 Generative Model: AnatomyConditionalSynthesisNet
     model = AnatomyConditionalSynthesisNet(
         spatial_dims=3,
@@ -238,33 +390,32 @@ def main() -> None:
         num_head_channels=64,
     ).to(device)
 
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=1e-6
+    )
+
     start_epoch = 0
+    best_val_loss = float("inf")
     if args.resume and os.path.exists(args.resume):
-        res_ckpt = torch.load(args.resume, map_location=device)
-        model.load_state_dict(res_ckpt["model"])
-        start_epoch = res_ckpt.get("epoch", 0)
+        start_epoch, best_val_loss = restore_stage2_checkpoint(
+            path=args.resume,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            device=device,
+            total_epochs=args.epochs,
+            ae_checkpoint_sha256=ae_sha,
+            conditioning=conditioning,
+            allow_legacy_ae_resume=args.allow_legacy_ae_resume,
+        )
         if is_master:
-            log.info(f"Resumed from checkpoint: {args.resume} (epoch {start_epoch})")
+            log.info(f"Resumed from {args.resume} (epoch {start_epoch}, best_val_loss {best_val_loss:.5f})")
 
     if is_ddp:
         model = DDP(model, device_ids=[local_rank])
 
     diffusion = DiffusionSchedule(timesteps=args.timesteps).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    if args.resume and os.path.exists(args.resume):
-        res_ckpt = torch.load(args.resume, map_location=device)
-        if "optimizer" in res_ckpt:
-            try:
-                optimizer.load_state_dict(res_ckpt["optimizer"])
-                if is_master:
-                    log.info("Restored optimizer state from checkpoint.")
-            except Exception as e:
-                if is_master:
-                    log.warning(f"Could not restore optimizer state: {e}")
-
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=args.epochs - start_epoch, eta_min=1e-6
-    )
     scaler = GradScaler()
 
     # 4. CSV Logging Setup
@@ -275,7 +426,6 @@ def main() -> None:
                 "epoch", "train_loss", "val_loss", "lr", "elapsed_min",
             ]).writeheader()
 
-    best_val_loss = float("inf")
     t_start = time.time()
 
     # 5. Training Loop
@@ -299,23 +449,20 @@ def main() -> None:
                 z_ncct = ae.encode(ncct)
                 z_target = ae.encode(target)
 
-                # Prepare one-hot downsampled SPADE conditioning mask (B, 5, 16, 16, 16)
-                mask_long = mask.squeeze(1).long().clamp(0, 4)
-                mask_one_hot = F.one_hot(mask_long, num_classes=5).permute(0, 4, 1, 2, 3).float()
+                # Prepare one-hot condition mask downsampled to latent grid
+                mask_one_hot = F.one_hot(mask.squeeze(1).long(), num_classes=5).permute(0, 4, 1, 2, 3).float()
                 mask_down = F.interpolate(mask_one_hot, size=z_target.shape[2:], mode="nearest")
 
-            B = z_target.shape[0]
-            t = torch.randint(0, diffusion.timesteps, (B,), device=device, dtype=torch.long)
+            # Sample diffusion timestep
+            t = torch.randint(0, diffusion.timesteps, (z_target.shape[0],), device=device, dtype=torch.long)
             noise = torch.randn_like(z_target)
-            z_t = diffusion.q_sample(x_start=z_target, t=t, noise=noise)
+            z_t = diffusion.q_sample(z_target, t, noise)
 
             with autocast():
-                pred_noise = model(x=z_t, timesteps=t, source_latent=z_ncct, anatomy_mask=mask_down)
-                loss = F.mse_loss(pred_noise, noise)
+                eps_pred = model(z_t, t, z_ncct, mask_down)
+                loss = F.mse_loss(eps_pred, noise)
 
             scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             scaler.step(optimizer)
             scaler.update()
 
@@ -323,40 +470,34 @@ def main() -> None:
             n_batches += 1
 
         scheduler.step()
-        lr_now = optimizer.param_groups[0]["lr"]
         avg_train_loss = train_loss_acc / max(n_batches, 1)
+        lr_now = optimizer.param_groups[0]["lr"]
 
-        # 6. Validation
+        # Validation
         val_loss = float("nan")
-        if is_master and (epoch + 1) % args.val_interval == 0:
+        if (epoch + 1) % args.val_interval == 0 or (epoch + 1) == args.epochs:
             model.eval()
             val_loss_acc = 0.0
             n_val_batches = 0
+
             with torch.no_grad():
-                for vbatch in val_loader:
-                    v_ncct = vbatch["ncct"].to(device, non_blocking=True)
-                    v_target = vbatch["target"].to(device, non_blocking=True)
-                    v_mask = vbatch["mask"].to(device, non_blocking=True)
+                for batch in val_loader:
+                    ncct = batch["ncct"].to(device)
+                    target = batch["target"].to(device)
+                    mask = batch["mask"].to(device)
 
-                    v_z_ncct = ae.encode(v_ncct)
-                    v_z_target = ae.encode(v_target)
+                    z_ncct = ae.encode(ncct)
+                    z_target = ae.encode(target)
+                    mask_one_hot = F.one_hot(mask.squeeze(1).long(), num_classes=5).permute(0, 4, 1, 2, 3).float()
+                    mask_down = F.interpolate(mask_one_hot, size=z_target.shape[2:], mode="nearest")
 
-                    v_mask_long = v_mask.squeeze(1).long().clamp(0, 4)
-                    v_mask_one_hot = F.one_hot(v_mask_long, num_classes=5).permute(0, 4, 1, 2, 3).float()
-                    v_mask_down = F.interpolate(v_mask_one_hot, size=v_z_target.shape[2:], mode="nearest")
-
-                    v_B = v_z_target.shape[0]
-                    v_t = torch.randint(0, diffusion.timesteps, (v_B,), device=device, dtype=torch.long)
-                    v_noise = torch.randn_like(v_z_target)
-                    v_z_t = diffusion.q_sample(x_start=v_z_target, t=v_t, noise=v_noise)
+                    t = torch.randint(0, diffusion.timesteps, (z_target.shape[0],), device=device, dtype=torch.long)
+                    noise = torch.randn_like(z_target)
+                    z_t = diffusion.q_sample(z_target, t, noise)
 
                     with autocast():
-                        v_pred_noise = model(
-                            x=v_z_t, timesteps=v_t,
-                            source_latent=v_z_ncct,
-                            anatomy_mask=v_mask_down,
-                        )
-                        v_loss = F.mse_loss(v_pred_noise, v_noise)
+                        eps_pred = model(z_t, t, z_ncct, mask_down)
+                        v_loss = F.mse_loss(eps_pred, noise)
 
                     val_loss_acc += v_loss.item()
                     n_val_batches += 1
@@ -366,12 +507,16 @@ def main() -> None:
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_path = os.path.join(args.out_dir, "best_synthesis_net.pt")
-                torch.save({
-                    "epoch": epoch + 1,
-                    "model": (model.module if is_ddp else model).state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "val_loss": val_loss,
-                }, best_path)
+                payload = stage2_checkpoint_payload(
+                    epoch=epoch + 1,
+                    model=model,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    best_val_loss=best_val_loss,
+                    ae_checkpoint_sha256=ae_sha,
+                    conditioning=conditioning,
+                )
+                torch.save(payload, best_path)
                 log.info(f"  [Epoch {epoch+1:03d}] New best val_loss={val_loss:.5f} -> saved {best_path}")
 
         elapsed = (time.time() - t_start) / 60.0
@@ -395,11 +540,16 @@ def main() -> None:
         # Periodic checkpoint
         if is_master and (epoch + 1) % 10 == 0:
             last_path = os.path.join(args.out_dir, "last_synthesis_net.pt")
-            torch.save({
-                "epoch": epoch + 1,
-                "model": (model.module if is_ddp else model).state_dict(),
-                "optimizer": optimizer.state_dict(),
-            }, last_path)
+            payload = stage2_checkpoint_payload(
+                epoch=epoch + 1,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                best_val_loss=best_val_loss,
+                ae_checkpoint_sha256=ae_sha,
+                conditioning=conditioning,
+            )
+            torch.save(payload, last_path)
 
     if is_master:
         log.info(f"Stage 2 Synthesis Training Complete. Best val_loss = {best_val_loss:.5f}")
