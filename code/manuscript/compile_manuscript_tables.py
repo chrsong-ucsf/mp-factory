@@ -40,8 +40,10 @@ def fmt_mean_std(arr, precision=3, scale=1.0):
     if len(clean) == 0:
         return "N/A"
     vals = clean.values * scale
+    if len(vals) == 1:
+        return f"{vals[0]:.{precision}f} (N=1)"
     mean = np.mean(vals)
-    std = np.std(vals)
+    std = np.std(vals, ddof=1)
     return f"{mean:.{precision}f} \\pm {std:.{precision}f}"
 
 
@@ -51,8 +53,10 @@ def fmt_md_mean_std(arr, precision=3, scale=1.0):
     if len(clean) == 0:
         return "N/A"
     vals = clean.values * scale
+    if len(vals) == 1:
+        return f"{vals[0]:.{precision}f} (N=1)"
     mean = np.mean(vals)
-    std = np.std(vals)
+    std = np.std(vals, ddof=1)
     return f"{mean:.{precision}f} ± {std:.{precision}f}"
 
 
@@ -108,8 +112,9 @@ def build_table_1():
     latex_code = "\\begin{table}[htbp]\n\\centering\n\\caption{3D Gastrointestinal Organ Segmentation Performance (Dice Similarity Coefficient $\\pm$ Standard Deviation).}\n\\label{tab:segmentation_comparison}\n\\begin{tabular}{lccc}\n\\hline\n\\textbf{Organ Target} & \\textbf{TotalSegmentator v2} & \\textbf{Swin-UNETR} & \\textbf{" + model_name_label + "} \\\\\n\\hline\n" + "\n".join(latex_rows) + "\n\\hline\n\\end{tabular}\n\\end{table}\n"
     
     md_code = f"### Table 1: 3D GI Organ Segmentation Performance (N = {len(df)} Scans)\n\n"
-    md_code += f"| Organ Target | TotalSegmentator v2 | Swin-UNETR | **{model_name_label}** |\n| :--- | :--- | :--- | :--- |\n"
-    md_code += "\n".join(md_rows) + "\n"
+    md_code += f"| Organ Target | TotalSegmentator v2 (Ref)* | Swin-UNETR | **{model_name_label}** |\n| :--- | :--- | :--- | :--- |\n"
+    md_code += "\n".join(md_rows) + "\n\n"
+    md_code += "*\\*Note: TotalSegmentator v2 values reported as literature baseline reference on non-contrast abdominal CT; not measured on this specific 499-scan cohort.*\n"
 
     return latex_code, md_code
 
@@ -145,81 +150,90 @@ def build_table_2():
 
     for m in models:
         sub = df[df["model_name"] == m]
+        n_scans = len(sub)
+        n_patients = sub["subject_id"].nunique()
         s_dice = fmt_mean_std(sub["stomach_dice"])
         d_dice = fmt_mean_std(sub["duodenum_dice"])
+        sb_dice = fmt_mean_std(sub["small_bowel_dice"]) if "small_bowel_dice" in sub.columns else "N/A"
         c_dice = fmt_mean_std(sub["colon_dice"])
         m_dice = fmt_mean_std(sub["mean_dice"])
         m_hd95 = fmt_mean_std(sub["mean_hd95"], precision=1)
 
-        rows_latex.append(f"\\textbf{{{m}}} & {s_dice} & {d_dice} & {c_dice} & \\textbf{{{m_dice}}} & {m_hd95} \\\\")
+        rows_latex.append(f"\\textbf{{{m}}} & {n_scans} & {n_patients} & {s_dice} & {d_dice} & {sb_dice} & {c_dice} & \\textbf{{{m_dice}}} & {m_hd95} \\\\")
 
         s_dice_md = fmt_md_mean_std(sub["stomach_dice"])
         d_dice_md = fmt_md_mean_std(sub["duodenum_dice"])
+        sb_dice_md = fmt_md_mean_std(sub["small_bowel_dice"]) if "small_bowel_dice" in sub.columns else "N/A"
         c_dice_md = fmt_md_mean_std(sub["colon_dice"])
         m_dice_md = fmt_md_mean_std(sub["mean_dice"])
         m_hd95_md = fmt_md_mean_std(sub["mean_hd95"], precision=1)
-        rows_md.append(f"| **{m}** | {s_dice_md} | {d_dice_md} | {c_dice_md} | **{m_dice_md}** | {m_hd95_md} mm |")
+        rows_md.append(f"| **{m}** | {n_scans} | {n_patients} | {s_dice_md} | {d_dice_md} | {sb_dice_md} | {c_dice_md} | **{m_dice_md}** | {m_hd95_md} mm |")
 
-    latex_code = "\\begin{table}[htbp]\n\\centering\n\\caption{Validation on Expert Radiologist Corrected Ground-Truth Volumes (Johns Hopkins Benchmark).}\n\\label{tab:jhu_radiologist_benchmark}\n\\begin{tabular}{lccccc}\n\\hline\n\\textbf{Architecture} & \\textbf{Stomach (DSC)} & \\textbf{Duodenum (DSC)} & \\textbf{Colon (DSC)} & \\textbf{Global Mean (DSC)} & \\textbf{Mean HD95 (mm)} \\\\\n\\hline\n" + "\n".join(rows_latex) + "\n\\hline\n\\end{tabular}\n\\end{table}\n"
+    latex_code = "\\begin{table}[htbp]\n\\centering\n\\caption{Validation on Expert Radiologist Corrected Ground-Truth Volumes (Johns Hopkins Benchmark).}\n\\label{tab:jhu_radiologist_benchmark}\n\\begin{tabular}{lcccccccc}\n\\hline\n\\textbf{Architecture} & \\textbf{N} & \\textbf{Pts} & \\textbf{Stomach (DSC)} & \\textbf{Duodenum (DSC)} & \\textbf{Small Bowel (DSC)} & \\textbf{Colon (DSC)} & \\textbf{Global Mean (DSC)} & \\textbf{Mean HD95 (mm)} \\\\\n\\hline\n" + "\n".join(rows_latex) + "\n\\hline\n\\end{tabular}\n\\end{table}\n"
 
-    md_code = f"### Table 2: Johns Hopkins Radiologist Expert Benchmark (N = {len(df)} Evaluations)\n\n"
-    md_code += "| Architecture | Stomach (DSC) | Duodenum (DSC) | Colon (DSC) | Global Mean (DSC) | Mean HD95 (mm) |\n| :--- | :--- | :--- | :--- | :--- | :--- |\n"
+    md_code = f"### Table 2: Johns Hopkins Radiologist Expert Ground-Truth Benchmark (N = {len(df)} Pooled Evaluations)\n\n"
+    md_code += "| Architecture | N (Scans) | Patients | Stomach (DSC) | Duodenum (DSC) | Small Bowel (DSC) | Colon (DSC) | Global Mean (DSC) | Mean HD95 (mm) |\n| :--- | :---: | :---: | :--- | :--- | :--- | :--- | :--- | :--- |\n"
     md_code += "\n".join(rows_md) + "\n"
 
     return latex_code, md_code
 
 
 def build_table_3():
-    """Table 3: Clinical Turing Test on Generative Multi-Phase Contrast CTs."""
-    if not os.path.exists(CSV_TURING):
-        print(f"[Warning] No Turing test summary CSV found at {CSV_TURING}")
+    """Table 3: Project 10 Multiphase Generative CT Synthesis Benchmarks (N = 1,067 Scans)."""
+    if not os.path.exists(CSV_SYNTH_METRICS):
+        print(f"[Warning] No synthesis metrics CSV found at {CSV_SYNTH_METRICS}")
         return None, None
 
-    df = pd.read_csv(CSV_TURING)
+    df = pd.read_csv(CSV_SYNTH_METRICS)
     n_total = len(df)
-    n_passed = df["passed_turing_test"].sum()
-    pass_pct = (n_passed / n_total) * 100.0 if n_total > 0 else 0.0
 
-    stomach_dice = fmt_mean_std(df["turing_dice_stomach"])
-    duod_dice = fmt_mean_std(df["turing_dice_duodenum"])
-    sb_dice = fmt_mean_std(df["turing_dice_small_bowel"])
-    colon_dice = fmt_mean_std(df["turing_dice_colon"])
-    global_dice = fmt_mean_std(df["mean_turing_dice"])
+    cohorts = [
+        ("High-Fidelity Synthesis", df["L1_Error"] < 500.0, "High structural correlation; vascular contrast enhancement"),
+        ("Air Background Offset", (df["L1_Error"] >= 500.0) & (df["L1_Error"] <= 2000.0), "Background air outside patient body decoded to ~0 HU instead of -1000 HU"),
+        ("Diffusion Trajectory Saturation", df["L1_Error"] > 2000.0, "Reverse diffusion saturation at clipping limits; intensity artifacts"),
+        ("Consolidated Cohort", pd.Series([True] * len(df)), "Overall population metrics across all 1,067 synthesized volumes"),
+    ]
 
-    stomach_pass = (df["turing_dice_stomach"] >= 0.70).mean() * 100.0
-    duod_pass = (df["turing_dice_duodenum"] >= 0.70).mean() * 100.0
-    sb_pass = (df["turing_dice_small_bowel"] >= 0.70).mean() * 100.0
-    colon_pass = (df["turing_dice_colon"] >= 0.70).mean() * 100.0
+    rows_latex = []
+    rows_md = []
+
+    for name, mask, note in cohorts:
+        sub = df[mask]
+        n_c = len(sub)
+        pct_c = (n_c / n_total) * 100.0
+
+        mean_l1 = sub["L1_Error"].mean()
+        mean_body_l1 = sub["Body_L1_Error"].mean()
+        mean_ssim = sub["SSIM"].mean()
+        valid_psnr = sub["PSNR"][np.isfinite(sub["PSNR"])]
+        mean_psnr = valid_psnr.mean() if len(valid_psnr) > 0 else 0.0
+        mean_r = sub["Pearson_R"].mean()
+
+        rows_latex.append(f"\\textbf{{{name}}} & {n_c} ({pct_c:.1f}\\%) & {mean_l1:.1f} & {mean_body_l1:.1f} & {mean_ssim:.3f} & {mean_psnr:.1f} & {mean_r:.3f} \\\\")
+        rows_md.append(f"| **{name}** | {n_c} ({pct_c:.1f}%) | {mean_l1:.1f} HU | {mean_body_l1:.1f} HU | {mean_ssim:.3f} | {mean_psnr:.1f} dB | **{mean_r:.3f}** | {note} |")
 
     latex_code = f"""\\begin{{table}}[htbp]
 \\centering
-\\caption{{Downstream Anatomical Invariance & Clinical Turing Test on Latent Diffusion Synthetic Contrast CTs ($N = {n_total}$ Pairs).}}
-\\label{{tab:clinical_turing_test}}
-\\begin{{tabular}}{{lccc}}
+\\caption{{Project 10 Multiphase Generative CT Synthesis Benchmarks ($N = {n_total}$ Scans).}}
+\\label{{tab:generative_synthesis_benchmarks}}
+\\begin{{tabular}}{{lcccccc}}
 \\hline
-\\textbf{{Anatomical Target}} & \\textbf{{Turing Concurrence (DSC)}} & \\textbf{{Pass Rate ($\\ge 0.70$)}} & \\textbf{{Clinical Evaluation}} \\\\
+\\textbf{{Synthesis Cohort}} & \\textbf{{Scans (\\%)}} & \\textbf{{L1 Error (HU)}} & \\textbf{{Body L1 (HU)}} & \\textbf{{SSIM}} & \\textbf{{PSNR (dB)}} & \\textbf{{Pearson R}} \\\\
 \\hline
-Stomach & {stomach_dice} & {stomach_pass:.1f}\\% & Indistinguishable \\\\
-Duodenum & {duod_dice} & {duod_pass:.1f}\\% & Indistinguishable \\\\
-Small Bowel & {sb_dice} & {sb_pass:.1f}\\% & Preserved Morphology \\\\
-Colon & {colon_dice} & {colon_pass:.1f}\\% & Preserved Haustration \\\\
-\\hline
-\\textbf{{Global Multi-Organ}} & \\textbf{{{global_dice}}} & \\textbf{{{pass_pct:.2f}\\%}} & \\textbf{{369 / 400 Concordant}} \\\\
+""" + "\n".join(rows_latex) + f"""
 \\hline
 \\end{{tabular}}
 \\end{{table}}
 """
 
-    md_code = f"""### Table 3: Project 10 Clinical Turing Test (N = {n_total} Paired Scans)
+    md_code = f"""### Table 3: Project 10 Multiphase Generative CT Synthesis Benchmarks (N = {n_total} Scans)
 
-| Anatomical Target | Turing Concurrence (DSC) | Pass Rate (≥ 0.70 DSC) | Downstream Clinical Status |
-| :--- | :--- | :--- | :--- |
-| **Stomach** | {fmt_md_mean_std(df['turing_dice_stomach'])} | {stomach_pass:.1f}% | Indistinguishable from Real Contrast |
-| **Duodenum** | {fmt_md_mean_std(df['turing_dice_duodenum'])} | {duod_pass:.1f}% | Indistinguishable from Real Contrast |
-| **Small Bowel** | {fmt_md_mean_std(df['turing_dice_small_bowel'])} | {sb_pass:.1f}% | Preserved Complex Fold Morphology |
-| **Colon** | {fmt_md_mean_std(df['turing_dice_colon'])} | {colon_pass:.1f}% | Preserved Haustrations & Frame |
-| **Global Multi-Organ** | **{fmt_md_mean_std(df['mean_turing_dice'])}** | **{pass_pct:.2f}%** | **369 / 400 Interchangeable Scans** |
-"""
+| Cohort Category | Scans (%) | Overall L1 (HU) | Body L1 (> -500 HU) | SSIM | PSNR | Pearson R | Physical Mechanism / Interpretation |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+""" + "\n".join(rows_md) + "\n"
+
+    return latex_code, md_code
+
 
     return latex_code, md_code
 

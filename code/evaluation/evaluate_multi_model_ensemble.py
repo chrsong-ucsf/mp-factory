@@ -54,6 +54,27 @@ ORGAN_MAP = {
     4: 'colon'
 }
 
+
+def normalize_prediction_mask(mask: np.ndarray, model_name: str) -> np.ndarray:
+    """
+    Normalizes a model prediction mask into standard 4-class GI labels:
+      1: stomach, 2: duodenum, 3: small_bowel, 4: colon
+    """
+    m_lower = model_name.lower()
+    if 'totalseg' in m_lower or 'totalsegmentator' in m_lower:
+        out = np.zeros_like(mask, dtype=np.uint8)
+        out[mask == 6] = 1   # stomach
+        out[mask == 18] = 3  # small bowel
+        out[mask == 19] = 2  # duodenum
+        out[mask == 20] = 4  # colon
+        return out
+    elif any(k in m_lower for k in ['mednext', 'swin', 'ensemble', 'consensus']):
+        return mask.copy()
+    else:
+        if np.any(mask > 4):
+            raise ValueError(f"Unknown full body schema for model name: {model_name}")
+        return mask.copy()
+
 # ---------------------------------------------------------------------------
 # Automated Data-Cleansing Triage Thresholds (strict, no radiologist-in-loop)
 # ---------------------------------------------------------------------------

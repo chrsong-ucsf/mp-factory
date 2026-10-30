@@ -74,14 +74,21 @@ PERTURBATION_CONDITIONS = [
 
 
 def compute_binary_dice(m1: np.ndarray, m2: np.ndarray) -> float:
-    """Compute binary Dice coefficient between two masks."""
+    """
+    Compute binary Dice coefficient between two masks.
+    Returns np.nan if both masks are empty to prevent empty predictions
+    from artificially earning perfect retention scores.
+    """
     b1 = (m1 > 0)
     b2 = (m2 > 0)
-    denom = b1.sum() + b2.sum()
-    if denom == 0:
-        return 1.0
+    s1 = b1.sum()
+    s2 = b2.sum()
+    if s1 == 0 and s2 == 0:
+        return np.nan  # Both empty -> excluded from retention Dice
+    if s1 == 0 or s2 == 0:
+        return 0.0     # Total disagreement (one empty, one predicted)
     inter = (b1 & b2).sum()
-    return float(2.0 * inter / denom)
+    return float(2.0 * inter / (s1 + s2))
 
 
 def run_model_inference(ct_vol: np.ndarray, model: torch.nn.Module, device: torch.device) -> np.ndarray:
@@ -321,10 +328,12 @@ def main():
                 m_base = (pred_base == org_id)
                 m_pert = (pred_pert == org_id)
                 d = compute_binary_dice(m_base, m_pert)
-                row[f"dice_retention_{org_name}"] = round(d, 4)
-                organ_dices.append(d)
+                row[f"dice_retention_{org_name}"] = round(d, 4) if not np.isnan(d) else np.nan
+                row[f"base_detected_{org_name}"] = bool(m_base.sum() > 50)
+                if not np.isnan(d):
+                    organ_dices.append(d)
 
-            row["mean_retention_dice"] = round(float(np.mean(organ_dices)), 4)
+            row["mean_retention_dice"] = round(float(np.mean(organ_dices)), 4) if organ_dices else np.nan
             records.append(row)
 
     df_results = pd.DataFrame(records)

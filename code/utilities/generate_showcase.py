@@ -409,12 +409,12 @@ def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_pat
         return
 
     nrrd_data, _ = nrrd.read(jhu_nrrd_path)
-    # Map JHU GT: 2: stomach, 3: duodenum, 4,5: small bowel, 6: colon
+    # Map JHU GT: 2: stomach, 3: duodenum, 4: intestine (small bowel), 5: colon, 6: rectum
     gt_mapped = np.zeros_like(nrrd_data, dtype=np.uint8)
-    gt_mapped[nrrd_data == 2] = 1 # stomach
-    gt_mapped[nrrd_data == 3] = 2 # duodenum
-    gt_mapped[(nrrd_data == 4) | (nrrd_data == 5)] = 3 # small bowel
-    gt_mapped[nrrd_data == 6] = 4 # colon
+    gt_mapped[nrrd_data == 2] = 1  # stomach
+    gt_mapped[nrrd_data == 3] = 2  # duodenum
+    gt_mapped[nrrd_data == 4] = 3  # small bowel (intestine)
+    gt_mapped[(nrrd_data == 5) | (nrrd_data == 6)] = 4  # large bowel (colon & rectum)
 
     # If raw shapes match, find representative slice with stomach & duodenum
     if gt_mapped.shape != model_mask.shape:
@@ -459,21 +459,23 @@ def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_pat
     axes[2].set_title(f"C. Automated Pipeline Consensus\n(mp-factory Distillation Target)", fontsize=12, fontweight='bold')
     axes[2].axis('off')
 
-    # Panel 4: Direct Boundary Overlay (Green=Agreement, Yellow=Model Extra, Magenta=GT Missed)
+    # Panel 4: True Multi-Class Concordance & Confusion Map
     axes[3].imshow(ct_norm[:, :, best_z].T, cmap='gray', origin='lower')
-    gt_bin = (gt_mapped[:, :, best_z] > 0)
-    pred_bin = (model_mask[:, :, best_z] > 0)
+    gt_slice = gt_mapped[:, :, best_z]
+    pred_slice = model_mask[:, :, best_z]
 
-    tp = gt_bin & pred_bin
-    fp = (~gt_bin) & pred_bin
-    fn = gt_bin & (~pred_bin)
+    correct_match = (gt_slice > 0) & (pred_slice == gt_slice)
+    class_confusion = (gt_slice > 0) & (pred_slice > 0) & (pred_slice != gt_slice)
+    model_fp = (gt_slice == 0) & (pred_slice > 0)
+    gt_fn = (gt_slice > 0) & (pred_slice == 0)
 
-    comp_rgba = np.zeros((gt_bin.shape[0], gt_bin.shape[1], 4), dtype=np.float32)
-    comp_rgba[tp] = [0.18, 0.80, 0.44, 0.70] # Green = High Agreement
-    comp_rgba[fp] = [0.95, 0.77, 0.06, 0.75] # Yellow = Model Boundary
-    comp_rgba[fn] = [0.91, 0.30, 0.24, 0.75] # Red/Magenta = GT Boundary
+    comp_rgba = np.zeros((gt_slice.shape[0], gt_slice.shape[1], 4), dtype=np.float32)
+    comp_rgba[correct_match] = [0.18, 0.80, 0.44, 0.75]    # Green = Class Match
+    comp_rgba[class_confusion] = [0.20, 0.60, 0.86, 0.80]  # Cyan/Blue = Confusion
+    comp_rgba[model_fp] = [0.95, 0.77, 0.06, 0.75]         # Yellow = Model FP
+    comp_rgba[gt_fn] = [0.91, 0.30, 0.24, 0.75]            # Red = Missed GT
     axes[3].imshow(comp_rgba.swapaxes(0, 1), origin='lower')
-    axes[3].set_title(f"D. Concordance Map\n(Green: Concordant, Yellow: Model, Red: GT)", fontsize=12, fontweight='bold')
+    axes[3].set_title(f"D. Multi-Class Concordance\n(Green: Match, Cyan: Confusion, Yellow: FP, Red: FN)", fontsize=12, fontweight='bold')
     axes[3].axis('off')
 
     legend_patches = [
@@ -491,10 +493,22 @@ def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_pat
         bbox_to_anchor=(0.5, 0.01)
     )
 
+    # Compute case-specific empirical Dice dynamically
+    def calc_dice_single(m1, m2):
+        denom = np.sum(m1) + np.sum(m2)
+        if denom == 0:
+            return 1.0
+        return float(2.0 * np.sum(m1 & m2) / denom)
+
+    case_stom = calc_dice_single(model_mask == 1, gt_mapped == 1)
+    case_duod = calc_dice_single(model_mask == 2, gt_mapped == 2)
+    case_sb = calc_dice_single(model_mask == 3, gt_mapped == 3)
+    case_col = calc_dice_single(model_mask == 4, gt_mapped == 4)
+
     fig.suptitle(
         f"Validation Against Expert Radiologist Annotations: {subject_id}\n"
-        f"Automated Ensemble Consensus vs JHU Ground Truth (Stomach Dice: 0.940, Duodenum Dice: 0.794)",
-        fontsize=15, fontweight='bold', y=0.98
+        f"Automated Pipeline vs JHU Ground Truth (Stomach: {case_stom:.3f}, Duodenum: {case_duod:.3f}, SB: {case_sb:.3f}, Colon: {case_col:.3f} DSC)",
+        fontsize=14, fontweight='bold', y=0.98
     )
 
     plt.tight_layout(rect=[0, 0.04, 1, 0.95])
@@ -647,12 +661,13 @@ def process_subject(subject_id, data_dir, jhu_dir, out_base_dir, mask_dir=None):
         save_obj_mesh(combined_verts, combined_faces, combined_obj_path, organ_name=f"{subject_id}_all_gi")
         print(f"Saved canonical 3D OBJ to {combined_obj_path}")
 
-    # 3. Standardized NIfTI Mask Export (RAS+ space)
+    # 3. Standardized NIfTI Mask Export (Strictly aligned to CT physical grid)
     nifti_dir = os.path.join(out_base_dir, "nifti_masks")
     os.makedirs(nifti_dir, exist_ok=True)
     out_nii_path = os.path.join(nifti_dir, f"{subject_id}_gi_multiclass.nii.gz")
-    nib.save(gi_nii, out_nii_path)
-    print(f"Saved standardized NIfTI mask to {out_nii_path}")
+    out_mask_nii = nib.Nifti1Image(mask_arr, affine=ct_nii.affine, header=ct_nii.header)
+    nib.save(out_mask_nii, out_nii_path)
+    print(f"Saved standardized NIfTI mask (matching CT grid) to {out_nii_path}")
 
     # 4. Generate Visualizations
     vis_dir = os.path.join(out_base_dir, "visualizations")

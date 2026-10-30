@@ -25,9 +25,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-BASE_DIR = "/mnt/scratch/user/chrsong/mp-factory"
+BASE_DIR = os.getenv("MP_FACTORY_DIR", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 OUT_DIR = os.path.join(BASE_DIR, "results/evaluation_reports")
-os.makedirs(OUT_DIR, exist_ok=True)
 
 CSV_POOL = os.path.join(BASE_DIR, "results/model_comparison_pool873.csv")
 CSV_PHASE3 = os.path.join(BASE_DIR, "results/model_comparison_phase3.csv")
@@ -160,6 +159,7 @@ def main():
         return
 
     res_df = pd.DataFrame(results)
+    os.makedirs(OUT_DIR, exist_ok=True)
     out_csv = os.path.join(OUT_DIR, "statistical_significance_report.csv")
     res_df.to_csv(out_csv, index=False)
 

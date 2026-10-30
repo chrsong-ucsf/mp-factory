@@ -40,8 +40,12 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from nnunet_mednext import create_mednext_v1
-from monai.inferers import sliding_window_inference
+try:
+    from nnunet_mednext import create_mednext_v1
+    from monai.inferers import sliding_window_inference
+except ImportError:
+    create_mednext_v1 = None
+    sliding_window_inference = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,14 +63,21 @@ ORGAN_MAP = {
 
 
 def compute_binary_dice(m1: np.ndarray, m2: np.ndarray) -> float:
-    """Computes binary Dice coefficient between two masks."""
+    """
+    Computes binary Dice coefficient between two masks.
+    Returns np.nan if both masks are empty to prevent empty predictions
+    from artificially earning perfect agreement scores.
+    """
     b1 = (m1 > 0)
     b2 = (m2 > 0)
-    denom = b1.sum() + b2.sum()
-    if denom == 0:
-        return 1.0  # Both empty -> perfect agreement
+    s1 = b1.sum()
+    s2 = b2.sum()
+    if s1 == 0 and s2 == 0:
+        return np.nan  # Both empty -> undefined / excluded from Dice
+    if s1 == 0 or s2 == 0:
+        return 0.0     # Total disagreement (one empty, one predicted)
     inter = (b1 & b2).sum()
-    return float(2.0 * inter / denom)
+    return float(2.0 * inter / (s1 + s2))
 
 
 def resample_real_to_target(
@@ -220,11 +231,14 @@ def main():
                 m_real = (pred_real == org_id)
                 m_synth = (pred_synth == org_id)
                 d = compute_binary_dice(m_real, m_synth)
-                case_metrics[f"turing_dice_{org_name}"] = round(d, 4)
-                organ_dices.append(d)
+                case_metrics[f"turing_dice_{org_name}"] = round(d, 4) if not np.isnan(d) else np.nan
+                case_metrics[f"detected_real_{org_name}"] = bool(m_real.sum() > 50)
+                case_metrics[f"detected_synth_{org_name}"] = bool(m_synth.sum() > 50)
+                if not np.isnan(d):
+                    organ_dices.append(d)
 
-            case_metrics["mean_turing_dice"] = round(float(np.mean(organ_dices)), 4)
-            case_metrics["passed_turing_test"] = bool(case_metrics["mean_turing_dice"] >= 0.70)
+            case_metrics["mean_turing_dice"] = round(float(np.mean(organ_dices)), 4) if organ_dices else np.nan
+            case_metrics["passed_turing_test"] = bool(case_metrics["mean_turing_dice"] >= 0.70) if not np.isnan(case_metrics["mean_turing_dice"]) else False
 
             records.append(case_metrics)
             processed += 1

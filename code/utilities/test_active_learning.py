@@ -8,10 +8,18 @@ Comprehensive unit test suite for active learning module:
 """
 
 import os
+import sys
 import shutil
 import tempfile
+from pathlib import Path
 import pandas as pd
 import numpy as np
+
+# Ensure code directory is in sys.path
+code_dir = str(Path(__file__).resolve().parent.parent)
+if code_dir not in sys.path:
+    sys.path.insert(0, code_dir)
+
 from active_learning import (
     UncertaintyEstimator,
     ActiveLearningPool,

@@ -283,19 +283,28 @@ def apply_kinetics(
     noise_core = _add_texture_noise(geo.shape, sigma=4.0, scale=params.core_std_hu)
     core_delta = params.core_mean_hu + noise_core
 
-    # Smooth boundary (soft transition into parenchyma)
-    core_weight = gaussian_filter(core_mask.astype(float), sigma=params.boundary_sigma)
+    # Smooth boundary (soft transition within lesion geometry)
+    core_weight = gaussian_filter(core_mask.astype(float), sigma=params.boundary_sigma) * geo
     ct_out += core_weight * core_delta
 
     # --- Ring/capsule enhancement ------------------------------------------
     if ring_mask is not None and ring_mask.any():
         noise_ring = _add_texture_noise(geo.shape, sigma=2.0, scale=params.ring_std_hu)
         ring_delta = params.ring_mean_hu + noise_ring
-        ring_weight = gaussian_filter(ring_mask.astype(float), sigma=max(0.8, params.boundary_sigma * 0.6))
+        ring_weight = gaussian_filter(ring_mask.astype(float), sigma=max(0.8, params.boundary_sigma * 0.6)) * geo
         ct_out += ring_weight * ring_delta
 
-    # --- Constrain to organ mask (no leakage into air/bone) ----------------
-    # Bone invariance: HU >+400 must not change
+    # --- Strict boundary containment (zero bleed into surrounding parenchyma) ---
+    if organ_mask is not None and np.any(organ_mask):
+        allowed_region = geo & organ_mask.astype(bool)
+    else:
+        allowed_region = geo
+
+    # Voxels outside allowed lesion boundary remain bit-for-bit unchanged
+    outside_mask = ~allowed_region
+    ct_out[outside_mask] = ct_volume[outside_mask]
+
+    # Bone and air invariance: HU >+400 and HU <-500 must never change
     bone_mask = ct_volume > 400.0
     air_mask  = ct_volume < -500.0
     frozen    = bone_mask | air_mask

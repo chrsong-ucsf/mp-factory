@@ -36,39 +36,61 @@ import pandas as pd
 import nrrd
 import nibabel as nib
 import torch
+import SimpleITK as sitk
 from scipy.ndimage import label, binary_erosion, distance_transform_edt
 
 # GT BDMAP Label Definition (radiologist NRRD ground truth)
-# Label IDs from the BDMAP dataset annotation standard
+# Derived from embedded NRRD segment definitions:
+#   1=esophagus, 2=stomach, 3=duodenum, 4=intestine (small bowel), 5=colon, 6=rectum
+# Models evaluate the four primary GI targets:
 GT_ORGAN_MAP = {
     2: 'stomach',
     3: 'duodenum',
-    4: 'jejunum',
-    5: 'ileum',
-    6: 'colon'
+    4: 'small_bowel',  # 'intestine' in NRRD
+    5: 'colon'         # 'colon' in NRRD
 }
-# Note: GT label 1 = esophagus — excluded since models were NOT trained on esophagus
+# Note: GT label 1 = esophagus — excluded since GI models were not trained on esophagus.
+# Rectum (label 6) can be evaluated as part of large bowel if specified.
 
-# Per-model label remapping: maps prediction label IDs -> GT BDMAP label IDs
-# MedNeXt / Swin-UNETR / Ensemble training labels:
-#   1=stomach, 2=duodenum, 3=small_bowel (jejunum+ileum), 4=colon
-# TotalSegmentator v2 full-body labels (relevant GI organs):
-#   18=stomach, 19=duodenum, 20=small_bowel, 57=colon
+# Per-model label remapping: maps prediction label IDs -> GT label IDs
+# GI Models (MedNeXt, Swin-UNETR, Ensemble): 1=stomach, 2=duodenum, 3=small_bowel, 4=colon
+# TotalSegmentator v2 full-body labels (relevant GI organs): 18=stomach, 19=duodenum, 20=small_bowel, 57=colon
 MODEL_LABEL_REMAP = {
-    'MedNeXt':             {1: 2, 2: 3, 3: [4, 5], 4: 6},
-    'MedNeXt_Phase2':      {1: 2, 2: 3, 3: [4, 5], 4: 6},
-    'MedNeXt_Phase3':      {1: 2, 2: 3, 3: [4, 5], 4: 6},
-    'MedNeXt_Pool873':     {1: 2, 2: 3, 3: [4, 5], 4: 6},
-    'Anchor_MedNeXt_N1594':{1: 2, 2: 3, 3: [4, 5], 4: 6},
-    'Swin-UNETR':          {1: 2, 2: 3, 3: [4, 5], 4: 6},
-    'Swin-UNETR_Phase2':   {1: 2, 2: 3, 3: [4, 5], 4: 6},
-    'Swin-UNETR_Phase3':   {1: 2, 2: 3, 3: [4, 5], 4: 6},
-    'EnsembleConsensus':   {1: 2, 2: 3, 3: [4, 5], 4: 6},
-    'TotalSegmentator':    {18: 2, 19: 3, 20: [4, 5], 57: 6},
+    'MedNeXt':             {1: 2, 2: 3, 3: 4, 4: 5},
+    'MedNeXt_Phase2':      {1: 2, 2: 3, 3: 4, 4: 5},
+    'MedNeXt_Phase3':      {1: 2, 2: 3, 3: 4, 4: 5},
+    'MedNeXt_Pool873':     {1: 2, 2: 3, 3: 4, 4: 5},
+    'Anchor_MedNeXt_N1594':{1: 2, 2: 3, 3: 4, 4: 5},
+    'Swin-UNETR':          {1: 2, 2: 3, 3: 4, 4: 5},
+    'Swin-UNETR_Phase2':   {1: 2, 2: 3, 3: 4, 4: 5},
+    'Swin-UNETR_Phase3':   {1: 2, 2: 3, 3: 4, 4: 5},
+    'EnsembleConsensus':   {1: 2, 2: 3, 3: 4, 4: 5},
+    'TotalSegmentator':    {18: 2, 19: 3, 20: 4, 57: 5},
 }
 
 # Keep ORGAN_MAP as alias for compatibility
 ORGAN_MAP = GT_ORGAN_MAP
+
+
+def remap_prediction_labels(pred_data: np.ndarray, model_name: str) -> np.ndarray:
+    """
+    Remaps model prediction labels to GT ground truth label IDs.
+    """
+    model_key = None
+    for k in MODEL_LABEL_REMAP.keys():
+        if k.lower() == model_name.lower() or model_name.lower().startswith(k.lower()):
+            model_key = k
+            break
+    if not model_key:
+        remap = MODEL_LABEL_REMAP.get('MedNeXt', {})
+    else:
+        remap = MODEL_LABEL_REMAP.get(model_key, {})
+
+    remapped = np.zeros_like(pred_data, dtype=np.int64)
+    for pred_label, gt_label in remap.items():
+        mask = (pred_data == pred_label)
+        remapped[mask] = gt_label
+    return remapped
 
 # Expert Radiologist Multi-Phase Mask Propagation Rules
 PROPAGATION_MAP = {
@@ -275,73 +297,24 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 continue
 
             try:
-                gt_data, gt_header = nrrd.read(nrrd_path)
-                pred_nii = nib.load(pred_path)
-                pred_data = pred_nii.get_fdata()
+                # Physical Geometry Alignment (Strictly independent of GT labels / no GT peeking)
+                itk_gt = sitk.ReadImage(nrrd_path)
+                itk_pred = sitk.ReadImage(pred_path)
 
-                pred_data_3d = np.squeeze(pred_data)
+                # Resample prediction into GT physical coordinate space using NearestNeighbor
+                resampler = sitk.ResampleImageFilter()
+                resampler.SetReferenceImage(itk_gt)
+                resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+                resampler.SetDefaultPixelValue(0)
+                itk_pred_aligned = resampler.Execute(itk_pred)
 
-                # Direct 3D array interpolation to GT grid shape
-                if gt_data.shape != pred_data_3d.shape:
-                    print(f"  [INTERPOLATE] {subject_id} {model_name}: {pred_data_3d.shape} -> {gt_data.shape}")
-                    pred_t = torch.from_numpy(pred_data_3d.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-                    pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
-                    pred_data = pred_t.numpy().astype(np.int64)
-                else:
-                    pred_data = pred_data_3d
+                # Convert to numpy arrays in canonical (X, Y, Z) layout
+                pred_data = sitk.GetArrayFromImage(itk_pred_aligned).transpose(2, 1, 0)
+                gt_data = sitk.GetArrayFromImage(itk_gt).transpose(2, 1, 0)
+                voxel_spacing = itk_gt.GetSpacing()  # (sx, sy, sz) in mm
 
-                # Ensure GT mask shape matches prediction shape if propagated from multi-phase scan
-                if gt_data.shape != pred_data.shape:
-                    print(f"  [GT RESAMPLE] {subject_id}: Resampling GT {gt_data.shape} -> {pred_data.shape}")
-                    gt_t = torch.from_numpy(gt_data.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-                    gt_t = torch.nn.functional.interpolate(gt_t, size=pred_data.shape, mode='nearest').squeeze(0).squeeze(0)
-                    gt_data = gt_t.numpy().astype(np.int64)
-
-                # Remap prediction labels to match GT BDMAP label IDs
-                remap = MODEL_LABEL_REMAP.get(model_name, {})
-                if remap:
-                    remapped = np.zeros_like(pred_data, dtype=np.int64)
-                    for pred_label, gt_label in remap.items():
-                        mask = (pred_data == pred_label)
-                        if isinstance(gt_label, list):
-                            z_mid = pred_data.shape[2] // 2
-                            mask_top = np.zeros_like(mask); mask_top[:, :, :z_mid] = mask[:, :, :z_mid]
-                            mask_bot = np.zeros_like(mask); mask_bot[:, :, z_mid:] = mask[:, :, z_mid:]
-                            remapped[mask_top] = gt_label[0]  # jejunum = superior
-                            remapped[mask_bot] = gt_label[1]  # ileum = inferior
-                        else:
-                            remapped[mask] = gt_label
-                    pred_data = remapped
-                    print(f"  [REMAP] Applied {model_name} label remapping")
-
-                # Auto-align orientation by maximizing class-specific multi-organ Dice score
-                def compute_organ_dice_sum(p_arr, g_arr):
-                    s = 0.0
-                    for gid in GT_ORGAN_MAP.keys():
-                        gb = (g_arr == gid)
-                        pb = (p_arr == gid)
-                        d = np.sum(gb) + np.sum(pb)
-                        if d > 0:
-                            s += (2.0 * np.sum(gb & pb)) / d
-                    return s
-
-                candidates = {
-                    'none': pred_data,
-                    'flip_0': np.flip(pred_data, axis=0),
-                    'flip_1': np.flip(pred_data, axis=1),
-                    'flip_2': np.flip(pred_data, axis=2),
-                    'flip_01': np.flip(pred_data, axis=(0, 1)),
-                    'flip_02': np.flip(pred_data, axis=(0, 2)),
-                    'flip_12': np.flip(pred_data, axis=(1, 2)),
-                    'flip_012': np.flip(pred_data, axis=(0, 1, 2)),
-                }
-                scores = {name: compute_organ_dice_sum(arr, gt_data) for name, arr in candidates.items()}
-                best_name = max(scores, key=scores.get)
-                if best_name != 'none' and scores[best_name] > scores['none']:
-                    pred_data = candidates[best_name]
-                    print(f"  [ORIENT ALIGN] Applied {best_name} for {model_name} (organ Dice sum: {scores['none']:.4f} -> {scores[best_name]:.4f})")
-
-
+                # Remap prediction labels to match GT label IDs
+                pred_data = remap_prediction_labels(pred_data, model_name)
 
                 # Load into PyTorch CUDA Tensor
                 gt_tensor = torch.from_numpy(gt_data.astype(np.int64)).to(device)
@@ -364,11 +337,11 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                     gt_mask_np = (gt_data == label_id)
                     pred_mask_np = (pred_data == label_id)
 
-                    # Betti-0 and HD95
+                    # Betti-0 and HD95 with physical voxel spacing
                     gt_b0 = compute_betti_0(gt_mask_np)
                     pred_b0 = compute_betti_0(pred_mask_np)
                     b0_diff = abs(gt_b0 - pred_b0)
-                    hd95 = compute_hd95_fast(gt_mask_np, pred_mask_np)
+                    hd95 = compute_hd95_fast(gt_mask_np, pred_mask_np, voxel_spacing=voxel_spacing)
 
                     row[f'{organ_name}_dice'] = m['dice']
                     row[f'{organ_name}_iou'] = m['iou']

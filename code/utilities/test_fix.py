@@ -31,22 +31,24 @@ val_transforms_fixed = Compose([
     Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
 ])
 
-ct_path = "/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox/BDMAP_00242142/ct.nii.gz"
-lbl_path = "/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out/BDMAP_00242142_consensus.nii.gz"
+if __name__ == '__main__':
+    ct_path = "/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox/BDMAP_00242142/ct.nii.gz"
+    lbl_path = "/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out/BDMAP_00242142_consensus.nii.gz"
 
-print("Running original val_transforms...")
-_, orig_tf = get_transforms()
-ds_orig = Dataset(data=[{"image": ct_path, "label": lbl_path}], transform=orig_tf)
-item_orig = ds_orig[0]
-print("Orig Label Shape:", tuple(item_orig["label"].shape))
-import numpy as np
-fg_orig = np.sum((item_orig["label"].numpy() >= 1) & (item_orig["label"].numpy() <= 4))
-print("Orig Label Foreground:", fg_orig)
+    if os.path.exists(ct_path) and os.path.exists(lbl_path):
+        print("Running original val_transforms...")
+        _, orig_tf = get_transforms()
+        ds_orig = Dataset(data=[{"image": ct_path, "label": lbl_path}], transform=orig_tf)
+        item_orig = ds_orig[0]
+        print("Orig Label Shape:", tuple(item_orig["label"].shape))
+        import numpy as np
+        fg_orig = np.sum((item_orig["label"].numpy() >= 1) & (item_orig["label"].numpy() <= 4))
+        print("Orig Label Foreground:", fg_orig)
 
-print("\nRunning fixed val_transforms...")
-ds_fixed = Dataset(data=[{"image": ct_path, "label": lbl_path}], transform=val_transforms_fixed)
-item_fixed = ds_fixed[0]
-print("Fixed Image Shape:", tuple(item_fixed["image"].shape))
-print("Fixed Label Shape:", tuple(item_fixed["label"].shape))
-fg_fixed = np.sum((item_fixed["label"].numpy() >= 1) & (item_fixed["label"].numpy() <= 4))
-print("Fixed Label Foreground:", fg_fixed)
+        print("\nRunning fixed val_transforms...")
+        ds_fixed = Dataset(data=[{"image": ct_path, "label": lbl_path}], transform=val_transforms_fixed)
+        item_fixed = ds_fixed[0]
+        print("Fixed Image Shape:", tuple(item_fixed["image"].shape))
+        print("Fixed Label Shape:", tuple(item_fixed["label"].shape))
+        fg_fixed = np.sum((item_fixed["label"].numpy() >= 1) & (item_fixed["label"].numpy() <= 4))
+        print("Fixed Label Foreground:", fg_fixed)

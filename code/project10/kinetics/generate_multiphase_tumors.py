@@ -82,18 +82,39 @@ def extract_host_parenchyma_mask(
     organ_type: str = "liver",
 ) -> np.ndarray:
     """
-    Extract boolean host parenchyma mask. If organ mask is unavailable,
-    extract abdominal soft tissue (30 to 120 HU) as an anatomical fallback.
+    Extract boolean host parenchyma mask strictly for the target organ.
+    Requires verified organ-specific mask containment; whole-abdomen fallback is disabled.
     """
-    if organ_mask is not None and np.sum(organ_mask > 0) > 500:
-        return organ_mask > 0
+    if organ_mask is None:
+        log.warning(f"No segmentation mask found for {organ_type}. Soft-tissue fallback disabled.")
+        return np.zeros_like(ct_volume, dtype=bool)
 
-    # Soft tissue fallback (liver/parenchymal HU window, excluding air & bone)
-    soft_tissue = (ct_volume >= 20.0) & (ct_volume <= 140.0)
-    # Ensure margin from edges
-    pad_mask = np.zeros_like(soft_tissue, dtype=bool)
-    pad_mask[16:-16, 16:-16, 16:-16] = True
-    return soft_tissue & pad_mask
+    # Check for TotalSegmentator standard IDs (Liver=5, Pancreas=10) or organ-specific masks
+    if organ_type == "liver":
+        if 5 in organ_mask:
+            parenchyma = (organ_mask == 5)
+        elif np.max(organ_mask) == 1:
+            parenchyma = (organ_mask == 1)
+        else:
+            log.warning("Organ mask provided does not contain valid liver label.")
+            return np.zeros_like(ct_volume, dtype=bool)
+    elif organ_type == "pancreas":
+        if 10 in organ_mask:
+            parenchyma = (organ_mask == 10)
+        elif np.max(organ_mask) == 1:
+            parenchyma = (organ_mask == 1)
+        else:
+            log.warning("Organ mask provided does not contain valid pancreas label.")
+            return np.zeros_like(ct_volume, dtype=bool)
+    else:
+        parenchyma = (organ_mask > 0)
+
+    if np.sum(parenchyma) < 500:
+        log.warning(f"Host organ {organ_type} has fewer than 500 voxels ({np.sum(parenchyma)}). Aborting placement.")
+        return np.zeros_like(ct_volume, dtype=bool)
+
+    return parenchyma
+
 
 
 def main():

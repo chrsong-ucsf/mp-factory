@@ -201,6 +201,9 @@ def main():
     parser.add_argument("--registered_dir", type=str,
                         default="results/project10/registered_volumes",
                         help="Directory containing registered moving/fixed CT volumes")
+    parser.add_argument("--ncct_dir", type=str,
+                        default="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox",
+                        help="Directory containing true native non-contrast (NCCT) CT scans")
     parser.add_argument("--mask_dirs", nargs="+",
                         default=["results/totalseg_gi_masks", "results/totalseg_masks"],
                         help="Directories to search for organ masks")
@@ -268,11 +271,16 @@ def main():
         num_head_channels=64,
     ).to(device)
 
-    if os.path.exists(args.diffusion_checkpoint):
-        ckpt_diff = torch.load(args.diffusion_checkpoint, map_location=device)
-        state_dict_diff = ckpt_diff["model"] if "model" in ckpt_diff else ckpt_diff
-        state_dict_diff = {k.replace("module.", ""): v for k, v in state_dict_diff.items()}
-        model.load_state_dict(state_dict_diff)
+    if not os.path.isfile(args.diffusion_checkpoint):
+        raise FileNotFoundError(
+            f"CRITICAL: Diffusion checkpoint not found at: {args.diffusion_checkpoint}. "
+            "Aborting to prevent uninitialized random-weight generation."
+        )
+
+    ckpt_diff = torch.load(args.diffusion_checkpoint, map_location=device)
+    state_dict_diff = ckpt_diff["model"] if "model" in ckpt_diff else ckpt_diff
+    state_dict_diff = {k.replace("module.", ""): v for k, v in state_dict_diff.items()}
+    model.load_state_dict(state_dict_diff)
     model.eval()
 
     sampler = DDIMSampler(timesteps=1000).to(device)
@@ -290,11 +298,28 @@ def main():
         log.info(f"[{idx}/{len(my_files)}] Generating synthetic contrast volume for: {pair_name}")
 
         try:
-            # Preprocess volume to normalised range [-0.5, 1.0]
-            ncct_tensor = preprocess_ct(ct_path).to(device)
-
-            # Extract subject ID for anatomy conditioning (pair_name format: subject_p0--subject_target)
+            # Extract subject ID for anatomy conditioning and true NCCT resolution
             subject_p0 = pair_name.split("--")[0]
+
+            # Resolve true native NCCT scan (preventing target leakage from registered contrast)
+            ncct_input_file = None
+            if args.ncct_dir and os.path.exists(args.ncct_dir):
+                cands = [
+                    os.path.join(args.ncct_dir, f"{subject_p0}.nii.gz"),
+                    os.path.join(args.ncct_dir, subject_p0, "ct.nii.gz")
+                ]
+                for c in cands:
+                    if os.path.exists(c):
+                        ncct_input_file = c
+                        break
+
+            if ncct_input_file is None:
+                log.warning(f"Native NCCT file for {subject_p0} not found in {args.ncct_dir}. Using registered pair baseline.")
+                ncct_input_file = ct_path
+
+            # Preprocess volume to normalised range [-0.5, 1.0]
+            ncct_tensor = preprocess_ct(ncct_input_file).to(device)
+
             anatomy_mask = load_anatomy_mask(
                 subject_id=subject_p0,
                 mask_dirs=args.mask_dirs,
