@@ -54,7 +54,7 @@ GT_ORGAN_MAP = {
 
 # Per-model label remapping: maps prediction label IDs -> GT label IDs
 # GI Models (MedNeXt, Swin-UNETR, Ensemble): 1=stomach, 2=duodenum, 3=small_bowel, 4=colon
-# TotalSegmentator v2 full-body labels (relevant GI organs): 18=stomach, 19=duodenum, 20=small_bowel, 57=colon
+# TotalSegmentator v2 full-body labels: 6=stomach, 19=duodenum, 18=small_bowel, 20=colon
 MODEL_LABEL_REMAP = {
     'MedNeXt':             {1: 2, 2: 3, 3: 4, 4: 5},
     'MedNeXt_Phase2':      {1: 2, 2: 3, 3: 4, 4: 5},
@@ -65,7 +65,7 @@ MODEL_LABEL_REMAP = {
     'Swin-UNETR_Phase2':   {1: 2, 2: 3, 3: 4, 4: 5},
     'Swin-UNETR_Phase3':   {1: 2, 2: 3, 3: 4, 4: 5},
     'EnsembleConsensus':   {1: 2, 2: 3, 3: 4, 4: 5},
-    'TotalSegmentator':    {18: 2, 19: 3, 20: 4, 57: 5},
+    'TotalSegmentator':    {6: 2, 19: 3, 18: 4, 20: 5},
 }
 
 # Keep ORGAN_MAP as alias for compatibility
@@ -297,43 +297,54 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 continue
 
             try:
-                # 1. Load Ground Truth NRRD and header metadata
+                # 1. Load Ground Truth NRRD and reference physical geometry
                 gt_data, nrrd_header = nrrd.read(nrrd_path)
+                ref_itk = sitk.ReadImage(nrrd_path)
                 if 'space directions' in nrrd_header:
                     s_dirs = np.array(nrrd_header['space directions'])
                     voxel_spacing = tuple(float(s) for s in np.abs(np.diag(s_dirs)))
                 else:
-                    voxel_spacing = (1.5, 1.5, 2.0)
+                    voxel_spacing = tuple(float(s) for s in ref_itk.GetSpacing())
 
-                # 2. Load Model Prediction NIfTI
-                pred_nii = nib.load(pred_path)
-                pred_data_raw = np.squeeze(pred_nii.get_fdata()).astype(np.int64)
+                # 2. Load Model Prediction with Full Image-Coordinate Physical Space Resampling
+                pred_itk = sitk.ReadImage(pred_path)
+                if pred_itk.GetDimension() == 4:
+                    pred_itk = pred_itk[0, :, :, :]
 
-                # 3. Geometric Grid Resampling to GT dimensions (GPU-accelerated nearest neighbor)
-                if pred_data_raw.shape != gt_data.shape:
-                    pred_t = torch.from_numpy(pred_data_raw.astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
-                    pred_t = torch.nn.functional.interpolate(pred_t, size=gt_data.shape, mode='nearest').squeeze(0).squeeze(0)
-                    pred_native = pred_t.cpu().numpy().astype(np.int64)
-                    del pred_t
+                # Check if prediction natively matches reference grid (e.g. TotalSegmentator full volume)
+                if pred_itk.GetSize() == ref_itk.GetSize() and np.allclose(pred_itk.GetDirection(), ref_itk.GetDirection(), atol=1e-2):
+                    pred_aligned = sitk.GetArrayFromImage(pred_itk).transpose(2, 1, 0).astype(np.int64)
+                elif np.allclose(pred_itk.GetDirection(), ref_itk.GetDirection(), atol=1e-2):
+                    # Prediction is in native patient space (e.g. sibling scan with different slice count)
+                    resampler = sitk.ResampleImageFilter()
+                    resampler.SetReferenceImage(ref_itk)
+                    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+                    resampler.SetDefaultPixelValue(0)
+                    res_itk = resampler.Execute(pred_itk)
+                    pred_aligned = sitk.GetArrayFromImage(res_itk).transpose(2, 1, 0).astype(np.int64)
                 else:
-                    pred_native = pred_data_raw
+                    # Model prediction in resampled RAS space (MedNeXt, Swin-UNETR, Ensemble)
+                    # Resample rigorously in physical patient space onto the reference GT grid
+                    ref_sz = np.array(ref_itk.GetSize(), dtype=float)
+                    ref_sp = np.array(ref_itk.GetSpacing(), dtype=float)
+                    p_sz = np.array(pred_itk.GetSize(), dtype=float)
+                    true_sp = tuple(ref_sp * ref_sz / p_sz)
+                    pred_itk.SetSpacing(true_sp)
 
-                # 4. Physical Orientation Transform (Derived purely from header metadata / Zero GT Peeking)
-                # Model predictions are in canonical RAS+. NRRD specifies LPS with space directions.
-                flip_axes = []
-                if 'space directions' in nrrd_header:
-                    s_dirs = np.array(nrrd_header['space directions'])
-                    if s_dirs[0, 0] > 0:  # RAS +X (Right) vs NRRD +X (Left)
-                        flip_axes.append(0)
-                    if s_dirs[1, 1] > 0:  # RAS +Y (Anterior) vs NRRD +Y (Posterior)
-                        flip_axes.append(1)
-                    if s_dirs[2, 2] < 0:  # RAS +Z (Superior) vs NRRD -Z (Inferior)
-                        flip_axes.append(2)
+                    # Physical orientation: RAS direction matrix mapped to patient world space
+                    pred_itk.SetDirection((-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0))
+                    pred_itk.SetOrigin((
+                        ref_itk.GetOrigin()[0] + ref_sz[0] * ref_sp[0],
+                        ref_itk.GetOrigin()[1],
+                        ref_itk.GetOrigin()[2] - ref_sz[2] * ref_sp[2]
+                    ))
 
-                if flip_axes:
-                    pred_aligned = np.flip(pred_native, axis=tuple(flip_axes))
-                else:
-                    pred_aligned = pred_native
+                    resampler = sitk.ResampleImageFilter()
+                    resampler.SetReferenceImage(ref_itk)
+                    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+                    resampler.SetDefaultPixelValue(0)
+                    res_itk = resampler.Execute(pred_itk)
+                    pred_aligned = sitk.GetArrayFromImage(res_itk).transpose(2, 1, 0).astype(np.int64)
 
                 # 5. Unify Rectum (NRRD label 6) with Colon (NRRD label 5) into unified large bowel target
                 gt_data[gt_data == 6] = 5
@@ -382,6 +393,12 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 row['mean_dice'] = np.mean(mean_dices) if mean_dices else np.nan
                 row['mean_hd95'] = np.mean(mean_hd95s) if mean_hd95s else np.nan
                 results.append(row)
+
+                # Incremental flush to disk so no evaluated subject is ever lost
+                out_dir = os.path.dirname(os.path.abspath(out_csv))
+                if out_dir:
+                    os.makedirs(out_dir, exist_ok=True)
+                pd.DataFrame(results).to_csv(out_csv, index=False)
 
                 print(f"  [{subject_id}] Mean Dice: {row['mean_dice']:.4f} | Mean HD95: {row['mean_hd95']:.2f}mm")
 
