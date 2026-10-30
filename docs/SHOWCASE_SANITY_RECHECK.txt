@@ -1,0 +1,156 @@
+SHOWCASE REMEDIATION RECHECK
+October 30, 2026
+
+Verdict: substantial source/test improvements, but remediation is incomplete.
+The showcase still cannot be treated as validated clinical evidence.
+
+Compared original audited commit662a38157bd0e1eb451eac36f36b63ed8ad2298a
+with current HEADb37ce8fad70ab609cfc05eb899c22672e9150f9c.
+Reviewed remediation commitscd0c0fc,276ddbd,b37ce8f. Original findings:
+docs/SHOWCASE_SANITY_REVIEW.txt. That report describes the old checkout;
+this recheck records which problems remain in the current one.
+
+FRESH VALIDATION
+
+python -m pytest --continue-on-collection-errors -q:
+75 passed,5 failed,0 collection errors,6 warnings in11.77seconds.
+All five failures are in tests/test_pipeline_e2e_dryrun.py, requiring absent
+production audit CSVs, CT/consensus files, or trained checkpoints.
+The previously failing dataset/checkpoint test contracts now pass.
+
+85 Python files passed AST syntax checks;74 shell/SLURM files passed bash-n.
+Syntax success does not establish pipeline correctness or cluster execution.
+Ten local showcase links remain unavailable: one result directory and nine
+individual output artifacts. No production results directory is present.
+
+STANDARDS AND IMPLEMENTATION REVIEW
+
+1. [P1] JHU TotalSegmentator mapping is still wrong for current total masks.
+   code/evaluation/evaluate_jhu_radiologist_gpu.py:57-68 maps prediction18
+   to stomach,20 to small bowel,57 to colon. The installed producer's
+   class_map['total'] instead defines6 stomach,18 small_bowel,19 duodenum,
+   20 colon;57 is common_carotid_artery_right. An exact-function probe maps
+   [6,18,19,20] to[0,2,3,4], whereas JHU targets should be[2,4,3,5].
+   Tests that encode the same wrong constants can pass without validating
+   compatibility with the actual producer. Require explicit version/schema
+   metadata and share independently verified mappings across evaluators.
+
+2. [P1] Pancreatic host selection accepts a lung label.
+   code/project10/kinetics/generate_multiphase_tumors.py:101-108 uses
+   label10 for pancreas; current total defines7 pancreas and10 left upper
+   lung. Exact-function probe:1000 label7 voxels produce zero host voxels;
+   1000 label10 voxels are accepted. Binary masks are accepted without
+   verifying which organ they represent. Fix schema and organ provenance
+   before generating pathology-specific lesions.
+
+3. [P1] Training defaults can reinterpret full-body masks as GI masks.
+   train_stage2_synthesis.py:277-282 defaults to results/totalseg_masks with
+   totalseg_task='gi'. run_p10_stage2_synth.sbatch:65-68 uses that directory
+   without setting the newly added schema flag. In
+   datasets/multiphase_paired_dataset.py:225-228, raw labels1..4 are retained
+   as stomach/duodenum/bowel/colon. For current full-body masks these are
+   spleen, right kidney, left kidney, gallbladder. Having valid numeric labels
+   and nonzero foreground therefore does not establish correct anatomy.
+   Make schema explicit in launchers and reject incompatible full-body input.
+
+4. [P1] JHU geometry remains only partially corrected.
+   evaluate_jhu_radiologist_gpu.py:312-336 shape-resizes and manually flips
+   arrays, without using prediction affine, image origins, and complete
+   direction transforms. The removed GT-maximizing orientation search is an
+   improvement, but the replacement assumes all model files are canonical
+   RAS and cannot guarantee physical correspondence. generate_showcase.py:411
+   still discards NRRD geometry against canonical CT/mask arrays. Rebuild
+   GT and predictions in a common physical grid using their actual metadata.
+
+5. [P2] Patient counts still equal scan counts.
+   compile_manuscript_tables.py:154 counts distinct subject_id as patients.
+   evaluate_jhu_radiologist_gpu.py:95-107 explicitly reuses annotations across
+   multiple phase scans of the same patient. Eleven scan IDs do not establish
+   eleven independent patients. Use verified patient/group IDs and report
+   uncertainty and comparisons with those dependencies preserved.
+
+SPEC AND EVIDENCE REVIEW
+
+6. [P1] Target-leakage fallback remains reachable.
+   sample_multiphase_diffusion.py:316-318 assigns ct_path (registered contrast
+   target) whenever native NCCT cannot be found. This preserves the original
+   defect on missing inputs. Existing generated outputs are also skipped, so
+   a simple rerun will retain old leaked outputs. Require true NCCT from a
+   manifest, fail/record missing input, and regenerate a distinct audited run.
+
+7. [P1] Newly generated figure misrepresents an altered contrast image as NCCT.
+   generate_project10_showcase_figures.py:58-60 computes NCCT by subtracting
+   60HU from registered contrast;76 labels it native non-contrast input.
+   SHOWCASE.md:130 repeats that claim. This is an intensity illustration,
+   not an acquired baseline or actual model input. Pearson0.911/SSIM0.759
+   are still hardcoded at100, including when a different fallback pair is
+   selected. Load true source data and derive all statistics from that pair.
+
+8. [P1] The new comparison has invalid visual evidence and incomplete geometry.
+   In the current committed PNG, NCCT and real-reference panels are black,
+   synthetic tissue is bright, and the residual map is almost uniformly at
+   its red limit. This contradicts SHOWCASE.md:133's low residual/aligned
+   boundary claim. The figure generator:50-55 sets size/spacing but omits
+   origin/direction or a physical reference image before subtracting arrays.
+   Confirm common physical geometry and in-bounds patient coverage, then
+   regenerate; changing windowing alone has not repaired the comparison.
+
+9. [P1] Detection flags do not gate preservation scoring.
+   run_clinical_turing_test.py:235-241 records >50-voxel detection flags but
+   ignores them in means and pass decisions; stress evaluator:331-336 does
+   the same. Exact-function probe: only one matching small-bowel voxel gives
+   [NaN,NaN,1,NaN], mean1.0, while all detection flags are false. Both-empty
+   perfect scores are fixed, but reliable organ coverage is not enforced.
+   Define minimum verified coverage and report missing organs explicitly.
+
+10. [P1] Corrected source has not replaced the affected historical figures.
+    Git shows only two Project10 PNGs changed since the original audit. All
+    four JHU comparison images and stress/kinetics curves are unchanged.
+    The visible JHU image still has hardcoded0.940/0.794 title scores and
+    foreground-only concordance despite the corrected source implementation.
+    The stress table still contains the old perfect hollow-organ rows and
+    >=97% conclusion, after the document acknowledges empty-mask artifacts.
+    Require output manifests proving use of corrected inputs, schema, grids,
+    checkpoint identities, and metrics before presenting numbers as updated.
+
+11. [P2] Case tumor values disagree with the embedded figure.
+    SHOWCASE.md:150-152 uses cohort means74.9/188.1/81.9HU to describe the
+    individual case. The actual new PNG labels its lesion106.0/195.9/121.3HU.
+    Keep individual measurements and population summaries separate. The
+    image also remains largely saturated white, obscuring host-organ anatomy.
+
+12. [P2] Scientific claims still exceed measured endpoints.
+    The old hardcoded TotalSegmentator column is now called a literature
+    reference in SHOWCASE.md:203 / compile_manuscript_tables.py:117 without
+    supplying a citation or measured source. Renaming it does not establish
+    provenance. Table3 labels L1<500HU as 'High-Fidelity' and attributes
+    vascular enhancement from overall voxel metrics; no vascular endpoint
+    supports that interpretation. The stress report generator:206,230-232
+    still emits fixed invariance/zero-hallucination conclusions independently
+    of results. Narrow statements to the actual endpoint and evidence.
+
+VERIFIED IMPROVEMENTS
+
+-Missing diffusion checkpoints now raise rather than sampling random weights.
+-Both-empty clinical/stress Dice now returns NaN; all-empty cases cannot pass.
+-A fresh kinetics probe reports zero changed voxels outside lesion geometry.
+-JHU source semantics now separate intestine from colon and merge rectum
+ into the declared large-bowel target; patient spacing is passed to HD95.
+-GT-score-based orientation selection has been removed.
+-New renderer source calculates class-wise concordance and case scores.
+-Singleton table rows show N=1 rather than misleading +/-0.
+-Stage2 checkpoint compatibility, provenance, and dataset tests now pass.
+-The procedural output count has been corrected to7960; the misleading
+92.25% clinical-interchangeability table has been replaced.
+
+None of these source fixes proves that historical production volumes or
+benchmark CSVs have been regenerated. Local results, weights, and production
+metrics remain unavailable. No cluster jobs were started or altered; source
+files and original reports were left unchanged. This file is review feedback.
+
+PRIORITY NEXT GATE
+
+Remove contrast-target fallback and simulated-NCCT mislabeling; correct and
+version all producer-label mappings and training defaults; use physical-grid
+resampling; enforce organ coverage; regenerate data, metrics, tables, and PNGs
+with a run manifest. Then reassess clinical statements against those outputs.
