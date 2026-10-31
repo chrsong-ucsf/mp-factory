@@ -203,7 +203,7 @@ To evaluate whether downstream segmentation models maintain stable anatomical bo
 | **Colon** | 0.641 ± 0.142 | 0.000 ± 0.000 | **0.000 ± 0.000** |
 | **Mean GI Dice** | 0.409 ± 0.114 | 0.001 ± 0.003 | **0.003 ± 0.004** |
 
-*\*Note: TotalSegmentator v2 values reported as literature baseline reference on non-contrast abdominal CT (Wasserthal et al., Radiology 2023 [DOI: 10.1148/radiol.230297]); not measured on this specific 499-scan cohort.*
+*\*Note: TotalSegmentator v2 values reported as literature baseline reference on non-contrast abdominal CT (Wasserthal et al., Radiology: Artificial Intelligence 2023 [DOI: 10.1148/ryai.230024]); per-organ values are unverified literature reference values rather than measured on this specific 499-scan cohort.*
 
 ---
 
@@ -211,16 +211,18 @@ To evaluate whether downstream segmentation models maintain stable anatomical bo
 
 | Architecture | N (Scans) | Patients | Stomach (DSC) | Duodenum (DSC) | Small Bowel (DSC) | Colon (DSC) | Global Mean (DSC) | Mean HD95 (mm) |
 | :--- | :---: | :---: | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TotalSegmentator** | 11 | 6 | 0.829 ± 0.241 | 0.570 ± 0.292 | 0.686 ± 0.291 | 0.712 ± 0.294 | **0.700 ± 0.262** | 27.0 ± 32.1 mm |
-| **MedNeXt** | 11 | 6 | 0.755 ± 0.269 | 0.534 ± 0.246 | 0.000 ± 0.000 | 0.668 ± 0.243 | **0.489 ± 0.181** | 62.5 ± 86.1 mm |
-| **Swin-UNETR** | 11 | 6 | 0.695 ± 0.288 | 0.484 ± 0.218 | 0.000 ± 0.000 | 0.652 ± 0.235 | **0.458 ± 0.179** | 160.6 ± 98.9 mm |
+| **TotalSegmentator** | 11 | 5 | 0.829 ± 0.241 | 0.570 ± 0.292 | 0.686 ± 0.291 | 0.712 ± 0.294 | **0.700 ± 0.262** | 27.0 ± 32.1 mm |
+| **MedNeXt** | 11 | 5 | 0.755 ± 0.269 | 0.534 ± 0.246 | 0.000 ± 0.000 | 0.668 ± 0.243 | **0.489 ± 0.181** | 62.5 ± 86.1 mm |
+| **Swin-UNETR** | 11 | 5 | 0.695 ± 0.288 | 0.484 ± 0.218 | 0.000 ± 0.000 | 0.652 ± 0.235 | **0.458 ± 0.179** | 160.6 ± 98.9 mm |
 | **MedNeXt_Phase2** | 1 | 1 | 0.330 (N=1) | 0.225 (N=1) | 0.140 (N=1) | 0.518 (N=1) | **0.303 (N=1)** | 77.2 (N=1) mm |
 | **Swin-UNETR_Phase2** | 1 | 1 | 0.257 (N=1) | 0.177 (N=1) | 0.054 (N=1) | 0.281 (N=1) | **0.192 (N=1)** | 70.2 (N=1) mm |
-| **EnsembleConsensus** | 11 | 6 | 0.081 ± 0.270 | 0.072 ± 0.238 | 0.019 ± 0.030 | 0.071 ± 0.235 | **0.061 ± 0.184** | 214.9 ± 86.2 mm |
+| **EnsembleConsensus** | 11 | 5 | 0.081 ± 0.270 | 0.072 ± 0.238 | 0.019 ± 0.030 | 0.071 ± 0.235 | **0.061 ± 0.184** | 214.9 ± 86.2 mm |
 | **MedNeXt_Phase3** | 1 | 1 | 0.000 (N=1) | 0.142 (N=1) | 0.010 (N=1) | 0.000 (N=1) | **0.038 (N=1)** | 127.5 (N=1) mm |
 | **MedNeXt_Pool873** | 1 | 1 | 0.000 (N=1) | 0.000 (N=1) | 0.040 (N=1) | 0.000 (N=1) | **0.010 (N=1)** | 68.7 (N=1) mm |
 | **Swin-UNETR_Phase3** | 1 | 1 | 0.000 (N=1) | 0.000 (N=1) | 0.007 (N=1) | 0.000 (N=1) | **0.002 (N=1)** | 135.0 (N=1) mm |
 | **EnsembleConsensus_Phase3** | 1 | 1 | 0.000 (N=1) | 0.013 (N=1) | 0.002 (N=1) | 0.000 (N=1) | **0.004 (N=1)** | 96.8 (N=1) mm |
+
+*\*Note: The 11 evaluated scans correspond to 5 distinct patients annotated across 6 expert NRRD volumes following multi-phase clinical propagation rules.*
 
 ---
 

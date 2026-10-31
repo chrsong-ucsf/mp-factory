@@ -605,6 +605,10 @@ def process_subject(subject_id, data_dir, jhu_dir, out_base_dir, mask_dir=None):
         resampler.SetDefaultPixelValue(0)
         res_mask = resampler.Execute(mask_itk)
 
+    # Ensure canonical RAS+ orientation for both CT and aligned mask
+    ct_itk = sitk.DICOMOrient(ct_itk, "RAS")
+    res_mask = sitk.DICOMOrient(res_mask, "RAS")
+
     mask_arr = sitk.GetArrayFromImage(res_mask).transpose(2, 1, 0).astype(np.uint8)
     ct_arr = sitk.GetArrayFromImage(ct_itk).transpose(2, 1, 0).astype(np.float32)
 

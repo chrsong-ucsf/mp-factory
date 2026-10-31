@@ -39,6 +39,7 @@ python -u "${BASE_DIR}/code/project10/evaluation/sample_multiphase_diffusion.py"
     --diffusion_checkpoint "${BASE_DIR}/results/project10/checkpoints/stage2_synthesis/best_synthesis_net.pt" \
     --out_dir "${OUT_DIR}" \
     --totalseg_task total \
+    --require_conditioning \
     --num_steps 50 \
     --array_id "${SLURM_ARRAY_TASK_ID}" \
     --total_workers 8

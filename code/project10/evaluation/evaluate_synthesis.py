@@ -24,6 +24,10 @@ import torch
 from skimage.metrics import peak_signal_noise_ratio as psnr
 from skimage.metrics import structural_similarity as ssim
 
+BASE_DIR = Path(__file__).resolve().parents[3]
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -45,45 +49,16 @@ def resample_real_to_target(
     spacing_mm: float = 1.5,
 ) -> np.ndarray:
     """
-    Resample ground-truth registered CT volume to 1.5mm isotropic, pad/crop with -1000 HU air,
+    Resample ground-truth registered CT volume using unified common_spatial preprocessing,
     matching the exact spatial grid used by the 3D latent diffusion model.
     """
-    img = sitk.ReadImage(str(real_path))
-    cur_spacing = img.GetSpacing()
-    cur_size = img.GetSize()
-
-    new_spacing = (spacing_mm, spacing_mm, spacing_mm)
-    new_size = [
-        int(round(cur_size[i] * cur_spacing[i] / new_spacing[i])) for i in range(3)
-    ]
-
-    resampler = sitk.ResampleImageFilter()
-    resampler.SetOutputSpacing(new_spacing)
-    resampler.SetSize(new_size)
-    resampler.SetOutputOrigin(img.GetOrigin())
-    resampler.SetOutputDirection(img.GetDirection())
-    resampler.SetInterpolator(sitk.sitkLinear)
-    resampler.SetDefaultPixelValue(-1000.0)
-    resampled = resampler.Execute(img)
-
-    arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)  # (X, Y, Z)
-
-    # Pad or crop symmetrically to target_shape with air background (-1000 HU)
-    vol = np.full(target_shape, -1000.0, dtype=np.float32)
-    min_x = min(arr.shape[0], target_shape[0])
-    min_y = min(arr.shape[1], target_shape[1])
-    min_z = min(arr.shape[2], target_shape[2])
-
-    sx = max(0, (target_shape[0] - arr.shape[0]) // 2)
-    sy = max(0, (target_shape[1] - arr.shape[1]) // 2)
-    sz = max(0, (target_shape[2] - arr.shape[2]) // 2)
-
-    cx = max(0, (arr.shape[0] - target_shape[0]) // 2)
-    cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
-    cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
-
-    vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
-
+    from code.project10.common_spatial import preprocess_single_volume
+    vol, _ = preprocess_single_volume(
+        str(real_path),
+        target_shape=target_shape,
+        spacing=(spacing_mm, spacing_mm, spacing_mm),
+        is_mask=False,
+    )
     return np.clip(vol, -1000.0, 2000.0)
 
 

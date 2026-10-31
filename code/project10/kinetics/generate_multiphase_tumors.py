@@ -96,13 +96,13 @@ def extract_host_parenchyma_mask(
     organ_mask: Optional[np.ndarray],
     organ_type: str = "liver",
     totalseg_task: str = "total",
+    min_voxels: int = 200,
 ) -> np.ndarray:
     """
     Extract boolean host parenchyma mask strictly for the target organ.
     Requires verified organ-specific mask containment; ambiguous binary fallback masks are rejected.
     """
     if organ_mask is None:
-        log.warning(f"No segmentation mask found for {organ_type}. Soft-tissue fallback disabled.")
         return np.zeros_like(ct_volume, dtype=bool)
 
     # Check for TotalSegmentator standard IDs (Liver=5; Pancreas=7 in v2/total, 10 in v1)
@@ -110,7 +110,6 @@ def extract_host_parenchyma_mask(
         if 5 in organ_mask:
             parenchyma = (organ_mask == 5)
         else:
-            log.warning("Organ mask provided does not contain verified liver label (5). Rejecting unverified mask.")
             return np.zeros_like(ct_volume, dtype=bool)
     elif organ_type == "pancreas":
         # In TotalSegmentator v2 (total), label 7 is pancreas (label 10 is lung_upper_lobe_left).
@@ -119,16 +118,77 @@ def extract_host_parenchyma_mask(
         if target_label in organ_mask:
             parenchyma = (organ_mask == target_label)
         else:
-            log.warning(f"Organ mask provided does not contain verified pancreas label {target_label} for schema '{totalseg_task}'. Rejecting unverified mask.")
             return np.zeros_like(ct_volume, dtype=bool)
     else:
         parenchyma = (organ_mask > 0)
 
-    if np.sum(parenchyma) < 500:
-        log.warning(f"Host organ {organ_type} has fewer than 500 voxels ({np.sum(parenchyma)}). Aborting placement.")
+    if np.sum(parenchyma) < min_voxels:
         return np.zeros_like(ct_volume, dtype=bool)
 
     return parenchyma
+
+
+def find_and_extract_host_parenchyma(
+    subject_id: str,
+    mask_dirs: list[Path],
+    ct_vol: np.ndarray,
+    reference_ct_path: Optional[str] = None,
+    organ_type: str = "liver",
+    totalseg_task: str = "total",
+    min_voxels: int = 200,
+) -> Tuple[np.ndarray, Optional[str]]:
+    """
+    Search across candidate files in mask_dirs, resample onto reference CT grid,
+    and return the first candidate containing verified host parenchyma (>= min_voxels).
+    Prevents earlier non-target organ masks (e.g. GI-only) from suppressing valid host masks.
+    Returns (parenchyma_bool_mask, matched_mask_path).
+    """
+    candidate_patterns = [
+        f"{subject_id}.nii.gz",
+        f"{subject_id}.nii",
+        f"{subject_id}_mask.nii.gz",
+        f"{subject_id}_gi_mask.nii.gz",
+        f"{subject_id}_consensus.nii.gz",
+        f"{subject_id}_autolabel.nii.gz",
+    ]
+    ref_itk = None
+    if reference_ct_path and os.path.exists(reference_ct_path):
+        ref_itk = sitk.ReadImage(str(reference_ct_path))
+
+    for mdir in mask_dirs:
+        for fname in candidate_patterns:
+            candidate = mdir / fname
+            if candidate.exists():
+                try:
+                    img = sitk.ReadImage(str(candidate))
+                    resampler = sitk.ResampleImageFilter()
+                    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+                    resampler.SetDefaultPixelValue(0)
+                    if ref_itk is not None:
+                        resampler.SetReferenceImage(ref_itk)
+                    else:
+                        resampler.SetOutputSpacing((1.5, 1.5, 1.5))
+                        resampler.SetSize(ct_vol.shape)
+                        resampler.SetOutputOrigin(img.GetOrigin())
+                        resampler.SetOutputDirection(img.GetDirection())
+                    resampled = resampler.Execute(img)
+                    arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)
+
+                    # Extract parenchyma specifically for organ_type
+                    parenchyma = extract_host_parenchyma_mask(
+                        ct_vol, arr, organ_type=organ_type, totalseg_task=totalseg_task, min_voxels=min_voxels
+                    )
+                    v_count = int(np.sum(parenchyma))
+                    if v_count >= min_voxels:
+                        log.info(f"Matched {organ_type} parenchyma ({v_count} voxels) in {candidate}")
+                        return parenchyma, str(candidate)
+                    else:
+                        log.debug(f"Candidate {candidate} rejected for {organ_type} ({v_count} voxels < {min_voxels}).")
+                except Exception as e:
+                    log.warning(f"Failed inspecting mask {candidate}: {e}")
+
+    log.warning(f"No mask across candidate directories contained valid {organ_type} parenchyma for {subject_id}.")
+    return np.zeros_like(ct_vol, dtype=bool), None
 
 
 
@@ -242,14 +302,21 @@ def main():
 
         try:
             ct_vol, affine = load_nifti_volume(ct_path)
-            organ_raw = find_organ_mask(subject_id, mask_dirs, target_shape=ct_vol.shape, reference_ct_path=str(ct_path))
 
             for t_type in args.tumor_types:
                 organ_name = "pancreas" if t_type == "pdac" else "liver"
-                parenchyma_mask = extract_host_parenchyma_mask(ct_vol, organ_raw, organ_name, totalseg_task=args.totalseg_task)
+                parenchyma_mask, matched_mask = find_and_extract_host_parenchyma(
+                    subject_id=subject_id,
+                    mask_dirs=mask_dirs,
+                    ct_vol=ct_vol,
+                    reference_ct_path=str(ct_path),
+                    organ_type=organ_name,
+                    totalseg_task=args.totalseg_task,
+                    min_voxels=200,
+                )
 
                 if np.sum(parenchyma_mask) < 200:
-                    log.warning(f"[{stem}] Insufficient parenchyma mask voxels for {t_type}. Skipping.")
+                    log.warning(f"[{stem}] Insufficient parenchyma mask voxels for {t_type} ({organ_name}). Skipping.")
                     continue
 
                 # Instantiate augmentor and sample geometry

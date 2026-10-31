@@ -114,9 +114,38 @@ def build_table_1():
     md_code = f"### Table 1: 3D GI Organ Segmentation Performance (N = {len(df)} Scans)\n\n"
     md_code += f"| Organ Target | TotalSegmentator v2 (Ref)* | Swin-UNETR | **{model_name_label}** |\n| :--- | :--- | :--- | :--- |\n"
     md_code += "\n".join(md_rows) + "\n\n"
-    md_code += "*\\*Note: TotalSegmentator v2 values reported as literature baseline reference on non-contrast abdominal CT (Wasserthal et al., Radiology 2023 [DOI: 10.1148/radiol.230297]); not measured on this specific 499-scan cohort.*\n"
+    md_code += "*\\*Note: TotalSegmentator v2 values reported as literature baseline reference on non-contrast abdominal CT (Wasserthal et al., Radiology: Artificial Intelligence 2023 [DOI: 10.1148/ryai.230024]); per-organ values are unverified literature reference values rather than measured on this specific 499-scan cohort.*\n"
 
     return latex_code, md_code
+
+
+# Known multi-phase phase grouping from clinical feedback:
+# Patient 1: 113, 114, 115, 116 (annotated by 113 & 114 NRRDs)
+# Patient 2: 131, 132, 133 (annotated by 131 NRRD)
+# Patient 3: 134 (annotated by 134 NRRD)
+# Patient 4: 135, 136 (annotated by 136 NRRD)
+# Patient 5: 394224 (annotated by 394224 NRRD)
+JHU_SCAN_TO_PATIENT_MAP = {
+    "BDMAP_00242113": "PATIENT_BDMAP_P1",
+    "BDMAP_00242114": "PATIENT_BDMAP_P1",
+    "BDMAP_00242115": "PATIENT_BDMAP_P1",
+    "BDMAP_00242116": "PATIENT_BDMAP_P1",
+    "BDMAP_00242131": "PATIENT_BDMAP_P2",
+    "BDMAP_00242132": "PATIENT_BDMAP_P2",
+    "BDMAP_00242133": "PATIENT_BDMAP_P2",
+    "BDMAP_00242134": "PATIENT_BDMAP_P3",
+    "BDMAP_00242135": "PATIENT_BDMAP_P4",
+    "BDMAP_00242136": "PATIENT_BDMAP_P4",
+    "BDMAP_00394224": "PATIENT_BDMAP_P5",
+}
+
+
+def resolve_jhu_patient_id(row: pd.Series) -> str:
+    """Resolve verified patient ID from known multi-phase phase groups or subject_id."""
+    if "patient_id" in row and pd.notna(row["patient_id"]) and str(row["patient_id"]).strip():
+        return str(row["patient_id"])
+    sid = str(row.get("subject_id", "")).strip()
+    return JHU_SCAN_TO_PATIENT_MAP.get(sid, sid)
 
 
 def build_table_2():
@@ -151,9 +180,7 @@ def build_table_2():
     for m in models:
         sub = df[df["model_name"] == m]
         n_scans = len(sub)
-        n_patients = sub["source_nrrd"].nunique() if "source_nrrd" in sub.columns else (
-            sub["patient_id"].nunique() if "patient_id" in sub.columns else sub["subject_id"].nunique()
-        )
+        n_patients = sub.apply(resolve_jhu_patient_id, axis=1).nunique()
         s_dice = fmt_mean_std(sub["stomach_dice"])
         d_dice = fmt_mean_std(sub["duodenum_dice"])
         sb_dice = fmt_mean_std(sub["small_bowel_dice"]) if "small_bowel_dice" in sub.columns else "N/A"
@@ -175,7 +202,8 @@ def build_table_2():
 
     md_code = f"### Table 2: Johns Hopkins Radiologist Expert Ground-Truth Benchmark (N = {len(df)} Pooled Evaluations)\n\n"
     md_code += "| Architecture | N (Scans) | Patients | Stomach (DSC) | Duodenum (DSC) | Small Bowel (DSC) | Colon (DSC) | Global Mean (DSC) | Mean HD95 (mm) |\n| :--- | :---: | :---: | :--- | :--- | :--- | :--- | :--- | :--- |\n"
-    md_code += "\n".join(rows_md) + "\n"
+    md_code += "\n".join(rows_md) + "\n\n"
+    md_code += "*\\*Note: The 11 evaluated scans correspond to 5 distinct patients annotated across 6 expert NRRD volumes following multi-phase clinical propagation rules.*\n"
 
     return latex_code, md_code
 

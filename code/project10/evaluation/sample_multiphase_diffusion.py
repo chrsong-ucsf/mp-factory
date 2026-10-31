@@ -12,10 +12,14 @@ Supports multi-GPU sharding across SLURM array tasks (--array_id, --total_worker
 import argparse
 import glob
 import hashlib
+import json
 import logging
 import os
 import sys
+import tempfile
+import time
 from pathlib import Path
+from typing import Optional, Tuple, List, Dict
 
 import nibabel as nib
 import numpy as np
@@ -186,10 +190,11 @@ def load_anatomy_mask(
     device=torch.device("cpu"),
     totalseg_task="auto",
     require_conditioning=False,
+    reference_ct_path: Optional[str] = None,
 ) -> torch.Tensor:
     """
-    Load 5-organ GI mask if available, semantically remap TotalSeg if needed,
-    one-hot encode, and downsample to latent resolution.
+    Load 5-organ GI mask if available, physically align to reference CT grid,
+    semantically remap TotalSeg if needed, one-hot encode, and downsample to latent resolution.
     Explicit totalseg_task takes strict precedence over content heuristics.
     Falls back to neutral background prior [1, 0, 0, 0, 0] if no mask is found
     and require_conditioning is False.
@@ -203,47 +208,60 @@ def load_anatomy_mask(
         "_gi_seg.nii.gz",
         "_autolabel.nii.gz",
     ]
+
+    ref_ct_itk = None
+    if reference_ct_path and os.path.exists(reference_ct_path):
+        try:
+            ref_ct_itk = sitk.ReadImage(str(reference_ct_path))
+        except Exception as e:
+            log.warning(f"Could not load reference CT from {reference_ct_path}: {e}")
+
     for mdir in mask_dirs:
         for sfx in candidate_suffixes:
             mpath = os.path.join(mdir, f"{subject_id}{sfx}")
             if os.path.exists(mpath):
                 try:
-                    try:
+                    vol = None
+                    if ref_ct_itk is not None:
+                        # 1. Physical alignment: resample mask into reference CT geometry
+                        mask_itk = sitk.ReadImage(mpath)
+                        resampler = sitk.ResampleImageFilter()
+                        resampler.SetReferenceImage(ref_ct_itk)
+                        resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+                        resampler.SetDefaultPixelValue(0)
+                        res_mask_itk = resampler.Execute(mask_itk)
+                        native_arr = sitk.GetArrayFromImage(res_mask_itk)
+
+                        # Check physical overlap with CT volume
+                        if np.sum(native_arr > 0) == 0:
+                            log.warning(f"Mask {mpath} has zero physical overlap with reference CT {reference_ct_path}.")
+                            if require_conditioning:
+                                raise ValueError(
+                                    f"Mask {mpath} has zero physical overlap with reference CT {reference_ct_path}."
+                                )
+                            continue
+
+                        # Save aligned native mask to temp file and preprocess with unified MONAI pipeline
+                        with tempfile.NamedTemporaryFile(suffix=".nii.gz", delete=False) as tmp_f:
+                            tmp_path = tmp_f.name
+                        try:
+                            sitk.WriteImage(res_mask_itk, tmp_path)
+                            vol, _ = preprocess_single_volume(
+                                tmp_path,
+                                target_shape=target_shape,
+                                spacing=(1.5, 1.5, 1.5),
+                                is_mask=True,
+                            )
+                        finally:
+                            if os.path.exists(tmp_path):
+                                os.unlink(tmp_path)
+                    else:
                         vol, _ = preprocess_single_volume(
                             mpath,
                             target_shape=target_shape,
                             spacing=(1.5, 1.5, 1.5),
                             is_mask=True,
                         )
-                    except Exception:
-                        img = sitk.ReadImage(mpath)
-                        current_spacing = img.GetSpacing()
-                        current_size = img.GetSize()
-                        new_size = [
-                            int(round(current_size[i] * current_spacing[i] / 1.5))
-                            for i in range(3)
-                        ]
-                        resampler = sitk.ResampleImageFilter()
-                        resampler.SetOutputSpacing((1.5, 1.5, 1.5))
-                        resampler.SetSize(new_size)
-                        resampler.SetOutputOrigin(img.GetOrigin())
-                        resampler.SetOutputDirection(img.GetDirection())
-                        resampler.SetInterpolator(sitk.sitkNearestNeighbor)
-                        resampler.SetDefaultPixelValue(0)
-                        resampled = resampler.Execute(img)
-                        arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)
-
-                        vol = np.zeros(target_shape, dtype=np.uint8)
-                        min_x = min(arr.shape[0], target_shape[0])
-                        min_y = min(arr.shape[1], target_shape[1])
-                        min_z = min(arr.shape[2], target_shape[2])
-                        sx = max(0, (target_shape[0] - arr.shape[0]) // 2)
-                        sy = max(0, (target_shape[1] - arr.shape[1]) // 2)
-                        sz = max(0, (target_shape[2] - arr.shape[2]) // 2)
-                        cx = max(0, (arr.shape[0] - target_shape[0]) // 2)
-                        cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
-                        cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
-                        vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
 
                     # Semantic remapping to 5-class GI scheme (0=bg, 1=stomach, 2=duodenum, 3=small bowel, 4=colon)
                     mapped = np.zeros_like(vol, dtype=np.uint8)
@@ -291,6 +309,8 @@ def load_anatomy_mask(
                     return F.interpolate(one_hot, size=latent_shape, mode="nearest")
                 except Exception as e:
                     log.warning(f"Failed loading mask from {mpath}: {e}")
+                    if require_conditioning:
+                        raise
 
     if require_conditioning:
         raise FileNotFoundError(
@@ -332,6 +352,8 @@ def main():
                         help="Allow diffusion checkpoint without Stage 1 AE or conditioning metadata")
     parser.add_argument("--require_conditioning", action="store_true",
                         help="Strictly fail if organ conditioning mask is missing or empty")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Force regenerate existing synthetic volumes and provenance sidecars")
     parser.add_argument("--max_samples", type=int, default=None, help="Maximum scans to sample per worker")
     args = parser.parse_args()
 
@@ -383,6 +405,9 @@ def main():
             "Aborting to prevent uninitialized random-weight generation."
         )
 
+    diff_sha = checkpoint_sha256(args.diffusion_checkpoint)
+    log.info(f"Loaded Stage 2 Diffusion SHA256: {diff_sha[:12]}...")
+
     ckpt_diff = torch.load(args.diffusion_checkpoint, map_location=device)
 
     # Validate AE Identity
@@ -403,6 +428,9 @@ def main():
     # Validate Conditioning Identity
     ckpt_cond = ckpt_diff.get("conditioning")
     if ckpt_cond is not None:
+        if not args.require_conditioning:
+            args.require_conditioning = True
+            log.info("[Provenance Check] Enforcing --require_conditioning as checkpoint was trained with anatomy conditioning.")
         if isinstance(ckpt_cond, dict):
             train_task = ckpt_cond.get("totalseg_task")
             if args.totalseg_task == "auto" and train_task:
@@ -446,17 +474,29 @@ def main():
         filename = os.path.basename(ct_path)
         pair_name = filename.replace("_reg.nii.gz", "")
         out_path = os.path.join(args.out_dir, f"{pair_name}_synthetic_contrast.nii.gz")
+        prov_path = os.path.join(args.out_dir, f"{pair_name}_provenance.json")
 
-        if os.path.exists(out_path):
+        if os.path.exists(out_path) and not args.overwrite:
             try:
-                test_nii = nib.load(out_path)
-                test_data = test_nii.get_fdata()
-                if test_nii.shape == (128, 128, 128) and np.all(np.isfinite(test_data)):
-                    log.info(f"[{idx}/{len(my_files)}] Skipping valid existing: {pair_name}")
+                is_valid = False
+                if os.path.exists(prov_path):
+                    with open(prov_path, "r") as pf:
+                        prov_data = json.load(pf)
+                    if (
+                        prov_data.get("diffusion_checkpoint_sha256") == diff_sha
+                        and prov_data.get("ae_checkpoint_sha256") == ae_sha
+                        and prov_data.get("totalseg_task") == args.totalseg_task
+                    ):
+                        test_nii = nib.load(out_path)
+                        test_data = test_nii.get_fdata()
+                        if test_nii.shape == (128, 128, 128) and np.all(np.isfinite(test_data)):
+                            is_valid = True
+                if is_valid:
+                    log.info(f"[{idx}/{len(my_files)}] Skipping valid existing verified: {pair_name}")
                     skipped_count += 1
                     continue
                 else:
-                    log.warning(f"Existing {out_path} has corrupted shape/values {test_nii.shape}, regenerating...")
+                    log.warning(f"Existing {out_path} lacks verified provenance or is corrupted, regenerating...")
             except Exception as e:
                 log.warning(f"Existing {out_path} unreadable ({e}), regenerating...")
 
@@ -502,6 +542,7 @@ def main():
                 device=device,
                 totalseg_task=args.totalseg_task,
                 require_conditioning=args.require_conditioning,
+                reference_ct_path=ncct_input_file,
             )
 
             with torch.no_grad():
@@ -527,7 +568,26 @@ def main():
                 # Save as NIfTI with resampled physical affine coordinate system
                 nii = nib.Nifti1Image(fake_hu, affine=resampled_affine)
                 nib.save(nii, out_path)
-                log.info(f"  [+] Saved synthetic CT volume -> {out_path}")
+
+                # Write provenance metadata sidecar
+                prov_meta = {
+                    "pair_name": pair_name,
+                    "subject_p0": subject_p0,
+                    "ncct_input_file": ncct_input_file,
+                    "diffusion_checkpoint": args.diffusion_checkpoint,
+                    "diffusion_checkpoint_sha256": diff_sha,
+                    "ae_checkpoint": args.ae_checkpoint,
+                    "ae_checkpoint_sha256": ae_sha,
+                    "totalseg_task": args.totalseg_task,
+                    "require_conditioning": args.require_conditioning,
+                    "target_shape": [128, 128, 128],
+                    "spacing_mm": 1.5,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }
+                with open(prov_path, "w") as pf:
+                    json.dump(prov_meta, pf, indent=2)
+
+                log.info(f"  [+] Saved synthetic CT volume -> {out_path} (with provenance)")
                 generated_count += 1
 
         except Exception as e:
@@ -536,11 +596,14 @@ def main():
 
     log.info(
         f"Worker {args.array_id} summary: {len(my_files)} assigned, "
-        f"{skipped_count} skipped, {generated_count} newly generated, "
+        f"{skipped_count} skipped verified, {generated_count} newly generated, "
         f"{failed_count} failed, {attempted_count} attempted."
     )
-    if attempted_count > 0 and failed_count == attempted_count:
-        raise RuntimeError(f"All {failed_count} attempted inference scans failed on worker {args.array_id}.")
+    if failed_count > 0:
+        if failed_count == attempted_count:
+            raise RuntimeError(f"All {failed_count} attempted inference scans failed on worker {args.array_id}.")
+        else:
+            log.warning(f"Partial run failure: {failed_count}/{attempted_count} attempted scans failed on worker {args.array_id}.")
 
 
 if __name__ == "__main__":
