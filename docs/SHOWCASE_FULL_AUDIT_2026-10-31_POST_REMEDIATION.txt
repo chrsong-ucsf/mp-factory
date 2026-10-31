@@ -1,0 +1,191 @@
+FULL POST-REMEDIATION SHOWCASE AUDIT
+October 31, 2026
+
+Audited source commit:48c71ea5a7a3d9e240e3fa6e03999b9a347692d0.
+Verdict: major P9 geometry defects are now resolved in actual application
+functions, and several P10 safeguards work. Remaining spatial-contract and
+evidence defects still prevent treating the showcase as fully validated.
+
+Scope: complete SHOWCASE.md, all20 associated P9/P10 PNGs including18 embedded
+images, local annotation metadata/volume CSV, P9 evaluators/renderers/table
+compiler, P10 preprocessing/training/inference/metrics/conditioning/tumors,
+launchers, and tests. This report audits source and available local evidence;
+it does not submit cluster work or regenerate unavailable production outputs.
+The source working tree was clean at audit start. Only this report was added.
+
+FRESH VERIFICATION
+
+-python -m pytest --continue-on-collection-errors -q:
+ 81 passed,5 failed,0 collection errors in14.46seconds.
+ The five failures require unavailable production CSVs, CT/consensus files,
+ or trained checkpoints in tests/test_pipeline_e2e_dryrun.py. They cover
+ merge/export, real autolabeling, checkpoint load, discovery, and data loading.
+-Built-in project_wide_sanity_check.py:31 checks,10 passed,17 warnings,
+ 3 failures; exit1. The remaining status item is INFO. Failures: missing
+ ensemble audit CSV, missing multiphase manifest, unavailable nnunet_mednext
+ in the standalone metric smoke check. This is a local inventory result.
+-87 Python files pass AST syntax;75 shell/SLURM files pass bash-n.
+-Pyflakes reports undefined pd in train_stage2_synthesis.py:370. That fallback
+ branch is not used by the current normal dataset contract, so this is a
+ static diagnostic rather than a demonstrated production training failure.
+-All18 embedded PNGs exist/decode; all20 associated PNGs were visually reviewed.
+ No figure changed in the latest remediation commit.
+-Ten local output links remain unavailable: one directory and nine artifact
+ downloads. These are not evidence that remote cluster files are absent.
+-All16 volume rows agree with the local CSV; actual-header voxel arithmetic
+ has a maximum rounding residual0.0049375cm3. This does not establish accuracy
+ of the masks from which those counts were originally derived.
+-git diff --check was clean. Remote main matched the audited source commit
+ before the audit report was committed.
+
+CONFIRMED REMAINING FINDINGS
+
+1. [P1] P10 synthesis and clinical metrics still use a different spatial grid.
+   Sampler preprocessing now calls common_spatial.preprocess_single_volume,
+   which uses MONAI. run_clinical_turing_test.py:89-122 and
+   evaluate_synthesis.py:51-85 retain manually rounded SimpleITK resampling.
+   Exact-function20-cubed1mm ramp to8-cubed probe:
+   -Sampler xHU:45,60,75,90,105,120,135,150.
+   -Clinical evaluator xHU:30,45,60,75,90,105,120,135.
+   -Synthesis evaluator xHU:30,45,60,75,90,105,120,135.
+   The center-crop change alone did not unify resampling extents. Route every
+   evaluation through the common transform or resample the target to the
+   actual generated NIfTI physical reference. Direct array subtraction and
+   anatomical agreement are not valid until correspondence is established.
+
+2. [P1] Inference organ conditioning still discards physical alignment.
+   sample_multiphase_diffusion.py:212 independently preprocesses each mask,
+   discards its affine, and receives no source CT/reference grid. A fresh
+   exact-loader probe shifted a GI mask1000mm in X. With strict conditioning
+   enabled, it still returned512 duodenum voxels, identical to the unshifted
+   mask's conditioning tensor. Independently centering arrays is not physical
+   registration. Pass the actual CT patch reference and resample the mask
+   into it; reject zero/insufficient overlap instead of checking array support.
+
+3. [P1/P2] Required conditioning remains optional in the production launcher.
+   The loader's require_conditioning option defaults false, and
+   run_p10_sample_multiphase.sbatch omits --require_conditioning. Missing or
+   unusable masks can therefore still become neutral background priors even
+   for a checkpoint trained with anatomical conditioning. The strict option
+   is implemented, but does not protect the default production command.
+   Make conditioning requirements part of the checkpoint/run contract and
+   enforce them in the launcher and sampler.
+
+4. [P1/P2] Default tumor-mask discovery can suppress a valid host mask.
+   generate_multiphase_tumors.py:67-88 returns the first existing mask.
+   Default GI directories at149-151 precede the full-body directory; main
+   at245/249 never retries after host extraction rejects that first mask.
+   Fresh probe: a GI label4 mask was selected and yielded zero liver voxels,
+   despite1000 valid liver voxels in a later full-body candidate. Search by
+   verified requested organ/schema and sufficient physical overlap, rather
+   than file existence. Report rejected candidates and skipped lesions.
+
+5. [P2] Native-grid rendering/export contradicts canonical-RAS claims.
+   The corrected process_subject now uses native CT arrays at
+   generate_showcase.py:608-609 and writes native geometry at721. Orthoview
+   axis labels at205-214 and 3D views at327-328 still assume RAS/+Z superior;
+   the showcase promises canonicalRAS+. An actual process_subject probe
+   exported LAI orientation, not RAS. Physical alignment is now correct, but
+   head-up orientation and anatomical axis labels are not guaranteed. Either
+   canonicalize the aligned common grid or derive labels and mesh coordinates
+   from the full physical transform, and describe the exported space accurately.
+
+6. [P2] Annotation filenames are still being counted as patients.
+   compile_manuscript_tables.py:154-156 prioritizes source_nrrd over even an
+   available patient_id. The radiologist feedback guide:22-26 explicitly
+   identifies113 and114 as sibling phases of one patient with separately
+   edited annotation files. Therefore six NRRDs do not establish six patients.
+   The new test asserts the same incorrect proxy. Prefer verified patient_id,
+   resolve known phase groups, and call annotation counts annotation counts.
+
+7. [P2] Six new regression tests mostly test independent demonstrations.
+   tests/test_audit_remediation_regressions.py:29-72 exercises SimpleITK
+   directly;76-102 defines its own filtering; subsequent tests copy mapping,
+   gating, splitting, and counting logic. They do not call the production
+   evaluator/loader/compiler. They could pass while the old defects remained
+   in application code, and do not establish coverage of all16 prior findings.
+   Use actual application functions with temporary inputs, including shifted
+   and reoriented grids, uncertainty artifacts, native1mm resampling, and
+   independent patient metadata. Direct audit probes independently verified
+   the P9 fixes; the six new pytest passes alone did not prove them.
+
+8. [P2] The new TotalSegmentator citation has the wrong DOI and no value trace.
+   SHOWCASE.md and compile_manuscript_tables.py:117 cite10.1148/radiol.230297.
+   The actual2023 paper's DOI is10.1148/ryai.230024, in Radiology: Artificial
+   Intelligence. The publisher/PMC paper reports overall test Dice0.943 and
+   links per-structure results; merely citing it does not demonstrate the
+   origin of this table's literal stomach0.000/duodenum0.412/etc. Keep those
+   values unverified until their exact table/dataset/version/subset and
+   aggregation can be reproduced. Do not replace them with the paper's overall
+   Dice, which measures a different endpoint.
+   Primary source: https://pmc.ncbi.nlm.nih.gov/articles/PMC10546353/
+   Publisher DOI: https://doi.org/10.1148/ryai.230024
+
+9. [P2] Historical output identity remains unverified during sampling reruns.
+   sample_multiphase_diffusion.py:450-457 accepts and skips any existing finite
+   128-cubed volume without comparing input/checkpoint/schema/transform identity.
+   Historically leaked or differently cropped outputs can therefore survive a
+   corrected run. Mixed generation failures can also still return success;
+   only all-attempted-failed raises at542-543. Keep per-output provenance and
+   distinguish complete, partial, skipped-unverified, and failed runs. Prefer
+   a new versioned output directory for corrected production regeneration.
+
+10. [P2] Available figures/tables still mix historical evidence and current code.
+    No PNG changed in this remediation. Three JHU comparisons retain old
+    class mapping/concordance/title scores; their detailed case sections still
+    make current-sounding accuracy claims, even though the conclusion now
+    labels cases1-3 legacy. Keep legacy qualification beside every affected
+    claim and regenerate all evidence from one audited run. The P10 comparison
+    and tumor images remain heavily saturated; additional explanatory prose
+    does not validate anatomical/vascular fidelity. Tables for50 JHU rows,
+    1067 synthetic volumes, and1990 lesions have no local raw results/manifests
+    from which corrected values can be independently regenerated.
+
+VERIFIED RESOLUTIONS
+
+Fresh actual application-function probes now pass:
+-JHU prediction shifted1000mm: Dice0.0, as physically expected.
+-Same physical mask in the opposite image direction: Dice1.0.
+-Phase3 ensemble selects consensus and excludes uncertainty: Dice1.0.
+-Physically shifted showcase mask exports zero foreground rather than moving
+ its label voxels onto the CT by changing metadata.
+
+Additional source/loader fixes confirmed:
+-Explicit total_v1 schema now takes precedence. Exact loader probe with511
+ duodenum56 voxels plus one non-GI18 voxel returns class totals
+ [background1,stomach0,duodenum511,small bowel0,colon0].
+-Training-supported suffixes are now discovered during sampling.
+-Inference verifies the Stage1 AE hash against diffusion checkpoint metadata
+ and resolves/checks the recorded mask task, subject to the limitations above.
+-Minimum anatomical support now controls clinical/stress scoring; eligible
+ counts are recorded. Both-empty masks remain excluded with NaN.
+-Stage2 launcher explicitly selects total masks; training groups pair rows by
+ patient_id. Actual production group counts require the unavailable manifest.
+-Sampler preserves the common MONAI preprocessing affine on generated outputs.
+-Tumor generation receives the requested schema through the CLI and physically
+ resamples masks to the generated CT reference; candidate selection still needs
+ the organ-aware fix in finding4.
+-Sampler tracks attempted/generated/skipped/failed counts separately and fails
+ when every attempted generation fails, even if old files were skipped.
+-Audit inventory messages are narrower, and the INFO status no longer becomes
+ a failure. Tumor case text separates individual measurements from cohort means.
+-The document now acknowledges conditional stress means and low cohort pass
+ rates rather than claiming broad clinical robustness from them.
+
+PRIORITY NEXT STEPS
+
+1. Unify actual CT/target/mask physical references across inference and both
+   evaluation routes; make strict conditioning part of the production contract.
+2. Replace copied regression demonstrations with production-function tests.
+3. Correct tumor host discovery, patient metadata, orientation labeling, and
+   bibliographic/value provenance before regenerating the publication artifacts.
+4. Generate a versioned output run with complete input/checkpoint/schema/grid
+   manifests, then rebuild every affected figure/table from those source rows.
+
+BOUNDARY
+
+Production datasets, checkpoint files, raw metric CSVs, and run manifests are
+absent locally. Tests and temporary-volume probes validate executable local
+behavior, not cluster completion or clinical utility. No production job was
+submitted/restarted/altered. This audit report is the only repository change
+made by this audit; it is intended to be committed and pushed as requested.
