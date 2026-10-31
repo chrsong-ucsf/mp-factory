@@ -111,10 +111,15 @@ def resample_real_to_target(
     min_y = min(arr.shape[1], target_shape[1])
     min_z = min(arr.shape[2], target_shape[2])
 
-    sx = (target_shape[0] - min_x) // 2
-    sy = (target_shape[1] - min_y) // 2
-    sz = (target_shape[2] - min_z) // 2
-    vol[sx:sx+min_x, sy:sy+min_y, sz:sz+min_z] = arr[:min_x, :min_y, :min_z]
+    sx = max(0, (target_shape[0] - arr.shape[0]) // 2)
+    sy = max(0, (target_shape[1] - arr.shape[1]) // 2)
+    sz = max(0, (target_shape[2] - arr.shape[2]) // 2)
+
+    cx = max(0, (arr.shape[0] - target_shape[0]) // 2)
+    cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
+    cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
+
+    vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
     return vol
 
 
@@ -227,18 +232,30 @@ def main():
             }
 
             organ_dices = []
+            eligible_count = 0
             for org_id, org_name in ORGAN_MAP.items():
                 m_real = (pred_real == org_id)
                 m_synth = (pred_synth == org_id)
-                d = compute_binary_dice(m_real, m_synth)
-                case_metrics[f"turing_dice_{org_name}"] = round(d, 4) if not np.isnan(d) else np.nan
-                case_metrics[f"detected_real_{org_name}"] = bool(m_real.sum() > 50)
-                case_metrics[f"detected_synth_{org_name}"] = bool(m_synth.sum() > 50)
-                if not np.isnan(d):
-                    organ_dices.append(d)
+                r_sum = int(m_real.sum())
+                s_sum = int(m_synth.sum())
+                is_detected_real = bool(r_sum >= 50)
+                is_detected_synth = bool(s_sum >= 50)
+                case_metrics[f"detected_real_{org_name}"] = is_detected_real
+                case_metrics[f"detected_synth_{org_name}"] = is_detected_synth
 
+                # Require minimum eligible support (>= 50 voxels in reference real CT)
+                if is_detected_real:
+                    d = compute_binary_dice(m_real, m_synth)
+                    case_metrics[f"turing_dice_{org_name}"] = round(d, 4) if not np.isnan(d) else np.nan
+                    if not np.isnan(d):
+                        organ_dices.append(d)
+                        eligible_count += 1
+                else:
+                    case_metrics[f"turing_dice_{org_name}"] = np.nan
+
+            case_metrics["eligible_organs_count"] = eligible_count
             case_metrics["mean_turing_dice"] = round(float(np.mean(organ_dices)), 4) if organ_dices else np.nan
-            case_metrics["passed_turing_test"] = bool(case_metrics["mean_turing_dice"] >= 0.70) if not np.isnan(case_metrics["mean_turing_dice"]) else False
+            case_metrics["passed_turing_test"] = bool(eligible_count > 0 and case_metrics["mean_turing_dice"] >= 0.70)
 
             records.append(case_metrics)
             processed += 1

@@ -114,7 +114,7 @@ def build_table_1():
     md_code = f"### Table 1: 3D GI Organ Segmentation Performance (N = {len(df)} Scans)\n\n"
     md_code += f"| Organ Target | TotalSegmentator v2 (Ref)* | Swin-UNETR | **{model_name_label}** |\n| :--- | :--- | :--- | :--- |\n"
     md_code += "\n".join(md_rows) + "\n\n"
-    md_code += "*\\*Note: TotalSegmentator v2 values reported as literature baseline reference on non-contrast abdominal CT; not measured on this specific 499-scan cohort.*\n"
+    md_code += "*\\*Note: TotalSegmentator v2 values reported as literature baseline reference on non-contrast abdominal CT (Wasserthal et al., Radiology 2023 [DOI: 10.1148/radiol.230297]); not measured on this specific 499-scan cohort.*\n"
 
     return latex_code, md_code
 
@@ -151,7 +151,9 @@ def build_table_2():
     for m in models:
         sub = df[df["model_name"] == m]
         n_scans = len(sub)
-        n_patients = sub["subject_id"].nunique()
+        n_patients = sub["source_nrrd"].nunique() if "source_nrrd" in sub.columns else (
+            sub["patient_id"].nunique() if "patient_id" in sub.columns else sub["subject_id"].nunique()
+        )
         s_dice = fmt_mean_std(sub["stomach_dice"])
         d_dice = fmt_mean_std(sub["duodenum_dice"])
         sb_dice = fmt_mean_std(sub["small_bowel_dice"]) if "small_bowel_dice" in sub.columns else "N/A"
@@ -188,9 +190,9 @@ def build_table_3():
     n_total = len(df)
 
     cohorts = [
-        ("High-Fidelity Synthesis", df["L1_Error"] < 500.0, "High structural correlation; vascular contrast enhancement"),
-        ("Air Background Offset", (df["L1_Error"] >= 500.0) & (df["L1_Error"] <= 2000.0), "Background air outside patient body decoded to ~0 HU instead of -1000 HU"),
-        ("Diffusion Trajectory Saturation", df["L1_Error"] > 2000.0, "Reverse diffusion saturation at clipping limits; intensity artifacts"),
+        ("High-Fidelity Synthesis", df["L1_Error"] < 500.0, "L1 < 500 HU cohort; higher structural correlation and windowed contrast fidelity"),
+        ("Air Background Offset", (df["L1_Error"] >= 500.0) & (df["L1_Error"] <= 2000.0), "500-2000 HU cohort; background air outside patient body decoded to ~0 HU instead of -1000 HU"),
+        ("Diffusion Trajectory Saturation", df["L1_Error"] > 2000.0, "L1 > 2000 HU cohort; reverse diffusion trajectory saturation at intensity clipping limits"),
         ("Consolidated Cohort", pd.Series([True] * len(df)), "Overall population metrics across all 1,067 synthesized volumes"),
     ]
 
@@ -228,7 +230,7 @@ def build_table_3():
 
     md_code = f"""### Table 3: Project 10 Multiphase Generative CT Synthesis Benchmarks (N = {n_total} Scans)
 
-| Cohort Category | Scans (%) | Overall L1 (HU) | Body L1 (> -500 HU) | SSIM | PSNR | Pearson R | Physical Mechanism / Interpretation |
+| Cohort Category | Scans (%) | Overall L1 (HU) | Body L1 (> -500 HU) | SSIM | PSNR | Pearson R | Cohort Partition Description / Observations |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 """ + "\n".join(rows_md) + "\n"
 

@@ -53,21 +53,36 @@ def find_organ_mask(
     subject_id: str,
     mask_dirs: List[Path],
     target_shape: Tuple[int, int, int] = (128, 128, 128),
+    reference_ct_path: Optional[str] = None,
 ) -> Optional[np.ndarray]:
-    """Search for TotalSegmentator or GI organ mask and resample to target_shape."""
+    """Search for TotalSegmentator or GI organ mask and resample physically to reference CT patch."""
+    candidate_patterns = [
+        f"{subject_id}.nii.gz",
+        f"{subject_id}.nii",
+        f"{subject_id}_mask.nii.gz",
+        f"{subject_id}_gi_mask.nii.gz",
+        f"{subject_id}_consensus.nii.gz",
+        f"{subject_id}_autolabel.nii.gz",
+    ]
     for mdir in mask_dirs:
-        for ext in [".nii.gz", ".nii"]:
-            candidate = mdir / f"{subject_id}{ext}"
+        for fname in candidate_patterns:
+            candidate = mdir / fname
             if candidate.exists():
                 try:
                     img = sitk.ReadImage(str(candidate))
                     resampler = sitk.ResampleImageFilter()
-                    resampler.SetOutputSpacing((1.5, 1.5, 1.5))
-                    resampler.SetSize(target_shape)
-                    resampler.SetOutputOrigin(img.GetOrigin())
-                    resampler.SetOutputDirection(img.GetDirection())
                     resampler.SetInterpolator(sitk.sitkNearestNeighbor)
                     resampler.SetDefaultPixelValue(0)
+
+                    if reference_ct_path and os.path.exists(reference_ct_path):
+                        ref_itk = sitk.ReadImage(str(reference_ct_path))
+                        resampler.SetReferenceImage(ref_itk)
+                    else:
+                        resampler.SetOutputSpacing((1.5, 1.5, 1.5))
+                        resampler.SetSize(target_shape)
+                        resampler.SetOutputOrigin(img.GetOrigin())
+                        resampler.SetOutputDirection(img.GetDirection())
+
                     resampled = resampler.Execute(img)
                     arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)
                     return arr
@@ -84,7 +99,7 @@ def extract_host_parenchyma_mask(
 ) -> np.ndarray:
     """
     Extract boolean host parenchyma mask strictly for the target organ.
-    Requires verified organ-specific mask containment; whole-abdomen fallback is disabled.
+    Requires verified organ-specific mask containment; ambiguous binary fallback masks are rejected.
     """
     if organ_mask is None:
         log.warning(f"No segmentation mask found for {organ_type}. Soft-tissue fallback disabled.")
@@ -94,10 +109,8 @@ def extract_host_parenchyma_mask(
     if organ_type == "liver":
         if 5 in organ_mask:
             parenchyma = (organ_mask == 5)
-        elif np.max(organ_mask) == 1:
-            parenchyma = (organ_mask == 1)
         else:
-            log.warning("Organ mask provided does not contain valid liver label.")
+            log.warning("Organ mask provided does not contain verified liver label (5). Rejecting unverified mask.")
             return np.zeros_like(ct_volume, dtype=bool)
     elif organ_type == "pancreas":
         # In TotalSegmentator v2 (total), label 7 is pancreas (label 10 is lung_upper_lobe_left).
@@ -105,10 +118,8 @@ def extract_host_parenchyma_mask(
         target_label = 10 if totalseg_task == "total_v1" else 7
         if target_label in organ_mask:
             parenchyma = (organ_mask == target_label)
-        elif np.max(organ_mask) == 1:
-            parenchyma = (organ_mask == 1)
         else:
-            log.warning(f"Organ mask provided does not contain valid pancreas label {target_label} for schema '{totalseg_task}'.")
+            log.warning(f"Organ mask provided does not contain verified pancreas label {target_label} for schema '{totalseg_task}'. Rejecting unverified mask.")
             return np.zeros_like(ct_volume, dtype=bool)
     else:
         parenchyma = (organ_mask > 0)
@@ -153,6 +164,13 @@ def main():
         default=["hcc", "pdac", "hemangioma", "metastasis"],
         choices=SUPPORTED_TUMOR_TYPES,
         help="Tumor types to generate.",
+    )
+    parser.add_argument(
+        "--totalseg_task",
+        type=str,
+        default="total",
+        choices=["total", "total_v1", "gi"],
+        help="TotalSegmentator schema of host masks ('total', 'total_v1', 'gi').",
     )
     parser.add_argument(
         "--phases",
@@ -224,11 +242,11 @@ def main():
 
         try:
             ct_vol, affine = load_nifti_volume(ct_path)
-            organ_raw = find_organ_mask(subject_id, mask_dirs, target_shape=ct_vol.shape)
+            organ_raw = find_organ_mask(subject_id, mask_dirs, target_shape=ct_vol.shape, reference_ct_path=str(ct_path))
 
             for t_type in args.tumor_types:
                 organ_name = "pancreas" if t_type == "pdac" else "liver"
-                parenchyma_mask = extract_host_parenchyma_mask(ct_vol, organ_raw, organ_name)
+                parenchyma_mask = extract_host_parenchyma_mask(ct_vol, organ_raw, organ_name, totalseg_task=args.totalseg_task)
 
                 if np.sum(parenchyma_mask) < 200:
                     log.warning(f"[{stem}] Insufficient parenchyma mask voxels for {t_type}. Skipping.")

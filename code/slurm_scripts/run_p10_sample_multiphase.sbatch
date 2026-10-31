@@ -2,8 +2,7 @@
 #SBATCH --job-name=p10_diff_sample
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/p10_diff_sample_%A_%a.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/p10_diff_sample_%A_%a.err
-#SBATCH --partition=gpu,large_gpu
-#SBATCH --qos=hpc_core
+#SBATCH --partition=gpu
 #SBATCH --qos=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
@@ -39,6 +38,7 @@ python -u "${BASE_DIR}/code/project10/evaluation/sample_multiphase_diffusion.py"
     --ae_checkpoint "${BASE_DIR}/results/project10/checkpoints/stage1_ae/best_stage1_ae.pt" \
     --diffusion_checkpoint "${BASE_DIR}/results/project10/checkpoints/stage2_synthesis/best_synthesis_net.pt" \
     --out_dir "${OUT_DIR}" \
+    --totalseg_task total \
     --num_steps 50 \
     --array_id "${SLURM_ARRAY_TASK_ID}" \
     --total_workers 8

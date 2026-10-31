@@ -361,12 +361,28 @@ def main() -> None:
             dist.destroy_process_group()
         return
 
-    n_val = max(1, int(0.1 * n_total))
-    n_train = n_total - n_val
-    train_ds, val_ds = torch.utils.data.random_split(
-        full_ds, [n_train, n_val],
-        generator=torch.Generator().manual_seed(42),
-    )
+    # Patient-independent train/val split: group by patient_id to strictly prevent phase leakage
+    if hasattr(full_ds, "df") and "patient_id" in full_ds.df.columns:
+        patient_series = full_ds.df["patient_id"].astype(str)
+    elif hasattr(full_ds, "df") and "subject_p0" in full_ds.df.columns:
+        patient_series = full_ds.df["subject_p0"].astype(str)
+    else:
+        patient_series = pd.Series([f"pt_{i}" for i in range(n_total)])
+
+    unique_pts = np.sort(patient_series.unique())
+    rng = np.random.RandomState(42)
+    shuffled_pts = rng.permutation(unique_pts)
+    n_val_pts = max(1, int(0.1 * len(shuffled_pts)))
+    val_pts_set = set(shuffled_pts[:n_val_pts])
+    train_pts_set = set(shuffled_pts[n_val_pts:])
+
+    train_indices = [i for i, pid in enumerate(patient_series) if pid in train_pts_set]
+    val_indices = [i for i, pid in enumerate(patient_series) if pid in val_pts_set]
+
+    train_ds = torch.utils.data.Subset(full_ds, train_indices)
+    val_ds = torch.utils.data.Subset(full_ds, val_indices)
+    n_train = len(train_indices)
+    n_val = len(val_indices)
 
     train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank) if is_ddp else None
     train_loader = DataLoader(

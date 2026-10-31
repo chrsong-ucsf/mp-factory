@@ -11,6 +11,7 @@ Supports multi-GPU sharding across SLURM array tasks (--array_id, --total_worker
 
 import argparse
 import glob
+import hashlib
 import logging
 import os
 import sys
@@ -25,6 +26,8 @@ import torch.nn.functional as F
 # Add project root to sys.path
 BASE_DIR = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(BASE_DIR))
+
+from code.project10.common_spatial import preprocess_single_volume
 
 from code.project10.models.autoencoder_3d import (
     AutoEncoder3DConfig,
@@ -41,6 +44,15 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("diffusion_sampler")
+
+
+def checkpoint_sha256(path: Path | str) -> str:
+    """Calculate SHA256 hex digest of a checkpoint file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 class DDIMSampler:
@@ -119,47 +131,51 @@ class DDIMSampler:
         return x_t
 
 
-def preprocess_ct(ct_path: str, target_shape=(128, 128, 128), spacing_mm=1.5) -> torch.Tensor:
-    """Resample CT volume to 1.5mm isotropic, pad/crop with -1000 HU air, and normalise."""
-    img = sitk.ReadImage(ct_path)
-    current_spacing = img.GetSpacing()
-    current_size = img.GetSize()
+def preprocess_ct(ct_path: str, target_shape=(128, 128, 128), spacing_mm=1.5):
+    """
+    Resample CT volume to 1.5mm isotropic using unified MONAI spatial pipeline.
+    Returns (normalised_tensor, resampled_affine).
+    """
+    try:
+        vol, affine = preprocess_single_volume(
+            ct_path,
+            target_shape=target_shape,
+            spacing=(spacing_mm, spacing_mm, spacing_mm),
+            is_mask=False,
+        )
+    except Exception as e:
+        log.warning(f"MONAI preprocess failed ({e}), falling back to SimpleITK resample")
+        img = sitk.ReadImage(ct_path)
+        cur_spacing = img.GetSpacing()
+        cur_size = img.GetSize()
+        new_spacing = (spacing_mm, spacing_mm, spacing_mm)
+        new_size = [int(round(cur_size[i] * cur_spacing[i] / new_spacing[i])) for i in range(3)]
 
-    new_spacing = (spacing_mm, spacing_mm, spacing_mm)
-    new_size = [
-        int(round(current_size[i] * current_spacing[i] / new_spacing[i]))
-        for i in range(3)
-    ]
+        resampler = sitk.ResampleImageFilter()
+        resampler.SetOutputSpacing(new_spacing)
+        resampler.SetSize(new_size)
+        resampler.SetOutputOrigin(img.GetOrigin())
+        resampler.SetOutputDirection(img.GetDirection())
+        resampler.SetInterpolator(sitk.sitkLinear)
+        resampler.SetDefaultPixelValue(-1000.0)
+        resampled = resampler.Execute(img)
+        arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)
 
-    resampler = sitk.ResampleImageFilter()
-    resampler.SetOutputSpacing(new_spacing)
-    resampler.SetSize(new_size)
-    resampler.SetOutputOrigin(img.GetOrigin())
-    resampler.SetOutputDirection(img.GetDirection())
-    resampler.SetInterpolator(sitk.sitkLinear)
-    resampler.SetDefaultPixelValue(-1000.0)
-    resampled = resampler.Execute(img)
+        vol = np.full(target_shape, -1000.0, dtype=np.float32)
+        min_x = min(arr.shape[0], target_shape[0])
+        min_y = min(arr.shape[1], target_shape[1])
+        min_z = min(arr.shape[2], target_shape[2])
+        sx = max(0, (target_shape[0] - arr.shape[0]) // 2)
+        sy = max(0, (target_shape[1] - arr.shape[1]) // 2)
+        sz = max(0, (target_shape[2] - arr.shape[2]) // 2)
+        cx = max(0, (arr.shape[0] - target_shape[0]) // 2)
+        cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
+        cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
+        vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
+        affine = np.diag([spacing_mm, spacing_mm, spacing_mm, 1.0])
 
-    arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)  # (X, Y, Z)
-
-    # Pad or crop symmetrically to target_shape with air background (-1000 HU)
-    vol = np.full(target_shape, -1000.0, dtype=np.float32)
-    min_x = min(arr.shape[0], target_shape[0])
-    min_y = min(arr.shape[1], target_shape[1])
-    min_z = min(arr.shape[2], target_shape[2])
-
-    sx = max(0, (target_shape[0] - arr.shape[0]) // 2)
-    sy = max(0, (target_shape[1] - arr.shape[1]) // 2)
-    sz = max(0, (target_shape[2] - arr.shape[2]) // 2)
-
-    cx = max(0, (arr.shape[0] - target_shape[0]) // 2)
-    cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
-    cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
-
-    vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
-
-    t_vol = torch.from_numpy(vol).unsqueeze(0).unsqueeze(0).float()  # (1, 1, D, H, W)
-    return normalise_hu(t_vol)
+    t_vol = torch.from_numpy(vol).unsqueeze(0).unsqueeze(0).float()
+    return normalise_hu(t_vol), affine
 
 
 def load_anatomy_mask(
@@ -169,68 +185,106 @@ def load_anatomy_mask(
     latent_shape=(16, 16, 16),
     device=torch.device("cpu"),
     totalseg_task="auto",
+    require_conditioning=False,
 ) -> torch.Tensor:
     """
     Load 5-organ GI mask if available, semantically remap TotalSeg if needed,
     one-hot encode, and downsample to latent resolution.
-    Falls back to neutral background prior [1, 0, 0, 0, 0] if no mask is found.
+    Explicit totalseg_task takes strict precedence over content heuristics.
+    Falls back to neutral background prior [1, 0, 0, 0, 0] if no mask is found
+    and require_conditioning is False.
     """
+    candidate_suffixes = [
+        "_gi_mask.nii.gz",
+        "_mask.nii.gz",
+        ".nii.gz",
+        ".nii",
+        "_consensus.nii.gz",
+        "_gi_seg.nii.gz",
+        "_autolabel.nii.gz",
+    ]
     for mdir in mask_dirs:
-        for ext in [".nii.gz", ".nii"]:
-            mpath = os.path.join(mdir, f"{subject_id}{ext}")
+        for sfx in candidate_suffixes:
+            mpath = os.path.join(mdir, f"{subject_id}{sfx}")
             if os.path.exists(mpath):
                 try:
-                    img = sitk.ReadImage(mpath)
-                    current_spacing = img.GetSpacing()
-                    current_size = img.GetSize()
-                    new_size = [
-                        int(round(current_size[i] * current_spacing[i] / 1.5))
-                        for i in range(3)
-                    ]
-                    resampler = sitk.ResampleImageFilter()
-                    resampler.SetOutputSpacing((1.5, 1.5, 1.5))
-                    resampler.SetSize(new_size)
-                    resampler.SetOutputOrigin(img.GetOrigin())
-                    resampler.SetOutputDirection(img.GetDirection())
-                    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
-                    resampler.SetDefaultPixelValue(0)
-                    resampled = resampler.Execute(img)
-                    arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)
+                    try:
+                        vol, _ = preprocess_single_volume(
+                            mpath,
+                            target_shape=target_shape,
+                            spacing=(1.5, 1.5, 1.5),
+                            is_mask=True,
+                        )
+                    except Exception:
+                        img = sitk.ReadImage(mpath)
+                        current_spacing = img.GetSpacing()
+                        current_size = img.GetSize()
+                        new_size = [
+                            int(round(current_size[i] * current_spacing[i] / 1.5))
+                            for i in range(3)
+                        ]
+                        resampler = sitk.ResampleImageFilter()
+                        resampler.SetOutputSpacing((1.5, 1.5, 1.5))
+                        resampler.SetSize(new_size)
+                        resampler.SetOutputOrigin(img.GetOrigin())
+                        resampler.SetOutputDirection(img.GetDirection())
+                        resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+                        resampler.SetDefaultPixelValue(0)
+                        resampled = resampler.Execute(img)
+                        arr = sitk.GetArrayFromImage(resampled).transpose(2, 1, 0)
 
-                    # Symmetric center crop / pad
-                    vol = np.zeros(target_shape, dtype=np.uint8)
-                    min_x = min(arr.shape[0], target_shape[0])
-                    min_y = min(arr.shape[1], target_shape[1])
-                    min_z = min(arr.shape[2], target_shape[2])
-
-                    sx = max(0, (target_shape[0] - arr.shape[0]) // 2)
-                    sy = max(0, (target_shape[1] - arr.shape[1]) // 2)
-                    sz = max(0, (target_shape[2] - arr.shape[2]) // 2)
-
-                    cx = max(0, (arr.shape[0] - target_shape[0]) // 2)
-                    cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
-                    cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
-
-                    vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
+                        vol = np.zeros(target_shape, dtype=np.uint8)
+                        min_x = min(arr.shape[0], target_shape[0])
+                        min_y = min(arr.shape[1], target_shape[1])
+                        min_z = min(arr.shape[2], target_shape[2])
+                        sx = max(0, (target_shape[0] - arr.shape[0]) // 2)
+                        sy = max(0, (target_shape[1] - arr.shape[1]) // 2)
+                        sz = max(0, (target_shape[2] - arr.shape[2]) // 2)
+                        cx = max(0, (arr.shape[0] - target_shape[0]) // 2)
+                        cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
+                        cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
+                        vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
 
                     # Semantic remapping to 5-class GI scheme (0=bg, 1=stomach, 2=duodenum, 3=small bowel, 4=colon)
                     mapped = np.zeros_like(vol, dtype=np.uint8)
-                    if (19 in vol) or (18 in vol) or (20 in vol) or (totalseg_task == "total"):
-                        # TotalSegmentator v2 full body: 6=stomach, 19=duodenum, 18=small_bowel, 20=colon
-                        mapped[vol == 6] = 1
-                        mapped[vol == 19] = 2
-                        mapped[vol == 18] = 3
-                        mapped[vol == 20] = 4
-                    elif (56 in vol) or (55 in vol) or (57 in vol) or (totalseg_task == "total_v1"):
-                        # TotalSegmentator v1: 6=stomach, 56=duodenum, 55=small_bowel, 57=colon
+                    if totalseg_task == "total_v1":
+                        # Explicit TotalSegmentator v1: 6=stomach, 56=duodenum, 55=small_bowel, 57=colon
                         mapped[vol == 6] = 1
                         mapped[vol == 56] = 2
                         mapped[vol == 55] = 3
                         mapped[vol == 57] = 4
-                    else:
+                    elif totalseg_task == "total":
+                        # Explicit TotalSegmentator v2 full body: 6=stomach, 19=duodenum, 18=small_bowel, 20=colon
+                        mapped[vol == 6] = 1
+                        mapped[vol == 19] = 2
+                        mapped[vol == 18] = 3
+                        mapped[vol == 20] = 4
+                    elif totalseg_task == "gi":
                         # Standard GI 5-class mask (0..4)
                         for organ_id in (1, 2, 3, 4):
                             mapped[vol == organ_id] = organ_id
+                    else:
+                        # Auto-detection heuristic: check v1 specific IDs first
+                        if (56 in vol) or (55 in vol) or (57 in vol):
+                            mapped[vol == 6] = 1
+                            mapped[vol == 56] = 2
+                            mapped[vol == 55] = 3
+                            mapped[vol == 57] = 4
+                        elif (19 in vol) or (18 in vol) or (20 in vol):
+                            mapped[vol == 6] = 1
+                            mapped[vol == 19] = 2
+                            mapped[vol == 18] = 3
+                            mapped[vol == 20] = 4
+                        else:
+                            for organ_id in (1, 2, 3, 4):
+                                mapped[vol == organ_id] = organ_id
+
+                    if np.sum(mapped > 0) == 0:
+                        log.warning(f"Mask {mpath} has 0 foreground voxels for GI schema '{totalseg_task}'.")
+                        if require_conditioning:
+                            raise ValueError(
+                                f"Mask {mpath} contains zero valid foreground voxels for GI classes under schema '{totalseg_task}'."
+                            )
 
                     mask_t = torch.from_numpy(mapped).unsqueeze(0).long().clamp(0, 4)
                     one_hot = F.one_hot(mask_t, num_classes=5).permute(0, 4, 1, 2, 3).float().to(device)
@@ -238,7 +292,12 @@ def load_anatomy_mask(
                 except Exception as e:
                     log.warning(f"Failed loading mask from {mpath}: {e}")
 
-    # Neutral prior
+    if require_conditioning:
+        raise FileNotFoundError(
+            f"CRITICAL: Required organ conditioning mask for {subject_id} not found in {mask_dirs}."
+        )
+
+    log.warning(f"No organ mask found for {subject_id}; generating with neutral background prior.")
     dummy = torch.zeros((1, 5, *latent_shape), device=device, dtype=torch.float32)
     dummy[:, 0] = 1.0
     return dummy
@@ -269,6 +328,10 @@ def main():
     parser.add_argument("--total_workers", type=int, default=1, help="Total number of parallel array workers")
     parser.add_argument("--totalseg_task", type=str, default="auto", choices=["auto", "total", "total_v1", "gi"],
                         help="Producer schema for TotalSegmentator masks ('auto', 'total', 'total_v1', 'gi')")
+    parser.add_argument("--allow_legacy_checkpoint", action="store_true",
+                        help="Allow diffusion checkpoint without Stage 1 AE or conditioning metadata")
+    parser.add_argument("--require_conditioning", action="store_true",
+                        help="Strictly fail if organ conditioning mask is missing or empty")
     parser.add_argument("--max_samples", type=int, default=None, help="Maximum scans to sample per worker")
     args = parser.parse_args()
 
@@ -297,6 +360,9 @@ def main():
     if not os.path.exists(args.ae_checkpoint):
         raise FileNotFoundError(f"Stage 1 Autoencoder checkpoint not found at: {args.ae_checkpoint}")
 
+    ae_sha = checkpoint_sha256(args.ae_checkpoint)
+    log.info(f"Loaded Stage 1 AE SHA256: {ae_sha[:12]}...")
+
     ckpt_ae = torch.load(args.ae_checkpoint, map_location=device)
     cfg_dict = ckpt_ae.get("cfg", {})
     if isinstance(cfg_dict, dict):
@@ -311,6 +377,48 @@ def main():
 
     # 2. Load Stage 2 Diffusion Synthesis Model
     log.info(f"Loading Stage 2 Diffusion Model from: {args.diffusion_checkpoint}")
+    if not os.path.isfile(args.diffusion_checkpoint):
+        raise FileNotFoundError(
+            f"CRITICAL: Diffusion checkpoint not found at: {args.diffusion_checkpoint}. "
+            "Aborting to prevent uninitialized random-weight generation."
+        )
+
+    ckpt_diff = torch.load(args.diffusion_checkpoint, map_location=device)
+
+    # Validate AE Identity
+    ckpt_ae_sha = ckpt_diff.get("ae_checkpoint_sha256")
+    if ckpt_ae_sha is not None:
+        if ckpt_ae_sha != ae_sha:
+            raise ValueError(
+                f"Diffusion checkpoint {args.diffusion_checkpoint} was trained with AE {ckpt_ae_sha}, but loaded AE is {ae_sha}."
+            )
+        log.info(f"[Provenance Check] Verified AE hash matches diffusion checkpoint: {ae_sha[:12]}...")
+    else:
+        if not args.allow_legacy_checkpoint:
+            raise ValueError(
+                f"Legacy checkpoint {args.diffusion_checkpoint} lacks Stage 1 AE identity. "
+                "Explicit override required via --allow_legacy_checkpoint."
+            )
+
+    # Validate Conditioning Identity
+    ckpt_cond = ckpt_diff.get("conditioning")
+    if ckpt_cond is not None:
+        if isinstance(ckpt_cond, dict):
+            train_task = ckpt_cond.get("totalseg_task")
+            if args.totalseg_task == "auto" and train_task:
+                args.totalseg_task = train_task
+                log.info(f"[Provenance Check] Resolved totalseg_task to '{train_task}' from checkpoint metadata.")
+            elif args.totalseg_task != "auto" and train_task and args.totalseg_task != train_task:
+                raise ValueError(
+                    f"Diffusion checkpoint was trained with totalseg_task='{train_task}', but requested '{args.totalseg_task}'."
+                )
+    else:
+        if not args.allow_legacy_checkpoint:
+            raise ValueError(
+                f"Legacy checkpoint {args.diffusion_checkpoint} lacks conditioning identity. "
+                "Explicit override required via --allow_legacy_checkpoint."
+            )
+
     model = AnatomyConditionalSynthesisNet(
         spatial_dims=3,
         latent_channels=4,
@@ -321,13 +429,6 @@ def main():
         num_head_channels=64,
     ).to(device)
 
-    if not os.path.isfile(args.diffusion_checkpoint):
-        raise FileNotFoundError(
-            f"CRITICAL: Diffusion checkpoint not found at: {args.diffusion_checkpoint}. "
-            "Aborting to prevent uninitialized random-weight generation."
-        )
-
-    ckpt_diff = torch.load(args.diffusion_checkpoint, map_location=device)
     state_dict_diff = ckpt_diff["model"] if "model" in ckpt_diff else ckpt_diff
     state_dict_diff = {k.replace("module.", ""): v for k, v in state_dict_diff.items()}
     model.load_state_dict(state_dict_diff)
@@ -336,18 +437,30 @@ def main():
     sampler = DDIMSampler(timesteps=1000).to(device)
 
     # 3. Inference Loop
-    success_count = 0
+    attempted_count = 0
+    generated_count = 0
+    skipped_count = 0
     failed_count = 0
+
     for idx, ct_path in enumerate(my_files, start=1):
         filename = os.path.basename(ct_path)
         pair_name = filename.replace("_reg.nii.gz", "")
         out_path = os.path.join(args.out_dir, f"{pair_name}_synthetic_contrast.nii.gz")
 
         if os.path.exists(out_path):
-            log.info(f"[{idx}/{len(my_files)}] Skipping existing: {pair_name}")
-            success_count += 1
-            continue
+            try:
+                test_nii = nib.load(out_path)
+                test_data = test_nii.get_fdata()
+                if test_nii.shape == (128, 128, 128) and np.all(np.isfinite(test_data)):
+                    log.info(f"[{idx}/{len(my_files)}] Skipping valid existing: {pair_name}")
+                    skipped_count += 1
+                    continue
+                else:
+                    log.warning(f"Existing {out_path} has corrupted shape/values {test_nii.shape}, regenerating...")
+            except Exception as e:
+                log.warning(f"Existing {out_path} unreadable ({e}), regenerating...")
 
+        attempted_count += 1
         log.info(f"[{idx}/{len(my_files)}] Generating synthetic contrast volume for: {pair_name}")
 
         try:
@@ -377,8 +490,9 @@ def main():
                     "Aborting sample to strictly prevent target leakage from registered contrast CT."
                 )
 
-            # Preprocess volume to normalised range [-0.5, 1.0]
-            ncct_tensor = preprocess_ct(ncct_input_file).to(device)
+            # Preprocess volume to normalised range [-0.5, 1.0] and get resampled affine
+            ncct_tensor, resampled_affine = preprocess_ct(ncct_input_file)
+            ncct_tensor = ncct_tensor.to(device)
 
             anatomy_mask = load_anatomy_mask(
                 subject_id=subject_p0,
@@ -387,6 +501,7 @@ def main():
                 latent_shape=(16, 16, 16),
                 device=device,
                 totalseg_task=args.totalseg_task,
+                require_conditioning=args.require_conditioning,
             )
 
             with torch.no_grad():
@@ -409,20 +524,23 @@ def main():
                 fake_hu = denormalise_hu(fake_vol).squeeze().cpu().numpy()
                 fake_hu = np.clip(fake_hu, -1000.0, 2000.0).astype(np.int16)
 
-                # Save as NIfTI
-                affine = np.diag([1.5, 1.5, 1.5, 1.0])
-                nii = nib.Nifti1Image(fake_hu, affine)
+                # Save as NIfTI with resampled physical affine coordinate system
+                nii = nib.Nifti1Image(fake_hu, affine=resampled_affine)
                 nib.save(nii, out_path)
                 log.info(f"  [+] Saved synthetic CT volume -> {out_path}")
-                success_count += 1
+                generated_count += 1
 
         except Exception as e:
             failed_count += 1
             log.error(f"Failed processing {pair_name}: {e}")
 
-    log.info(f"Worker {args.array_id} summary: {success_count} succeeded, {failed_count} failed out of {len(my_files)} assigned.")
-    if failed_count > 0 and success_count == 0:
-        raise RuntimeError(f"All {failed_count} assigned inference scans failed on worker {args.array_id}.")
+    log.info(
+        f"Worker {args.array_id} summary: {len(my_files)} assigned, "
+        f"{skipped_count} skipped, {generated_count} newly generated, "
+        f"{failed_count} failed, {attempted_count} attempted."
+    )
+    if attempted_count > 0 and failed_count == attempted_count:
+        raise RuntimeError(f"All {failed_count} attempted inference scans failed on worker {args.array_id}.")
 
 
 if __name__ == "__main__":

@@ -148,10 +148,12 @@ To enable multi-phase diagnostic AI training and lesion classification, Project 
 Below is an axial sequence through a synthesized 3D liver tumor (`CV_00000042--CV_00007115`):
 ![Project 10 4D Tumor Showcase](figures/project10_4d_tumor_hemodynamics_showcase.png)
 
-1. **Panel A (Baseline NCCT):** Iso-attenuating liver lesion ($74.9\text{ HU}$) with intact parenchymal margins.
-2. **Panel B (Arterial Phase):** Intense hypervascular wash-in ($188.1\text{ HU}$), reproducing classic hepatic arterial neovascularization.
-3. **Panel C (Portal Venous Phase):** Delayed washout ($81.9\text{ HU}$), producing a classic hypo-attenuating lesion relative to enhanced hepatic parenchyma.
+1. **Panel A (Baseline NCCT):** Baseline liver lesion ($106.0\text{ HU}$ in this case study; cohort average $74.9 \pm 21.8\text{ HU}$) with intact parenchymal margins.
+2. **Panel B (Arterial Phase):** Hypervascular wash-in ($195.9\text{ HU}$ in this case study; cohort average $188.1 \pm 28.3\text{ HU}$), reproducing classic hepatic arterial neovascularization.
+3. **Panel C (Portal Venous Phase):** Delayed washout ($121.3\text{ HU}$ in this case study; cohort average $81.9 \pm 23.2\text{ HU}$), producing a classic hypo-attenuating lesion relative to enhanced hepatic parenchyma.
 4. **Panel D (Washout Clearance Map):** Arterial-to-venous subtraction ($\Delta\text{HU} = \text{Arterial} - \text{Venous}$) showing intense contrast clearance strictly clamped inside the lesion boundary ($* \text{geo}$), with zero Gaussian bleed into surrounding liver parenchyma.
+
+> *Note on Procedural Kinetics:* The procedural model synthesizes phase-specific HU offsets and ring templates calibrated to match published clinical LI-RADS patterns rather than independent dynamic pharmacokinetic modeling.
 
 #### Population-Scale Perfusion Dynamics ($N = 1,990$ Lesions)
 Across the cohort, four distinct pathology archetypes exhibit characteristic hemodynamic curves:
@@ -185,7 +187,7 @@ To evaluate whether downstream segmentation models maintain stable anatomical bo
 | **HU_Shift_+20** | Hyper-concentration | $+20\text{ HU}$ | $0\text{ HU}$ | **0.419 ± 0.473** | N/A | N/A | 0.419 | N/A | **4.0%** |
 | **HU_Shift_+50** | Severe Hyper-atten. | $+50\text{ HU}$ | $0\text{ HU}$ | **0.140 ± 0.280** | N/A | N/A | 0.140 | N/A | **0.0%** |
 
-*Key Conclusion:* When evaluating detected visceral bowel tissue under empty-mask gating, moderate hypo-attenuation (-20 HU) and low-dose scanner noise ($\sigma = 15\text{ HU}$) maintain robust retention ($\ge 0.70$). Severe hyper-concentration (+50 HU) causes significant degradation ($0.140$) due to dense contrast saturation resembling bone attenuation. Overall baseline agreement passes at 14.0% across all evaluated slices under strict $\ge 0.85$ DSC criteria.
+*Key Conclusion:* Unit of analysis: 3D patient CT volumes (N = 50 case pairs, 400 stress evaluations). When evaluated on 3D volumes with eligible anatomical support ($\ge 50$ foreground voxels) under empty-mask gating, conditional mean retention is $0.731 \pm 0.327$ under $-20\text{ HU}$ shift and $0.704 \pm 0.360$ under low-dose scanner noise ($\sigma = 15\text{ HU}$). However, the proportion of cases achieving strict DSC $\ge 0.85$ remains low (6.0% under stress vs. 14.0% at baseline), reflecting severe organ boundary sensitivity across the cohort. Severe hyper-concentration (+50 HU) causes significant degradation ($0.140 \pm 0.280$, 0.0% pass rate) due to dense contrast saturation resembling bone attenuation.
 
 ---
 
@@ -201,7 +203,7 @@ To evaluate whether downstream segmentation models maintain stable anatomical bo
 | **Colon** | 0.641 ± 0.142 | 0.000 ± 0.000 | **0.000 ± 0.000** |
 | **Mean GI Dice** | 0.409 ± 0.114 | 0.001 ± 0.003 | **0.003 ± 0.004** |
 
-*\*Note: TotalSegmentator v2 values reported as literature baseline reference on non-contrast abdominal CT; not measured on this specific 499-scan cohort.*
+*\*Note: TotalSegmentator v2 values reported as literature baseline reference on non-contrast abdominal CT (Wasserthal et al., Radiology 2023 [DOI: 10.1148/radiol.230297]); not measured on this specific 499-scan cohort.*
 
 ---
 
@@ -209,12 +211,12 @@ To evaluate whether downstream segmentation models maintain stable anatomical bo
 
 | Architecture | N (Scans) | Patients | Stomach (DSC) | Duodenum (DSC) | Small Bowel (DSC) | Colon (DSC) | Global Mean (DSC) | Mean HD95 (mm) |
 | :--- | :---: | :---: | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TotalSegmentator** | 11 | 11 | 0.829 ± 0.241 | 0.570 ± 0.292 | 0.686 ± 0.291 | 0.712 ± 0.294 | **0.700 ± 0.262** | 27.0 ± 32.1 mm |
-| **MedNeXt** | 11 | 11 | 0.755 ± 0.269 | 0.534 ± 0.246 | 0.000 ± 0.000 | 0.668 ± 0.243 | **0.489 ± 0.181** | 62.5 ± 86.1 mm |
-| **Swin-UNETR** | 11 | 11 | 0.695 ± 0.288 | 0.484 ± 0.218 | 0.000 ± 0.000 | 0.652 ± 0.235 | **0.458 ± 0.179** | 160.6 ± 98.9 mm |
+| **TotalSegmentator** | 11 | 6 | 0.829 ± 0.241 | 0.570 ± 0.292 | 0.686 ± 0.291 | 0.712 ± 0.294 | **0.700 ± 0.262** | 27.0 ± 32.1 mm |
+| **MedNeXt** | 11 | 6 | 0.755 ± 0.269 | 0.534 ± 0.246 | 0.000 ± 0.000 | 0.668 ± 0.243 | **0.489 ± 0.181** | 62.5 ± 86.1 mm |
+| **Swin-UNETR** | 11 | 6 | 0.695 ± 0.288 | 0.484 ± 0.218 | 0.000 ± 0.000 | 0.652 ± 0.235 | **0.458 ± 0.179** | 160.6 ± 98.9 mm |
 | **MedNeXt_Phase2** | 1 | 1 | 0.330 (N=1) | 0.225 (N=1) | 0.140 (N=1) | 0.518 (N=1) | **0.303 (N=1)** | 77.2 (N=1) mm |
 | **Swin-UNETR_Phase2** | 1 | 1 | 0.257 (N=1) | 0.177 (N=1) | 0.054 (N=1) | 0.281 (N=1) | **0.192 (N=1)** | 70.2 (N=1) mm |
-| **EnsembleConsensus** | 11 | 11 | 0.081 ± 0.270 | 0.072 ± 0.238 | 0.019 ± 0.030 | 0.071 ± 0.235 | **0.061 ± 0.184** | 214.9 ± 86.2 mm |
+| **EnsembleConsensus** | 11 | 6 | 0.081 ± 0.270 | 0.072 ± 0.238 | 0.019 ± 0.030 | 0.071 ± 0.235 | **0.061 ± 0.184** | 214.9 ± 86.2 mm |
 | **MedNeXt_Phase3** | 1 | 1 | 0.000 (N=1) | 0.142 (N=1) | 0.010 (N=1) | 0.000 (N=1) | **0.038 (N=1)** | 127.5 (N=1) mm |
 | **MedNeXt_Pool873** | 1 | 1 | 0.000 (N=1) | 0.000 (N=1) | 0.040 (N=1) | 0.000 (N=1) | **0.010 (N=1)** | 68.7 (N=1) mm |
 | **Swin-UNETR_Phase3** | 1 | 1 | 0.000 (N=1) | 0.000 (N=1) | 0.007 (N=1) | 0.000 (N=1) | **0.002 (N=1)** | 135.0 (N=1) mm |
@@ -224,11 +226,11 @@ To evaluate whether downstream segmentation models maintain stable anatomical bo
 
 ### Table 3: Project 10 Multiphase Generative CT Synthesis Benchmarks (N = 1067 Scans)
 
-| Cohort Category | Scans (%) | Overall L1 (HU) | Body L1 (> -500 HU) | SSIM | PSNR | Pearson R | Physical Mechanism / Interpretation |
+| Cohort Category | Scans (%) | Overall L1 (HU) | Body L1 (> -500 HU) | SSIM | PSNR | Pearson R | Cohort Partition Description / Observations |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **High-Fidelity Synthesis** | 321 (30.1%) | 251.6 HU | 539.8 HU | 0.499 | 23.7 dB | **0.481** | High structural correlation; vascular contrast enhancement |
-| **Air Background Offset** | 455 (42.6%) | 1143.5 HU | 1201.0 HU | -0.130 | 8.7 dB | **0.351** | Background air outside patient body decoded to ~0 HU instead of -1000 HU |
-| **Diffusion Trajectory Saturation** | 291 (27.3%) | 2470.7 HU | 2470.8 HU | -0.457 | 1.7 dB | **0.178** | Reverse diffusion saturation at clipping limits; intensity artifacts |
+| **High-Fidelity Synthesis** | 321 (30.1%) | 251.6 HU | 539.8 HU | 0.499 | 23.7 dB | **0.481** | L1 < 500 HU cohort; higher structural correlation and windowed contrast fidelity |
+| **Air Background Offset** | 455 (42.6%) | 1143.5 HU | 1201.0 HU | -0.130 | 8.7 dB | **0.351** | 500-2000 HU cohort; background air outside patient body decoded to ~0 HU instead of -1000 HU |
+| **Diffusion Trajectory Saturation** | 291 (27.3%) | 2470.7 HU | 2470.8 HU | -0.457 | 1.7 dB | **0.178** | L1 > 2000 HU cohort; reverse diffusion trajectory saturation at intensity clipping limits |
 | **Consolidated Cohort** | 1067 (100.0%) | 1237.2 HU | 1348.4 HU | -0.030 | 11.2 dB | **0.343** | Overall population metrics across all 1,067 synthesized volumes |
 
 ---
@@ -271,8 +273,8 @@ Reoriented to canonical RAS+ space on exact CT voxel coordinate grids:
 
 ## 5. Conclusions & Verification Playbook
 
-1. **Empirical Radiologist Validation:** In high-resolution clinical cases (e.g. [`BDMAP_00242131`](figures/showcase/BDMAP_00242131_radiologist_gt_comparison.png)), the automated segmentation pipeline achieves 0.940 Stomach DSC and 0.794 Duodenum DSC against Johns Hopkins senior radiologist annotations, demonstrating soft-tissue boundary resolution when evaluated at native acquisition resolution.
-2. **Generative Contrast Synthesis Reality:** Across the population of **1,067 synthesized scans**, the Latent Diffusion engine demonstrates authentic iodinated vascular enhancement in the top 30.1% cohort ($R = 0.48 - 0.91$). However, whole-volume SSIM ($-0.030$) and overall L1 ($1,237.2\text{ HU}$) reflect architectural background air DC offset (~0 HU instead of -1,000 HU) and saturation thresholds, requiring air-clamping post-processing for downstream clinical utility.
-3. **Procedural Tumor Hemodynamics:** Across **1,990 synthesized 3D lesions** (7,960 NIfTI volumes), procedural pharmacokinetic simulation reproduces standard LI-RADS attenuation signatures (HCC arterial wash-in at $188.1\text{ HU}$ with venous clearance to $81.9\text{ HU}$) with strict zero-bleed lesion boundary containment.
-4. **Perturbation Robustness:** Under empty-mask gating, soft-tissue bowel retention remains robust ($\ge 0.70$) under standard scanner noise ($\sigma = 15\text{ HU}$, retention $0.704 \pm 0.360$) and moderate hypo-attenuation ($-20\text{ HU}$, retention $0.731 \pm 0.327$), but exhibits expected degradation under severe hyper-attenuation ($0.140 \pm 0.280$ at $+50\text{ HU}$) and ultra-low-dose noise ($0.562 \pm 0.453$ at $\sigma = 30\text{ HU}$), validating empirical tolerance thresholds for clinical contrast variability.
+1. **Empirical Radiologist Validation:** In high-resolution clinical cases (e.g. [`BDMAP_00394224`](figures/showcase/BDMAP_00394224_radiologist_gt_comparison.png)), the automated segmentation pipeline achieves 0.889 Stomach DSC, 0.761 Duodenum DSC, 0.857 Small Bowel DSC, and 0.902 Colon DSC (0.852 Global Mean DSC) against Johns Hopkins senior radiologist annotations, demonstrating soft-tissue boundary resolution when evaluated with true physical coordinate resampling at native acquisition resolution. (Cases 1–3 are provided as legacy visual reference).
+2. **Generative Contrast Synthesis Reality:** Across the population of **1,067 synthesized scans**, the Latent Diffusion engine demonstrates authentic contrast dynamics in the top 30.1% L1-stratified cohort ($R = 0.48 - 0.91$). However, whole-volume SSIM ($-0.030$) and overall L1 ($1,237.2\text{ HU}$) reflect architectural background air DC offset (~0 HU instead of -1,000 HU) and saturation thresholds, requiring air-clamping post-processing for downstream clinical utility.
+3. **Procedural Tumor Hemodynamics:** Across **1,990 synthesized 3D lesions** (7,960 NIfTI volumes), procedural simulation reproduces standard LI-RADS attenuation signatures (HCC arterial wash-in at cohort average $188.1\text{ HU}$ with venous clearance to $81.9\text{ HU}$) with strict zero-bleed lesion boundary containment.
+4. **Perturbation Robustness:** Under empty-mask gating, soft-tissue bowel retention exhibits conditional mean DSC $\ge 0.70$ under standard scanner noise ($\sigma = 15\text{ HU}$, retention $0.704 \pm 0.360$) and moderate hypo-attenuation ($-20\text{ HU}$, retention $0.731 \pm 0.327$), but strict cohort pass rate ($\ge 0.85$ DSC) remains 6.0% (vs. 14.0% at baseline), and exhibits expected degradation under severe hyper-attenuation ($0.140 \pm 0.280$ at $+50\text{ HU}$, 0% pass) and ultra-low-dose noise ($0.562 \pm 0.453$ at $\sigma = 30\text{ HU}$, 6% pass).
 

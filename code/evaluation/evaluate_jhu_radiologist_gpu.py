@@ -272,25 +272,45 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
             short_id = clean_id.lstrip('0')
             id_aliases = [subject_id, clean_id, short_id]
 
-            pred_path = None
+            def is_artifact(p: str) -> bool:
+                b = os.path.basename(p).lower()
+                exclude_keywords = [
+                    "uncertainty", "variance", "entropy", "prob", "confidence",
+                    "std", "ct.nii", "raw", "image.nii"
+                ]
+                return any(k in b for k in exclude_keywords)
+
+            # Discover all candidate files
+            all_matches = []
             for key in id_aliases:
                 if not key:
                     continue
-                matches = (
+                found = (
                     glob.glob(os.path.join(pred_dir, f"*{key}*.nii.gz")) +
                     glob.glob(os.path.join(pred_dir, "**", f"*{key}*.nii.gz"), recursive=True) +
                     glob.glob(os.path.join(pred_dir, f"*{key}*.nrrd")) +
                     glob.glob(os.path.join(pred_dir, "**", f"*{key}*.nrrd"), recursive=True)
                 )
-                if matches:
-                    pred_path = matches[0]
-                    break
+                for f in found:
+                    if f not in all_matches:
+                        all_matches.append(f)
 
-            # For ensemble: prefer _consensus over _uncertainty files
-            if model_name == 'EnsembleConsensus' and pred_path:
-                consensus_candidates = [p for p in matches if 'consensus' in os.path.basename(p).lower()]
-                if consensus_candidates:
-                    pred_path = consensus_candidates[0]
+            # Filter out known non-segmentation artifacts (uncertainty, probability, raw CT)
+            valid_candidates = [p for p in all_matches if not is_artifact(p)]
+
+            pred_path = None
+            if valid_candidates:
+                # Prioritize based on model family
+                is_ensemble = "ensemble" in model_name.lower() or "consensus" in model_name.lower()
+                if is_ensemble:
+                    consensus = [p for p in valid_candidates if "consensus" in os.path.basename(p).lower()]
+                    if consensus:
+                        pred_path = consensus[0]
+
+                if not pred_path:
+                    # Prefer standard segmentation suffixes
+                    preferred = [p for p in valid_candidates if any(s in os.path.basename(p).lower() for s in ["_gi_seg", "_seg", "_mask", "_multiclass", "_autolabel", "_consensus"])]
+                    pred_path = preferred[0] if preferred else valid_candidates[0]
 
             if not pred_path or not os.path.exists(pred_path):
                 print(f"  [MISSING] No prediction volume found for {subject_id} in {pred_dir}")
@@ -311,40 +331,25 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 if pred_itk.GetDimension() == 4:
                     pred_itk = pred_itk[0, :, :, :]
 
-                # Check if prediction natively matches reference grid (e.g. TotalSegmentator full volume)
-                if pred_itk.GetSize() == ref_itk.GetSize() and np.allclose(pred_itk.GetDirection(), ref_itk.GetDirection(), atol=1e-2):
-                    pred_aligned = sitk.GetArrayFromImage(pred_itk).transpose(2, 1, 0).astype(np.int64)
-                elif np.allclose(pred_itk.GetDirection(), ref_itk.GetDirection(), atol=1e-2):
-                    # Prediction is in native patient space (e.g. sibling scan with different slice count)
-                    resampler = sitk.ResampleImageFilter()
-                    resampler.SetReferenceImage(ref_itk)
-                    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
-                    resampler.SetDefaultPixelValue(0)
-                    res_itk = resampler.Execute(pred_itk)
-                    pred_aligned = sitk.GetArrayFromImage(res_itk).transpose(2, 1, 0).astype(np.int64)
+                # Check if prediction natively matches reference grid in size, spacing, origin, and direction
+                is_exact_match = (
+                    pred_itk.GetSize() == ref_itk.GetSize()
+                    and np.allclose(pred_itk.GetSpacing(), ref_itk.GetSpacing(), atol=1e-3)
+                    and np.allclose(pred_itk.GetOrigin(), ref_itk.GetOrigin(), atol=1e-2)
+                    and np.allclose(pred_itk.GetDirection(), ref_itk.GetDirection(), atol=1e-2)
+                )
+
+                if is_exact_match:
+                    res_itk = pred_itk
                 else:
-                    # Model prediction in resampled RAS space (MedNeXt, Swin-UNETR, Ensemble)
                     # Resample rigorously in physical patient space onto the reference GT grid
-                    ref_sz = np.array(ref_itk.GetSize(), dtype=float)
-                    ref_sp = np.array(ref_itk.GetSpacing(), dtype=float)
-                    p_sz = np.array(pred_itk.GetSize(), dtype=float)
-                    true_sp = tuple(ref_sp * ref_sz / p_sz)
-                    pred_itk.SetSpacing(true_sp)
-
-                    # Physical orientation: RAS direction matrix mapped to patient world space
-                    pred_itk.SetDirection((-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0))
-                    pred_itk.SetOrigin((
-                        ref_itk.GetOrigin()[0] + ref_sz[0] * ref_sp[0],
-                        ref_itk.GetOrigin()[1],
-                        ref_itk.GetOrigin()[2] - ref_sz[2] * ref_sp[2]
-                    ))
-
                     resampler = sitk.ResampleImageFilter()
                     resampler.SetReferenceImage(ref_itk)
                     resampler.SetInterpolator(sitk.sitkNearestNeighbor)
                     resampler.SetDefaultPixelValue(0)
                     res_itk = resampler.Execute(pred_itk)
-                    pred_aligned = sitk.GetArrayFromImage(res_itk).transpose(2, 1, 0).astype(np.int64)
+
+                pred_aligned = sitk.GetArrayFromImage(res_itk).transpose(2, 1, 0).astype(np.int64)
 
                 # 5. Unify Rectum (NRRD label 6) with Colon (NRRD label 5) into unified large bowel target
                 gt_data[gt_data == 6] = 5

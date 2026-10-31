@@ -324,16 +324,27 @@ def main():
             }
 
             organ_dices = []
+            eligible_count = 0
             for org_id, org_name in ORGAN_MAP.items():
                 m_base = (pred_base == org_id)
                 m_pert = (pred_pert == org_id)
-                d = compute_binary_dice(m_base, m_pert)
-                row[f"dice_retention_{org_name}"] = round(d, 4) if not np.isnan(d) else np.nan
-                row[f"base_detected_{org_name}"] = bool(m_base.sum() > 50)
-                if not np.isnan(d):
-                    organ_dices.append(d)
+                b_sum = int(m_base.sum())
+                is_detected_base = bool(b_sum >= 50)
+                row[f"base_detected_{org_name}"] = is_detected_base
 
+                # Only score retention if organ was detected with >= 50 voxels in baseline
+                if is_detected_base:
+                    d = compute_binary_dice(m_base, m_pert)
+                    row[f"dice_retention_{org_name}"] = round(d, 4) if not np.isnan(d) else np.nan
+                    if not np.isnan(d):
+                        organ_dices.append(d)
+                        eligible_count += 1
+                else:
+                    row[f"dice_retention_{org_name}"] = np.nan
+
+            row["eligible_organs_count"] = eligible_count
             row["mean_retention_dice"] = round(float(np.mean(organ_dices)), 4) if organ_dices else np.nan
+            row["passed_retention_test"] = bool(eligible_count > 0 and row["mean_retention_dice"] >= 0.85)
             records.append(row)
 
     df_results = pd.DataFrame(records)

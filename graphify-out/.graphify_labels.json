@@ -1,10 +1,5 @@
 {
-  "4": "run_scaling_sweep.py",
-  "8": "register_multiphase_pairs.py",
-  "9": "os",
-  "17": "MedNeXt",
   "28": "_ResBlock3D",
-  "38": "predict_mednext.py",
   "39": "sbatch_train_mednext.sh",
   "40": "train_full_anchor_4gpu.sh",
   "41": "run_p10_discovery.sh",

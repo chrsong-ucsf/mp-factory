@@ -401,7 +401,7 @@ def render_3d_multiangle(organ_meshes, out_fig_path, subject_id, metrics):
     print(f"Saved 3D multi-angle renders to {out_fig_path}")
 
 
-def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_path, subject_id, ct_path=None, raw_ct_affine=None, mask_path=None):
+def render_radiologist_comparison(ct_arr, model_mask, jhu_nrrd_path, out_fig_path, subject_id, ct_path=None, mask_path=None):
     """
     Renders direct side-by-side comparison between JHU expert radiologist ground truth
     and automated pipeline consensus segmentation for benchmark case.
@@ -585,20 +585,41 @@ def process_subject(subject_id, data_dir, jhu_dir, out_base_dir, mask_dir=None):
         print(f"[ERROR] Missing CT or GI mask for {subject_id}")
         return None
 
-    raw_ct_nii = nib.load(ct_path)
-    raw_gi_nii = nib.load(gi_path)
+    # Load CT and Mask in physical world space via SimpleITK
+    ct_itk = sitk.ReadImage(ct_path)
+    mask_itk = sitk.ReadImage(gi_path)
 
-    # Reorient to canonical RAS+ space
-    ct_nii = nib.as_closest_canonical(raw_ct_nii)
-    gi_nii = nib.as_closest_canonical(raw_gi_nii)
+    # Resample mask directly onto the CT physical grid to guarantee exact spatial alignment
+    is_exact_match = (
+        mask_itk.GetSize() == ct_itk.GetSize()
+        and np.allclose(mask_itk.GetSpacing(), ct_itk.GetSpacing(), atol=1e-3)
+        and np.allclose(mask_itk.GetOrigin(), ct_itk.GetOrigin(), atol=1e-2)
+        and np.allclose(mask_itk.GetDirection(), ct_itk.GetDirection(), atol=1e-2)
+    )
+    if is_exact_match:
+        res_mask = mask_itk
+    else:
+        resampler = sitk.ResampleImageFilter()
+        resampler.SetReferenceImage(ct_itk)
+        resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+        resampler.SetDefaultPixelValue(0)
+        res_mask = resampler.Execute(mask_itk)
 
-    ct_arr = np.asanyarray(ct_nii.dataobj)
-    mask_arr = np.asanyarray(gi_nii.dataobj).astype(np.uint8)
-    if ct_arr.shape != mask_arr.shape:
-        print(f"[WARN] CT shape {ct_arr.shape} != Mask shape {mask_arr.shape} for {subject_id}. Resampling mask...")
-        zoom_factors = [c / float(m) for c, m in zip(ct_arr.shape, mask_arr.shape)]
-        mask_arr = ndi.zoom(mask_arr, zoom_factors, order=0).astype(np.uint8)
-    voxel_zooms = ct_nii.header.get_zooms()[:3]
+    mask_arr = sitk.GetArrayFromImage(res_mask).transpose(2, 1, 0).astype(np.uint8)
+    ct_arr = sitk.GetArrayFromImage(ct_itk).transpose(2, 1, 0).astype(np.float32)
+
+    # Remap TotalSegmentator v2 IDs if present (6: stom, 19: duod, 18: small bowel, 20: colon)
+    if np.any(np.isin(mask_arr, [6, 18, 19, 20])):
+        ts_remap = np.zeros_like(mask_arr, dtype=np.uint8)
+        ts_remap[mask_arr == 6] = 1
+        ts_remap[mask_arr == 19] = 2
+        ts_remap[mask_arr == 18] = 3
+        ts_remap[mask_arr == 20] = 4
+        mask_arr = ts_remap
+        res_mask = sitk.GetImageFromArray(mask_arr.transpose(2, 1, 0))
+        res_mask.CopyInformation(ct_itk)
+
+    voxel_zooms = ct_itk.GetSpacing()
     voxel_volume_cm3 = np.prod(voxel_zooms) / 1000.0  # mm³ -> cm³ (mL)
 
     print(f"Canonical RAS+ Shape: {ct_arr.shape}, Voxel Spacing: {voxel_zooms}")
@@ -697,8 +718,7 @@ def process_subject(subject_id, data_dir, jhu_dir, out_base_dir, mask_dir=None):
     nifti_dir = os.path.join(out_base_dir, "nifti_masks")
     os.makedirs(nifti_dir, exist_ok=True)
     out_nii_path = os.path.join(nifti_dir, f"{subject_id}_gi_multiclass.nii.gz")
-    out_mask_nii = nib.Nifti1Image(mask_arr, affine=ct_nii.affine, header=ct_nii.header)
-    nib.save(out_mask_nii, out_nii_path)
+    sitk.WriteImage(res_mask, out_nii_path)
     print(f"Saved standardized NIfTI mask (matching CT grid) to {out_nii_path}")
 
     # 4. Generate Visualizations
@@ -720,7 +740,7 @@ def process_subject(subject_id, data_dir, jhu_dir, out_base_dir, mask_dir=None):
     jhu_nrrd_file = os.path.join(jhu_dir, f"{subject_id}.seg.nrrd")
     if os.path.exists(jhu_nrrd_file):
         comp_path = os.path.join(vis_dir, f"{subject_id}_radiologist_gt_comparison.png")
-        render_radiologist_comparison(ct_arr, mask_arr, jhu_nrrd_file, comp_path, subject_id, ct_path=ct_path, raw_ct_affine=raw_ct_nii.affine, mask_path=gi_path)
+        render_radiologist_comparison(ct_arr, mask_arr, jhu_nrrd_file, comp_path, subject_id, ct_path=ct_path, mask_path=gi_path)
 
     return subject_rows
 

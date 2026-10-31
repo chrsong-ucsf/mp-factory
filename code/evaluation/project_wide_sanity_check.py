@@ -81,6 +81,8 @@ def main():
         elif status == "WARN":
             warnings += 1
             print(f"  {WARN} {msg}")
+        elif status == "INFO":
+            print(f"  {INFO} {msg}")
         else:
             failures += 1
             print(f"  {FAIL} {msg}")
@@ -293,7 +295,7 @@ def main():
             diff_code = f.read()
         has_ncct_dir = "--ncct_dir" in diff_code and "FileNotFoundError" in diff_code
         if has_ncct_dir:
-            evaluate("PASS", "Multi-Phase Diffusion: Enforces native NCCT directory baseline and strict checkpoint verification")
+            evaluate("PASS", "Multi-Phase Diffusion: Static check confirmed --ncct_dir parameter and FileNotFoundError exception handling in source")
         else:
             evaluate("FAIL", "sample_multiphase_diffusion.py missing native NCCT dir handling or checkpoint verification")
     except Exception as e:
@@ -303,12 +305,12 @@ def main():
     fig_turing = os.path.join(BASE_DIR, "docs", "figures", "project10_clinical_turing_comparison.png")
     fig_tumor  = os.path.join(BASE_DIR, "docs", "figures", "project10_4d_tumor_hemodynamics_showcase.png")
     if os.path.exists(fig_turing) and os.path.getsize(fig_turing) > 10000:
-        evaluate("PASS", f"Showcase Turing Figure: {os.path.basename(fig_turing)} ({os.path.getsize(fig_turing):,} bytes)")
+        evaluate("PASS", f"Showcase Turing Figure inventory: {os.path.basename(fig_turing)} present on disk ({os.path.getsize(fig_turing):,} bytes)")
     else:
         evaluate("FAIL", f"Showcase Turing Figure missing or too small: {fig_turing}")
 
     if os.path.exists(fig_tumor) and os.path.getsize(fig_tumor) > 10000:
-        evaluate("PASS", f"Showcase Tumor Kinetics Figure: {os.path.basename(fig_tumor)} ({os.path.getsize(fig_tumor):,} bytes)")
+        evaluate("PASS", f"Showcase Tumor Kinetics Figure inventory: {os.path.basename(fig_tumor)} present on disk ({os.path.getsize(fig_tumor):,} bytes)")
     else:
         evaluate("FAIL", f"Showcase Tumor Kinetics Figure missing or too small: {fig_tumor}")
 
@@ -320,7 +322,7 @@ def main():
         has_cluster_links = "file:///mnt/scratch" in showcase_text
         has_honest_turing = "Empty-Mask Gating" in showcase_text
         if not has_cluster_links and has_honest_turing:
-            evaluate("PASS", "SHOWCASE.md Documentation: Zero local file:// links, fully defensible scientific reporting")
+            evaluate("PASS", "SHOWCASE.md Documentation: Inventory confirmed zero local cluster links and presence of empty-mask gating documentation")
         else:
             evaluate("FAIL", f"SHOWCASE.md check failed: cluster_links={has_cluster_links}, honest_turing={has_honest_turing}")
     else:

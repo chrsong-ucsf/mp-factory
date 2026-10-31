@@ -66,6 +66,7 @@ python -u code/project10/training/train_stage2_synthesis.py \
     --registration_csv results/project10/manifests/registration_log.csv \
     --base_dir         /mnt/scratch/user/chrsong/mp-factory \
     --mask_dir         results/totalseg_masks \
+    --totalseg_task    total \
     --ae_checkpoint    "$AE_CKPT" \
     --out_dir          results/project10/checkpoints/stage2_synthesis \
     --epochs           100 \
