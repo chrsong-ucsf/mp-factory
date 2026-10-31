@@ -168,6 +168,50 @@ def test_production_totalseg_schema_precedence():
         assert torch.sum(cond[:, 3]) == 0, "Label 18 under total_v1 must not map to small bowel"
 
 
+def test_production_strict_inference_candidate_fallback():
+    """Finding 2: load_anatomy_mask continues past an unsuitable first candidate to discover a valid later mask."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dir1 = os.path.join(tmpdir, "dir1")
+        dir2 = os.path.join(tmpdir, "dir2")
+        ct_dir = os.path.join(tmpdir, "ct")
+        os.makedirs(dir1, exist_ok=True)
+        os.makedirs(dir2, exist_ok=True)
+        os.makedirs(ct_dir, exist_ok=True)
+
+        shape = (32, 32, 32)
+        ct_itk = sitk.GetImageFromArray(np.zeros(shape, dtype=np.float32))
+        ct_itk.SetSpacing((1.5, 1.5, 1.5))
+        ct_path = os.path.join(ct_dir, "ct.nii.gz")
+        sitk.WriteImage(ct_itk, ct_path)
+
+        # Candidate 1 in dir1: has label 2 (duodenum in GI schema), but schema requested is 'total' (where duodenum is 19).
+        # In 'total' schema, label 2 maps to 0 foreground voxels.
+        c1_arr = np.zeros(shape, dtype=np.uint8)
+        c1_arr[5:15, 5:15, 5:15] = 2
+        c1_itk = sitk.GetImageFromArray(c1_arr)
+        c1_itk.SetSpacing((1.5, 1.5, 1.5))
+        sitk.WriteImage(c1_itk, os.path.join(dir1, "SUBJ_FALLBACK_gi_mask.nii.gz"))
+
+        # Candidate 2 in dir2: has label 19 (duodenum in TotalSegmentator 'total' schema).
+        c2_arr = np.zeros(shape, dtype=np.uint8)
+        c2_arr[5:15, 5:15, 5:15] = 19
+        c2_itk = sitk.GetImageFromArray(c2_arr)
+        c2_itk.SetSpacing((1.5, 1.5, 1.5))
+        sitk.WriteImage(c2_itk, os.path.join(dir2, "SUBJ_FALLBACK.nii.gz"))
+
+        # Under strict conditioning with totalseg_task='total', Candidate 1 in dir1 will have 0 foreground voxels.
+        # load_anatomy_mask must NOT abort with ValueError on Candidate 1; it must continue to dir2 and succeed!
+        cond = load_anatomy_mask(
+            subject_id="SUBJ_FALLBACK",
+            mask_dirs=[dir1, dir2],
+            reference_ct_path=ct_path,
+            require_conditioning=True,
+            totalseg_task="total",
+        )
+        assert cond.shape == (1, 5, 16, 16, 16)
+        assert torch.sum(cond[:, 2]) > 0, "Candidate 2 in dir2 must be discovered and map duodenum (19) to channel 2"
+
+
 def test_production_tumor_host_discovery_organ_search():
     """Finding 4: find_and_extract_host_parenchyma iterates past GI mask to find valid liver host in full-body dir."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -247,9 +291,25 @@ def test_production_manuscript_tables_patient_counting():
     unique_pts = set(patient_ids)
     assert len(unique_pts) == 5, f"11 scans must resolve to exactly 5 unique patients! Got: {unique_pts}"
 
-    # Verify build_table_2 compiles and reports 5 patients
-    latex_code, md_code = build_table_2()
-    assert latex_code is not None
-    assert md_code is not None
-    assert "5" in md_code, "Table 2 markdown must report 5 unique patients"
-    assert "11 evaluated scans correspond to 5 distinct patients" in md_code
+    with tempfile.TemporaryDirectory() as tmpdir:
+        csv_path = os.path.join(tmpdir, "mock_jhu_comparison.csv")
+        records = []
+        for sid in scans:
+            records.append({
+                "model_name": "MedNeXt",
+                "subject_id": sid,
+                "source_nrrd": f"{sid}.seg.nrrd",
+                "stomach_dice": 0.85,
+                "duodenum_dice": 0.75,
+                "small_bowel_dice": 0.80,
+                "colon_dice": 0.82,
+                "mean_dice": 0.805,
+                "mean_hd95": 15.0,
+            })
+        pd.DataFrame(records).to_csv(csv_path, index=False)
+
+        latex_code, md_code = build_table_2(csv_file=csv_path)
+        assert latex_code is not None
+        assert md_code is not None
+        assert "| **MedNeXt** | 11 | 5 |" in md_code, "Table 2 markdown must report 11 scans across 5 unique patients"
+        assert "11 evaluated scans correspond to 5 distinct patients" in md_code

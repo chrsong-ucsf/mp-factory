@@ -96,6 +96,7 @@ def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir, overwrite=Fa
 
     result = {'subject_id': subject_id, 'status': 'PROCESSING'}
     try:
+        os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, f"{subject_id}_autolabel.nii.gz")
         if os.path.isfile(out_path) and os.path.getsize(out_path) > 0 and not overwrite:
             result.update({

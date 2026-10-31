@@ -208,6 +208,11 @@ def main():
         action="store_true",
         help="Merge existing worker CSVs and exit.",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Force recomputation of all metrics, invalidating cached CSV records.",
+    )
 
     args = parser.parse_args()
 
@@ -261,27 +266,41 @@ def main():
     else:
         worker_csv = output_csv
 
-    # Check for existing partial progress
+    METRIC_VERSION = "v2_canonical_spatial"
+
+    # Check for existing valid progress
     results = []
-    processed_subjects = set()
-    if worker_csv.exists():
+    processed_subjects = {}
+    if worker_csv.exists() and not args.overwrite:
         try:
             prev_df = pd.read_csv(worker_csv)
             if "Subject" in prev_df.columns:
-                results = prev_df.to_dict(orient="records")
-                processed_subjects = set(prev_df["Subject"].tolist())
-                logger.info(f"Resuming worker {args.array_id}: loaded {len(results)} previously evaluated scans.")
+                for rec in prev_df.to_dict(orient="records"):
+                    subj = str(rec.get("Subject", ""))
+                    # Invalidate stale rows: must have matching metric_version and not have newer file modification
+                    if rec.get("metric_version") == METRIC_VERSION:
+                        f_cand = fake_dir / subj
+                        if f_cand.exists() and f_cand.stat().st_mtime <= float(rec.get("fake_mtime", 0)) + 1e-3:
+                            processed_subjects[subj] = rec
+                results = list(processed_subjects.values())
+                logger.info(
+                    f"Resuming worker {args.array_id}: loaded {len(results)} valid verified evaluated scans (version {METRIC_VERSION})."
+                )
         except Exception as e:
             logger.warning(f"Could not read previous worker CSV: {e}")
 
+    error_count = 0
+    scored_count = len(results)
+
     for idx, fake_path in enumerate(my_files, start=1):
         filename = fake_path.name
-        if filename in processed_subjects:
+        if filename in processed_subjects and not args.overwrite:
             continue
 
         real_path = find_matching_real_file(fake_path, real_dir)
         if real_path is None or not real_path.exists():
             logger.warning(f"Missing corresponding real file for {filename} in {real_dir}. Skipping.")
+            error_count += 1
             continue
 
         try:
@@ -290,8 +309,14 @@ def main():
 
             metrics = compute_metrics_3d(real_vol, fake_vol, device=device)
             metrics["Subject"] = filename
+            metrics["fake_mtime"] = float(fake_path.stat().st_mtime)
+            metrics["metric_version"] = METRIC_VERSION
+
+            # Replace or append metric record
+            results = [r for r in results if r.get("Subject") != filename]
             results.append(metrics)
-            processed_subjects.add(filename)
+            processed_subjects[filename] = metrics
+            scored_count += 1
 
             logger.info(
                 f"[{idx}/{len(my_files)}] {filename} -> SSIM: {metrics['SSIM']:.4f} | "
@@ -306,18 +331,27 @@ def main():
                 df[cols].to_csv(worker_csv, index=False)
 
         except Exception as e:
+            error_count += 1
             logger.error(f"Error processing {filename}: {e}", exc_info=True)
             continue
 
     if not results:
         logger.warning(f"Worker {args.array_id}: No files were successfully evaluated.")
+        if error_count > 0:
+            raise RuntimeError(f"All {error_count} assigned cases failed evaluation on worker {args.array_id}.")
         return
 
     # Final save for this worker
     df = pd.DataFrame(results)
     cols = ["Subject"] + [c for c in df.columns if c != "Subject"]
     df[cols].to_csv(worker_csv, index=False)
-    logger.info(f"Worker {args.array_id} complete. Saved {len(df)} records to {worker_csv}")
+    logger.info(
+        f"Worker {args.array_id} complete. Assigned: {len(my_files)}, "
+        f"Scored: {len(df)}, Errors: {error_count}. Saved to {worker_csv}"
+    )
+
+    if error_count > 0 and error_count == len(my_files):
+        raise RuntimeError(f"All {error_count} assigned cases failed on worker {args.array_id}.")
 
     # If single worker, print summary
     if args.total_workers == 1:

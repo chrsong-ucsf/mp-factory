@@ -36,9 +36,12 @@ All 2D orthogonal slices and montages are calibrated to standard abdominal soft-
 # PART I: Project 9 — 3D GI Organ Segmentation & Expert Validation
 
 ### Case 1: `BDMAP_00242131` — Benchmark Anatomy & JHU Radiologist Concordance
+> [!NOTE]
+> **Legacy Pipeline Visualization Notice:** The visual panels below for `BDMAP_00242131` (including the 4-panel comparison displaying Stomach 0.9402 / Duodenum 0.7944 Dice) reflect legacy pipeline runs utilizing early foreground-only concordance and preliminary GT class mappings. Under the corrected class-aware spatial resampling and clinical multi-phase propagation rules (detailed in Table 2 and Case 4), these legacy visual figures are retained strictly for historical reference and qualitative anatomical demonstration, not as certified quantitative validation of current production metrics.
+
 * **Scan Parameters:** Abdominal CT ($512 \times 512 \times 489$, voxel resolution $0.85 \times 0.85 \times 1.50\text{ mm}^3$).
 * **Clinical Significance:** Evaluated by board-certified radiologists at Johns Hopkins University (JHU). Radiologist notes flagged high complexity in delineating the Superior Mesenteric Vein (SMV) from jejunal borders and resolving colonic haustrations.
-* **Overlap vs. Expert Ground Truth:**
+* **Overlap vs. Expert Ground Truth (Legacy Pipeline Figure):**
   * **Stomach:** **0.9402 Dice**, IoU: 0.887, HD95: **4.27 mm**
   * **Duodenum:** **0.7944 Dice**, IoU: 0.659, HD95: **24.9 mm**
   * **Small Bowel:** 1,078.8 cm³ continuous mesenteric volume.
@@ -47,7 +50,7 @@ All 2D orthogonal slices and montages are calibrated to standard abdominal soft-
 Centered at the GI anatomical center of mass:
 ![BDMAP_00242131 Orthoview](figures/showcase/BDMAP_00242131_orthoview.png)
 
-Direct 4-panel comparison against expert JHU radiologist ground truth:
+Direct 4-panel comparison against expert JHU radiologist ground truth (Legacy Pipeline):
 ![BDMAP_00242131 Radiologist Comparison](figures/showcase/BDMAP_00242131_radiologist_gt_comparison.png)
 * *Verification Note:* In Panel D (Concordance Map), green denotes exact spatial agreement. The automated model cleanly isolates the transverse colon (Blue in Panel C) from adjacent jejunal loops, resolving haustral colonic borders that were conflated in manual queues.
 
@@ -58,6 +61,9 @@ Direct 4-panel comparison against expert JHU radiologist ground truth:
 ---
 
 ### Case 2: `BDMAP_00242114` — High-Distension Multi-Phase Sequential Anatomy
+> [!NOTE]
+> **Legacy Pipeline Visualization Notice:** The visualization panels for `BDMAP_00242114` represent early exploratory renders from the legacy pipeline. While they illustrate qualitative luminal distension across sequential scans, quantitative validation under the corrected physical coordinate pipeline is established by Case 4 and Table 2.
+
 * **Scan Parameters:** High-distension scan ($512 \times 512 \times 429$, voxel spacing $0.85 \times 0.85 \times 1.50\text{ mm}^3$).
 * **Clinical Role:** Validates contrast-phase invariance across sequential scans (`BDMAP_00242113` $\rightarrow$ `114`/`115`/`116`), providing the structural priors required for Project 10 generative conditioning.
 * **Organ Volumes:** Stomach: 228.7 cm³, Duodenum: 49.4 cm³, Small Bowel: 819.8 cm³, Colon: 807.4 cm³.
@@ -69,6 +75,9 @@ Direct 4-panel comparison against expert JHU radiologist ground truth:
 ---
 
 ### Case 3: `BDMAP_00242136` — Challenging Redundant Sigmoid & Visceral Shift
+> [!NOTE]
+> **Legacy Pipeline Visualization Notice:** The visualization panels for `BDMAP_00242136` represent legacy pipeline renders retained for qualitative anatomical visualization of challenging redundant colonic morphology. They should not be interpreted as quantitative validation under the corrected class-aware coordinate pipeline.
+
 * **Scan Parameters:** Extended longitudinal CT ($512 \times 512 \times 519$, voxel spacing $0.85 \times 0.85 \times 1.50\text{ mm}^3$).
 * **Clinical Anomalies:** Specifically evaluated for severe anatomical course variations:
   1. Redundant, hyper-elongated sigmoid colon looping superiorly into the epigastrium.
@@ -83,6 +92,9 @@ Direct 4-panel comparison against expert JHU radiologist ground truth:
 ---
 
 ### Case 4: `BDMAP_00394224` — Suspected Cecal Mass & Altered Pelvic Anatomy
+> [!IMPORTANT]
+> **Audited Current Pipeline Validation:** Unlike Cases 1–3 above, Case 4 represents an audited, class-aware evaluation conducted under true physical SimpleITK coordinate alignment and the corrected multi-phase clinical propagation rules. Case 4's metrics are distinct and do not retroactively validate the legacy panels of Cases 1–3.
+
 * **Scan Parameters:** Ultra-thin slice abdominal scan ($512 \times 512 \times 671$, voxel spacing $0.91 \times 0.91 \times 1.00\text{ mm}^3$).
 * **Clinical Significance:** Patient presented with suspected cecal carcinoma soft-tissue mass and prior rectal surgery. Under physical SimpleITK coordinate alignment, the pipeline achieves **0.8893 Stomach Dice**, **0.7613 Duodenum Dice**, **0.8567 Small Bowel Dice**, and **0.9018 Colon Dice** against Johns Hopkins radiologist ground truth.
 * **Organ Volumes:** Stomach: 338.6 cm³, Duodenum: 71.5 cm³, Small Bowel: 886.1 cm³, Colon: 790.8 cm³.
@@ -128,6 +140,9 @@ To audit whether synthetic contrast scans preserve visceral anatomical boundarie
 Below is an axial cross-section through native validation case `CV_00000042--CV_00007115` ($R = 0.191$, $\text{SSIM} = 0.062$):
 ![Project 10 Clinical Comparison](figures/project10_clinical_turing_comparison.png)
 
+> [!WARNING]
+> **Diffusion Output Saturation & Quality Notice:** The generative synthesis panel above exhibits significant hyper-attenuation trajectory saturation (elevated visceral baseline ~400 HU) and background air DC shift (~0 HU vs. -1000 HU native air), yielding weak visual correlation ($R = 0.191$, $\text{SSIM} = 0.062$). While the model successfully learns structural organ geometry from the frozen VQ-VAE latents, this raw output requires downstream air-clamping, intensity re-calibration, or trajectory correction before clinical deployment. This visualization documents the raw diffusion output quality prior to downstream post-processing and does not demonstrate corrected diagnostic image fidelity.
+
 * **Panel A (Non-Contrast Input CT):** Native baseline abdominal attenuation prior to contrast injection.
 * **Panel B (Generative Contrast Synthesis):** Synthetic contrast CT generated by the 3D Latent Diffusion Model. While parenchymal and visceral structures demonstrate spatial anatomical alignment, elevated baseline values (~400 HU median) reflect the known diffusion trajectory saturation and background air offset (~0 HU vs -1000 HU) present in this mid-tier cohort scan.
 * **Panel C (Ground-Truth Real Contrast CT):** Physical contrast-enhanced reference CT from the same subject.
@@ -152,6 +167,9 @@ Below is an axial sequence through a synthesized 3D liver tumor (`CV_00000042--C
 2. **Panel B (Arterial Phase):** Hypervascular wash-in ($195.9\text{ HU}$ in this case study; cohort average $188.1 \pm 28.3\text{ HU}$), reproducing classic hepatic arterial neovascularization.
 3. **Panel C (Portal Venous Phase):** Delayed washout ($121.3\text{ HU}$ in this case study; cohort average $81.9 \pm 23.2\text{ HU}$), producing a classic hypo-attenuating lesion relative to enhanced hepatic parenchyma.
 4. **Panel D (Washout Clearance Map):** Arterial-to-venous subtraction ($\Delta\text{HU} = \text{Arterial} - \text{Venous}$) showing intense contrast clearance strictly clamped inside the lesion boundary ($* \text{geo}$), with zero Gaussian bleed into surrounding liver parenchyma.
+
+> [!WARNING]
+> **Baseline Lesion Attenuation Notice:** Similar to the generative contrast panel, the baseline NCCT tumor panel demonstrates elevated parenchymal attenuation ($106.0\text{ HU}$) characteristic of the raw uncalibrated synthetic background. The differential kinetics ($\Delta\text{HU}$ clearance) adhere strictly to LI-RADS patterns, but absolute baseline HU values reflect the uncorrected background offset.
 
 > *Note on Procedural Kinetics:* The procedural model synthesizes phase-specific HU offsets and ring templates calibrated to match published clinical LI-RADS patterns rather than independent dynamic pharmacokinetic modeling.
 
@@ -279,4 +297,14 @@ Reoriented to canonical RAS+ space on exact CT voxel coordinate grids:
 2. **Generative Contrast Synthesis Reality:** Across the population of **1,067 synthesized scans**, the Latent Diffusion engine demonstrates authentic contrast dynamics in the top 30.1% L1-stratified cohort ($R = 0.48 - 0.91$). However, whole-volume SSIM ($-0.030$) and overall L1 ($1,237.2\text{ HU}$) reflect architectural background air DC offset (~0 HU instead of -1,000 HU) and saturation thresholds, requiring air-clamping post-processing for downstream clinical utility.
 3. **Procedural Tumor Hemodynamics:** Across **1,990 synthesized 3D lesions** (7,960 NIfTI volumes), procedural simulation reproduces standard LI-RADS attenuation signatures (HCC arterial wash-in at cohort average $188.1\text{ HU}$ with venous clearance to $81.9\text{ HU}$) with strict zero-bleed lesion boundary containment.
 4. **Perturbation Robustness:** Under empty-mask gating, soft-tissue bowel retention exhibits conditional mean DSC $\ge 0.70$ under standard scanner noise ($\sigma = 15\text{ HU}$, retention $0.704 \pm 0.360$) and moderate hypo-attenuation ($-20\text{ HU}$, retention $0.731 \pm 0.327$), but strict cohort pass rate ($\ge 0.85$ DSC) remains 6.0% (vs. 14.0% at baseline), and exhibits expected degradation under severe hyper-attenuation ($0.140 \pm 0.280$ at $+50\text{ HU}$, 0% pass) and ultra-low-dose noise ($0.562 \pm 0.453$ at $\sigma = 30\text{ HU}$, 6% pass).
+
+---
+
+## 6. Reproducibility, Cohort Provenance & Data Availability Limitations
+
+> [!CAUTION]
+> **Audit Finding on Publication-Scale Claims & Provenance:**
+> 1. **Data Availability Limitations:** The raw image NIfTI volumes and comprehensive evaluation manifests for the extended 50-case JHU cohort, 1,067 generative synthetic volumes, and 1,990 procedural tumor lesions reside on external cluster storage tiers (`/mnt/scratch/user/chrsong/CancerVerse_data` and scratch storage) and are deliberately gitignored. Consequently, while local automated regression tests verify the end-to-end algorithmic contracts, strict inference pipelines, coordinate transformations, and table generation logic, full cohort-scale empirical metrics cannot be independently reproduced solely from the local git checkout without mounting the cluster storage tier.
+> 2. **Literature Reference Provenance:** Baseline comparison figures for TotalSegmentator (Wasserthal et al., DOI: `10.1148/ryai.230024`) reflect external literature reference values rather than locally executed benchmark runs on this exact multi-phase cohort. They provide comparative context but should not be interpreted as an internally audited control run on identical patient acquisitions.
+> 3. **Model Fidelity & Historical Evidence:** Local volume arithmetic, isolated visual panels, and table generation scripts verify software integrity. However, production clinical claims require full cohort rerun verification against the centralized data registry once scratch storage tiers are connected.
 

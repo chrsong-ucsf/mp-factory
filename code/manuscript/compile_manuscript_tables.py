@@ -14,12 +14,16 @@ Outputs camera-ready LaTeX code, Markdown summary tables, and structured CSVs in
 
 import os
 import sys
+from pathlib import Path
+from typing import Optional
 import numpy as np
 import pandas as pd
 
-BASE_DIR = "/mnt/scratch/user/chrsong/mp-factory"
+# Resolve repository root dynamically to support both cluster and local/test environments
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CLUSTER_DIR = Path("/mnt/scratch/user/chrsong/mp-factory")
+BASE_DIR = str(CLUSTER_DIR if CLUSTER_DIR.exists() and os.access(str(CLUSTER_DIR), os.W_OK) else REPO_ROOT)
 OUT_DIR = os.path.join(BASE_DIR, "results/manuscript")
-os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # File Sources
@@ -148,12 +152,13 @@ def resolve_jhu_patient_id(row: pd.Series) -> str:
     return JHU_SCAN_TO_PATIENT_MAP.get(sid, sid)
 
 
-def build_table_2():
+def build_table_2(csv_file: Optional[str] = None):
     """Table 2: JHU Radiologist Expert Ground-Truth Benchmark."""
-    csv_file = CSV_JHU_MASTER if os.path.exists(CSV_JHU_MASTER) else (
-        CSV_JHU_PHASE3 if os.path.exists(CSV_JHU_PHASE3) else CSV_JHU_PHASE2
-    )
-    if not os.path.exists(csv_file):
+    if csv_file is None:
+        csv_file = CSV_JHU_MASTER if os.path.exists(CSV_JHU_MASTER) else (
+            CSV_JHU_PHASE3 if os.path.exists(CSV_JHU_PHASE3) else CSV_JHU_PHASE2
+        )
+    if not csv_file or not os.path.exists(csv_file):
         print(f"[Warning] No JHU comparison CSV found at {csv_file}")
         return None, None
 
@@ -340,6 +345,7 @@ def main():
         else:
             print(f"[!] Table {idx} skipped or waiting on inputs.")
 
+    os.makedirs(OUT_DIR, exist_ok=True)
     tex_out_file = os.path.join(OUT_DIR, "master_manuscript_tables.tex")
     md_out_file = os.path.join(OUT_DIR, "master_manuscript_tables.md")
 

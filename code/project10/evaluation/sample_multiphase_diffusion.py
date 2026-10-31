@@ -216,6 +216,8 @@ def load_anatomy_mask(
         except Exception as e:
             log.warning(f"Could not load reference CT from {reference_ct_path}: {e}")
 
+    rejection_reasons = []
+
     for mdir in mask_dirs:
         for sfx in candidate_suffixes:
             mpath = os.path.join(mdir, f"{subject_id}{sfx}")
@@ -234,11 +236,10 @@ def load_anatomy_mask(
 
                         # Check physical overlap with CT volume
                         if np.sum(native_arr > 0) == 0:
-                            log.warning(f"Mask {mpath} has zero physical overlap with reference CT {reference_ct_path}.")
-                            if require_conditioning:
-                                raise ValueError(
-                                    f"Mask {mpath} has zero physical overlap with reference CT {reference_ct_path}."
-                                )
+                            rejection_reasons.append(
+                                (mpath, f"zero physical overlap with reference CT {reference_ct_path}")
+                            )
+                            log.warning(f"Candidate mask {mpath} has zero physical overlap with reference CT; trying next candidate.")
                             continue
 
                         # Save aligned native mask to temp file and preprocess with unified MONAI pipeline
@@ -298,24 +299,31 @@ def load_anatomy_mask(
                                 mapped[vol == organ_id] = organ_id
 
                     if np.sum(mapped > 0) == 0:
-                        log.warning(f"Mask {mpath} has 0 foreground voxels for GI schema '{totalseg_task}'.")
-                        if require_conditioning:
-                            raise ValueError(
-                                f"Mask {mpath} contains zero valid foreground voxels for GI classes under schema '{totalseg_task}'."
-                            )
+                        rejection_reasons.append(
+                            (mpath, f"zero foreground voxels for GI schema '{totalseg_task}'")
+                        )
+                        log.warning(f"Mask {mpath} has 0 foreground voxels for GI schema '{totalseg_task}'; trying next candidate.")
+                        continue
 
                     mask_t = torch.from_numpy(mapped).unsqueeze(0).long().clamp(0, 4)
                     one_hot = F.one_hot(mask_t, num_classes=5).permute(0, 4, 1, 2, 3).float().to(device)
+                    log.info(f"Successfully loaded and verified anatomy conditioning mask: {mpath}")
                     return F.interpolate(one_hot, size=latent_shape, mode="nearest")
                 except Exception as e:
-                    log.warning(f"Failed loading mask from {mpath}: {e}")
-                    if require_conditioning:
-                        raise
+                    rejection_reasons.append((mpath, str(e)))
+                    log.warning(f"Failed loading candidate mask from {mpath}: {e}; trying next candidate.")
+                    continue
 
     if require_conditioning:
-        raise FileNotFoundError(
-            f"CRITICAL: Required organ conditioning mask for {subject_id} not found in {mask_dirs}."
-        )
+        if rejection_reasons:
+            reasons_summary = "; ".join(f"{p}: {r}" for p, r in rejection_reasons)
+            raise ValueError(
+                f"CRITICAL: Required organ conditioning mask for {subject_id} failed on all candidates: {reasons_summary}"
+            )
+        else:
+            raise FileNotFoundError(
+                f"CRITICAL: Required organ conditioning mask for {subject_id} not found in {mask_dirs}."
+            )
 
     log.warning(f"No organ mask found for {subject_id}; generating with neutral background prior.")
     dummy = torch.zeros((1, 5, *latent_shape), device=device, dtype=torch.float32)
@@ -470,12 +478,45 @@ def main():
     skipped_count = 0
     failed_count = 0
 
+    CODE_VERSION_TAG = "stage2_diffusion_v2_canonical_spatial"
+
     for idx, ct_path in enumerate(my_files, start=1):
         filename = os.path.basename(ct_path)
         pair_name = filename.replace("_reg.nii.gz", "")
         out_path = os.path.join(args.out_dir, f"{pair_name}_synthetic_contrast.nii.gz")
         prov_path = os.path.join(args.out_dir, f"{pair_name}_provenance.json")
 
+        # Extract subject ID for anatomy conditioning and true NCCT resolution
+        subject_p0 = pair_name.split("--")[0]
+
+        # Resolve true native NCCT scan first to verify input provenance
+        ncct_input_file = None
+        cands = []
+        if args.ncct_dir and os.path.exists(args.ncct_dir):
+            cands.extend([
+                os.path.join(args.ncct_dir, f"{subject_p0}.nii.gz"),
+                os.path.join(args.ncct_dir, subject_p0, "ct.nii.gz")
+            ])
+        cands.extend([
+            os.path.join(str(BASE_DIR), "CancerVerse", "CancerVerse", subject_p0, "ct.nii.gz"),
+            os.path.join(str(BASE_DIR), "CancerVerse_dbox", subject_p0, "ct.nii.gz")
+        ])
+        for c in cands:
+            if os.path.exists(c):
+                ncct_input_file = c
+                break
+
+        if ncct_input_file is None:
+            failed_count += 1
+            log.error(
+                f"CRITICAL: Native NCCT file for {subject_p0} not found in {args.ncct_dir} or CancerVerse. "
+                "Aborting sample to strictly prevent target leakage from registered contrast CT."
+            )
+            continue
+
+        ncct_sha = checkpoint_sha256(ncct_input_file)
+
+        # Complete generation contract verification
         if os.path.exists(out_path) and not args.overwrite:
             try:
                 is_valid = False
@@ -483,20 +524,23 @@ def main():
                     with open(prov_path, "r") as pf:
                         prov_data = json.load(pf)
                     if (
-                        prov_data.get("diffusion_checkpoint_sha256") == diff_sha
+                        prov_data.get("ncct_sha256") == ncct_sha
+                        and prov_data.get("diffusion_checkpoint_sha256") == diff_sha
                         and prov_data.get("ae_checkpoint_sha256") == ae_sha
                         and prov_data.get("totalseg_task") == args.totalseg_task
+                        and prov_data.get("num_steps") == args.num_steps
+                        and prov_data.get("code_version") == CODE_VERSION_TAG
                     ):
                         test_nii = nib.load(out_path)
                         test_data = test_nii.get_fdata()
                         if test_nii.shape == (128, 128, 128) and np.all(np.isfinite(test_data)):
                             is_valid = True
                 if is_valid:
-                    log.info(f"[{idx}/{len(my_files)}] Skipping valid existing verified: {pair_name}")
+                    log.info(f"[{idx}/{len(my_files)}] Skipping valid existing verified volume (matching input and model contract): {pair_name}")
                     skipped_count += 1
                     continue
                 else:
-                    log.warning(f"Existing {out_path} lacks verified provenance or is corrupted, regenerating...")
+                    log.warning(f"Existing {out_path} lacks matching provenance or has altered input/model contract; regenerating...")
             except Exception as e:
                 log.warning(f"Existing {out_path} unreadable ({e}), regenerating...")
 
@@ -504,32 +548,6 @@ def main():
         log.info(f"[{idx}/{len(my_files)}] Generating synthetic contrast volume for: {pair_name}")
 
         try:
-            # Extract subject ID for anatomy conditioning and true NCCT resolution
-            subject_p0 = pair_name.split("--")[0]
-
-            # Resolve true native NCCT scan (preventing target leakage from registered contrast)
-            ncct_input_file = None
-            cands = []
-            if args.ncct_dir and os.path.exists(args.ncct_dir):
-                cands.extend([
-                    os.path.join(args.ncct_dir, f"{subject_p0}.nii.gz"),
-                    os.path.join(args.ncct_dir, subject_p0, "ct.nii.gz")
-                ])
-            cands.extend([
-                os.path.join(str(BASE_DIR), "CancerVerse", "CancerVerse", subject_p0, "ct.nii.gz"),
-                os.path.join(str(BASE_DIR), "CancerVerse_dbox", subject_p0, "ct.nii.gz")
-            ])
-            for c in cands:
-                if os.path.exists(c):
-                    ncct_input_file = c
-                    break
-
-            if ncct_input_file is None:
-                raise FileNotFoundError(
-                    f"CRITICAL: Native NCCT file for {subject_p0} not found in {args.ncct_dir} or CancerVerse. "
-                    "Aborting sample to strictly prevent target leakage from registered contrast CT."
-                )
-
             # Preprocess volume to normalised range [-0.5, 1.0] and get resampled affine
             ncct_tensor, resampled_affine = preprocess_ct(ncct_input_file)
             ncct_tensor = ncct_tensor.to(device)
@@ -569,25 +587,28 @@ def main():
                 nii = nib.Nifti1Image(fake_hu, affine=resampled_affine)
                 nib.save(nii, out_path)
 
-                # Write provenance metadata sidecar
+                # Write complete provenance metadata sidecar
                 prov_meta = {
                     "pair_name": pair_name,
                     "subject_p0": subject_p0,
                     "ncct_input_file": ncct_input_file,
+                    "ncct_sha256": ncct_sha,
                     "diffusion_checkpoint": args.diffusion_checkpoint,
                     "diffusion_checkpoint_sha256": diff_sha,
                     "ae_checkpoint": args.ae_checkpoint,
                     "ae_checkpoint_sha256": ae_sha,
                     "totalseg_task": args.totalseg_task,
                     "require_conditioning": args.require_conditioning,
+                    "num_steps": args.num_steps,
                     "target_shape": [128, 128, 128],
                     "spacing_mm": 1.5,
+                    "code_version": CODE_VERSION_TAG,
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 }
                 with open(prov_path, "w") as pf:
                     json.dump(prov_meta, pf, indent=2)
 
-                log.info(f"  [+] Saved synthetic CT volume -> {out_path} (with provenance)")
+                log.info(f"  [+] Saved synthetic CT volume -> {out_path} (with verified provenance)")
                 generated_count += 1
 
         except Exception as e:
@@ -600,10 +621,7 @@ def main():
         f"{failed_count} failed, {attempted_count} attempted."
     )
     if failed_count > 0:
-        if failed_count == attempted_count:
-            raise RuntimeError(f"All {failed_count} attempted inference scans failed on worker {args.array_id}.")
-        else:
-            log.warning(f"Partial run failure: {failed_count}/{attempted_count} attempted scans failed on worker {args.array_id}.")
+        raise RuntimeError(f"Inference failed on {failed_count}/{len(my_files)} assigned scans on worker {args.array_id}.")
 
 
 if __name__ == "__main__":

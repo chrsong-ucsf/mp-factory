@@ -28,6 +28,7 @@ from typing import Optional, Tuple
 import nibabel as nib
 import numpy as np
 import pandas as pd
+import SimpleITK as sitk
 import torch
 from torch.utils.data import Dataset
 
@@ -177,8 +178,9 @@ class MultiphasePairedDataset(Dataset):
         if mask_path is None:
             raise FileNotFoundError(f"Mask file missing for subject {subject_p0} in {self.mask_dir}")
 
-        # 4. Load CT volumes & verify finiteness
+        # 4. Load NCCT volume in physical coordinates
         try:
+            ncct_itk = sitk.ReadImage(str(ncct_path))
             ncct_nii = nib.load(str(ncct_path))
             ncct_arr = np.asarray(ncct_nii.dataobj, dtype=np.float32)
         except Exception as e:
@@ -186,6 +188,7 @@ class MultiphasePairedDataset(Dataset):
         if not np.all(np.isfinite(ncct_arr)):
             raise RuntimeError(f"Non-finite values (NaN/Inf) detected in NCCT CT for subject {subject_p0}")
 
+        # 5. Load Target CT and align to NCCT reference geometry
         try:
             target_nii = nib.load(str(target_path))
             target_arr = np.asarray(target_nii.dataobj, dtype=np.float32)
@@ -194,12 +197,49 @@ class MultiphasePairedDataset(Dataset):
         if not np.all(np.isfinite(target_arr)):
             raise RuntimeError(f"Non-finite values (NaN/Inf) detected in target CT for subject {subject_p0}")
 
-        # 5. Load Mask volume & verify integrity
         try:
-            mask_nii = nib.load(str(mask_path))
-            mask_arr = np.asarray(mask_nii.dataobj)
+            target_itk = sitk.ReadImage(str(target_path))
+            is_target_aligned = (
+                target_itk.GetSize() == ncct_itk.GetSize()
+                and np.allclose(target_itk.GetSpacing(), ncct_itk.GetSpacing(), atol=1e-3)
+                and np.allclose(target_itk.GetOrigin(), ncct_itk.GetOrigin(), atol=1e-2)
+                and np.allclose(target_itk.GetDirection(), ncct_itk.GetDirection(), atol=1e-2)
+            )
+            if not is_target_aligned:
+                resampler = sitk.ResampleImageFilter()
+                resampler.SetReferenceImage(ncct_itk)
+                resampler.SetInterpolator(sitk.sitkLinear)
+                resampler.SetDefaultPixelValue(-1000.0)
+                target_itk = resampler.Execute(target_itk)
+                target_arr = sitk.GetArrayFromImage(target_itk).transpose(2, 1, 0).astype(np.float32)
+        except Exception as e:
+            raise RuntimeError(f"Failed aligning target CT for subject {subject_p0}: {e}")
+
+        # 6. Load Mask volume and physically align to NCCT geometry
+        try:
+            mask_itk = sitk.ReadImage(str(mask_path))
         except Exception as e:
             raise RuntimeError(f"Corrupt or unreadable mask for subject {subject_p0}: {e}")
+
+        # Check and align mask onto NCCT physical space
+        is_mask_aligned = (
+            mask_itk.GetSize() == ncct_itk.GetSize()
+            and np.allclose(mask_itk.GetSpacing(), ncct_itk.GetSpacing(), atol=1e-3)
+            and np.allclose(mask_itk.GetOrigin(), ncct_itk.GetOrigin(), atol=1e-2)
+            and np.allclose(mask_itk.GetDirection(), ncct_itk.GetDirection(), atol=1e-2)
+        )
+        if not is_mask_aligned:
+            resampler_mask = sitk.ResampleImageFilter()
+            resampler_mask.SetReferenceImage(ncct_itk)
+            resampler_mask.SetInterpolator(sitk.sitkNearestNeighbor)
+            resampler_mask.SetDefaultPixelValue(0)
+            mask_itk = resampler_mask.Execute(mask_itk)
+
+        mask_arr = sitk.GetArrayFromImage(mask_itk).transpose(2, 1, 0)
+
+        # Check physical overlap: reject physically disjoint masks (e.g. translated 1000mm)
+        if np.count_nonzero(mask_arr) == 0:
+            raise ValueError(f"Mask {mask_path} has zero physical overlap with NCCT {ncct_path} for subject {subject_p0}")
 
         if (mask_arr < 0).any():
             raise ValueError(f"Negative label values found in mask for subject {subject_p0}")
@@ -209,7 +249,7 @@ class MultiphasePairedDataset(Dataset):
         if is_full_body and self.totalseg_task is None:
             raise ValueError(f"Full body mask {mask_fname} for subject {subject_p0} requires version provenance (totalseg_task cannot be None)")
 
-        # 6. Map mask labels to 5-class GI scheme (0=bg, 1=stomach, 2=duodenum, 3=small bowel, 4=colon)
+        # 7. Map mask labels to 5-class GI scheme (0=bg, 1=stomach, 2=duodenum, 3=small bowel, 4=colon)
         if self.totalseg_task == "total":
             mapped_mask = np.zeros_like(mask_arr, dtype=np.uint8)
             mapped_mask[mask_arr == 6] = 1
@@ -240,11 +280,11 @@ class MultiphasePairedDataset(Dataset):
         if mapped_mask.ndim == 4 and mapped_mask.shape[0] == 1:
             mapped_mask = mapped_mask[0]
 
-        # 7. Apply MONAI spatial transforms using MetaTensors to preserve affine
+        # 8. Apply MONAI spatial transforms on shared NCCT reference grid
         data_dict = {
             "ncct": MetaTensor(torch.from_numpy(ncct_arr[None, ...]), affine=torch.from_numpy(ncct_nii.affine)),
-            "target": MetaTensor(torch.from_numpy(target_arr[None, ...]), affine=torch.from_numpy(target_nii.affine)),
-            "mask": MetaTensor(torch.from_numpy(mapped_mask[None, ...].astype(np.float32)), affine=torch.from_numpy(mask_nii.affine)),
+            "target": MetaTensor(torch.from_numpy(target_arr[None, ...]), affine=torch.from_numpy(ncct_nii.affine)),
+            "mask": MetaTensor(torch.from_numpy(mapped_mask[None, ...].astype(np.float32)), affine=torch.from_numpy(ncct_nii.affine)),
         }
 
         try:

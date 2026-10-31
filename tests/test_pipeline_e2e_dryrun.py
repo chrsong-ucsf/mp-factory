@@ -77,7 +77,9 @@ class TestPipelineDryRun(unittest.TestCase):
                         "inter_model_dice": [0.88, 0.75, 0.35, 0.92, 0.70],
                         "delta_betti_0": [1, 2, 8, 0, 3],
                         "uncertainty_mean": [0.05, 0.10, 0.25, 0.04, 0.12],
+                        "triage_category": ["CLEAN_HIGH_CONFIDENCE", "WEAK_COARSE", "NOISE_REJECT", "CLEAN_HIGH_CONFIDENCE", "WEAK_COARSE"],
                         "category": ["CLEAN_HIGH_CONFIDENCE", "WEAK_COARSE", "NOISE_REJECT", "CLEAN_HIGH_CONFIDENCE", "WEAK_COARSE"],
+                        "status": ["SUCCESS"] * 5,
                     })
                     df_chunk.to_csv(cpath, index=False)
                 test_pattern = os.path.join(tmpdir, "chunk_*.csv")
@@ -124,6 +126,7 @@ class TestPipelineDryRun(unittest.TestCase):
                 cons[18:22, 18:22, 18:22] = 2
                 nib.save(nib.Nifti1Image(cons, affine), os.path.join(c_dir, f"{test_sub_id}_consensus.nii.gz"))
                 out_dir = os.path.join(tmpdir, "autolabel")
+                os.makedirs(out_dir, exist_ok=True)
                 res = autolabel_subject(test_sub_id, os.path.join(tmpdir, "data"), c_dir, out_dir, overwrite=True)
                 self.assertEqual(res.get("status"), "SUCCESS")
                 out_file = os.path.join(out_dir, f"{test_sub_id}_autolabel.nii.gz")
@@ -196,7 +199,9 @@ class TestPipelineDryRun(unittest.TestCase):
 
                 pd.DataFrame({
                     "subject_id": ["SUB_VALID", "BDMAP_00242583"],
-                    "category": ["CLEAN_HIGH_CONFIDENCE", "CLEAN_HIGH_CONFIDENCE"]
+                    "status": ["SUCCESS", "SUCCESS"],
+                    "triage_category": ["CLEAN_HIGH_CONFIDENCE", "CLEAN_HIGH_CONFIDENCE"],
+                    "category": ["CLEAN_HIGH_CONFIDENCE", "CLEAN_HIGH_CONFIDENCE"],
                 }).to_csv(s_csv, index=False)
 
                 pairs = discover_mednext(

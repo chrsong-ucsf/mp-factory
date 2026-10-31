@@ -115,3 +115,13 @@ def test_ncct_falls_back_to_cancerverse_dbox(tmp_path):
     dataset = _dataset(tmp_path, mask=np.ones((4, 4, 4), dtype=np.uint8), make_ncct=False)
     _volume(tmp_path / "CancerVerse_dbox" / "CASE" / "ct.nii.gz", np.ones((4, 4, 4)))
     assert dataset[0]["subject_id"] == "CASE"
+
+
+def test_physically_disjoint_mask_is_rejected(tmp_path):
+    """Finding 1: A mask translated +1000mm in physical space has zero physical overlap and must be rejected."""
+    dataset = _dataset(tmp_path, mask=np.ones((4, 4, 4), dtype=np.uint8))
+    shifted_affine = np.eye(4)
+    shifted_affine[0, 3] = 1000.0
+    nib.save(nib.Nifti1Image(np.ones((4, 4, 4), dtype=np.uint8), shifted_affine), tmp_path / "masks" / "CASE_gi_mask.nii.gz")
+    with pytest.raises(ValueError, match="zero physical overlap"):
+        dataset[0]
