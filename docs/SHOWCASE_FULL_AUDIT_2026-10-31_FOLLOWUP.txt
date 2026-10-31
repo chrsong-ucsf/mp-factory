@@ -1,0 +1,171 @@
+FULL FOLLOW-UP SHOWCASE AUDIT
+October 31, 2026
+
+Audited source: 459c22831a59731f176c28561ae2bcf247016ed8 (main).
+Verdict: several substantial remediations are verified, but the full audit
+still fails. Training geometry, candidate fallback, resume identity, test
+execution, and historical evidence remain unresolved.
+
+SCOPE AND LIMITS
+
+Reviewed complete SHOWCASE.md and supporting P9/P10 evaluation, visualization,
+training, preprocessing, sampling, tumor, table, launcher and test paths. All
+18 embedded PNGs decode; all 20 associated PNGs were visually reviewed in five
+contact sheets. Checked local annotation metadata and volume CSV arithmetic,
+Python/shell syntax, static diagnostics, full pytest, built-in sanity checks,
+and actual production-function probes with temporary synthetic inputs.
+Graphify query preceded source searches. Independent P9 and P10 reviews were
+reconciled with source and fresh checks. No source, cluster job, production
+data, checkpoint, or figure was changed. Only this report is committed.
+Production cohort metrics and trained-model inference were not rerun: local
+production datasets, outputs and checkpoints are unavailable.
+
+FRESH CHECKS
+
+1. python -m pytest --continue-on-collection-errors -q
+   77 passed, 3 failed, 1 collection error in 12.74 seconds; exit failure.
+   These failures are now fixture/import defects, not merely unavailable data.
+2. python code/evaluation/project_wide_sanity_check.py
+   31 checks: 10 passed, 17 warnings, 3 failures, plus one INFO; exit 1.
+   Failures: missing ensemble_phase3_audit_summary.csv; missing
+   multiphase_pairs.csv; standalone empty-mask smoke import cannot find
+   nnunet_mednext. Zero local logs is not evidence of successful cluster runs.
+3. AST parsing: 87 Python files pass. bash -n: 75 shell/SLURM files pass.
+   Pyflakes found no undefined names; the prior undefined-pd issue is fixed.
+4. All 18 embedded images exist/decode. Ten local output links are unavailable
+   (one directory and nine downloads). This does not establish remote absence.
+5. All 16 organ-volume rows match local header-based voxel-volume arithmetic;
+   maximum rounding residual 0.0049375 cm3. Mask accuracy is a separate issue.
+6. git diff --check passed. Working tree was clean at audit start; origin/main
+   matched the audited source. No figure changed from the previous source audit.
+
+CONFIRMED FINDINGS
+
+1. [P1] Training still accepts physically disjoint anatomy conditioning.
+   code/project10/datasets/multiphase_paired_dataset.py:109-129,243-254
+   independently resamples and center-crops NCCT, contrast target and mask.
+   Preserving each affine does not place these arrays on a shared reference.
+   train_stage2_synthesis.py:457-479 consumes them by array index. An actual
+   MultiphasePairedDataset probe accepted an 8-cubed all-foreground mask
+   translated +1000 mm: all 512 foreground voxels remained; CT origin was
+   [0,0,0], mask origin [1000,0,0]. Inference now rejects this same geometry.
+   Resample mask and target onto the actual NCCT grid before shared cropping;
+   reject insufficient overlap and test the production dataset, not just a
+   standalone spatial transform. Retaining metadata alone is insufficient.
+
+2. [P1/P2] Strict inference aborts before trying a valid later mask candidate.
+   code/project10/evaluation/sample_multiphase_diffusion.py:300-313 raises
+   inside the candidate loop when the first existing mask is unsuitable.
+   Actual loader probe: first GI label-2 mask, explicit total schema, strict
+   conditioning, and later valid full-body label-19 mask produced ValueError
+   on the first candidate. Default discovery checks GI directories first;
+   checkpoint metadata now correctly forces strict conditioning. Together
+   these can block a usable production case. Continue after rejected
+   candidates; raise only after exhausting them, retaining rejection reasons.
+
+3. [P2] Generation resume does not identify the current inputs or transform.
+   sample_multiphase_diffusion.py:478-501 accepts an existing output using
+   diffusion SHA, AE SHA, task, finite values and 128-cubed shape. It skips
+   before resolving the current NCCT at 510 onward. Sidecar fields at 573-585
+   omit NCCT/mask content hashes, sampling steps, seed, and preprocessing/code
+   identity. Outputs with an earlier spatial transform or changed inputs can
+   therefore survive under unchanged weights/schema. This is a static control-
+   flow finding, not a claim that a particular cluster output is stale.
+   Compare the complete generation contract before skipping, or regenerate
+   into a new versioned directory with recorded input and transform identity.
+
+4. [P2] Evaluation resume retains stale measurements for regenerated volumes.
+   code/project10/evaluation/evaluate_synthesis.py:267-280 resumes using only
+   the filename in the old CSV. An actual main() probe supplied a current
+   synthetic NIfTI and an existing row with deliberately stale L1_Error=999:
+   metric computation ran zero times and 999 remained. Source/target content,
+   geometry and metric-version identity must invalidate old rows when changed.
+   Regenerating outputs alone will not regenerate these measurements.
+
+5. [P1/P2] The new production regression module cannot collect locally.
+   tests/test_audit_remediation_regressions.py:33 imports the table compiler.
+   code/manuscript/compile_manuscript_tables.py:20-22 creates a hardcoded
+   /mnt/scratch/user/chrsong/mp-factory/results/manuscript directory during
+   import, raising OSError: read-only file system '/mnt'. This blocks every
+   test in that module. Move output-directory creation to execution and make
+   input/output paths injectable. Its patient-counting test at 241-255 also
+   calls build_table_2() against hardcoded production CSVs without a temporary
+   fixture; fixing import alone does not make it independently runnable.
+
+6. [P2] Three rewritten end-to-end fixtures violate the APIs they exercise.
+   tests/test_pipeline_e2e_dryrun.py test_03 supplies category rather than
+   triage_category, so export correctly skips dataset_splits.json and the test
+   fails at line 99. test_04 passes a nonexistent output directory to the
+   autolabel helper, whose CLI normally creates it; writing fails and the
+   SUCCESS assertion at 128 fails. test_06 supplies neither status nor
+   triage_category although train_mednext_phase2.py:126,132 requires both,
+   producing KeyError('status'). Use realistic temporary CSV contracts and
+   initialize required output directories. The checkpoint test now passes via
+   a dummy tensor fallback when trained checkpoints are absent; that pass
+   establishes serialization only, not production checkpoint compatibility.
+
+7. [P2] Historical figure evidence still differs from the corrected pipeline.
+   Three legacy JHU comparison PNGs still display the old hardcoded stomach
+   0.940/duodenum 0.794 titles, old GT class mapping and foreground-only
+   concordance. The conclusion labels them legacy, but detailed case claims
+   still read as current validation. Label each affected figure/claim locally
+   or regenerate from one audited run. Case 4's newer class-aware comparison
+   is distinct and should not lend validity to the three legacy panels.
+   The P10 synthesis panel remains strongly saturated with Pearson R=0.191,
+   SSIM=0.062; the tumor baseline panel is similarly saturated. Current prose
+   acknowledges this, but does not establish corrected generated-image quality.
+
+8. [P2] Publication-scale claims remain unreproducible from available evidence.
+   Raw results/manifests for the 50-case JHU cohort, 1,067 synthetic volumes
+   and 1,990 lesions are unavailable locally. The TotalSegmentator DOI is now
+   corrected and constants are explicitly labeled unverified literature
+   references; their exact per-organ provenance still needs a reproducible
+   source/dataset/version/aggregation before use as a comparison benchmark.
+   Existing images, table-generation code and local volume arithmetic do not
+   independently establish cohort performance or trained-model fidelity.
+
+ADDITIONAL COMPLETENESS LIMITATION
+
+Sampler lines 602-606 still returns successfully for mixed generated/failed
+cases, although all attempted failures raise. Evaluation lines 308-314 logs
+per-case errors without a failing final status. Automation should check
+expected/eligible/generated/scored/failed counts and detect partial completion.
+
+VERIFIED RESOLUTIONS IN THIS SOURCE
+
+- Actual sampler, synthesis evaluator and clinical evaluator now agree exactly
+  on the same 20-cubed, 1-mm HU ramp resampled/cropped to 8-cubed. X profiles:
+  [45,60,75,90,105,120,135,150]; sampler/evaluator maximum difference 0.
+- Strict inference receives the NCCT physical reference and rejects a mask
+  translated 1000 mm with zero overlap. This fixes the normal inference path;
+  it does not fix the training dataset or candidate-loop findings above.
+- Checkpoint anatomy metadata forces required conditioning; the sampling
+  launcher also explicitly requests it. Schema precedence supports total_v1.
+- Tumor host discovery now searches past unsuitable GI candidates and physically
+  resamples a qualifying host mask onto the generated CT reference.
+- Showcase source now explicitly canonicalizes aligned CT/mask grids to RAS.
+  Unchanged historical images were not regenerated or retrospectively verified.
+- Patient counting now prefers patient_id and resolves known sibling phases
+  through the explicit mapping, rather than counting NRRD filenames as people.
+  The documentation distinguishes 5 patients from 6 annotation files.
+- TotalSegmentator DOI is corrected to 10.1148/ryai.230024, and unverified
+  reference constants are explicitly qualified rather than presented as
+  measurements on the current cohort.
+- New regression tests now call application functions rather than copied
+  demonstrations, although the collection/fixture defects above prevent a
+  green suite. Stage-2 pandas import is present; no undefined names remain.
+- Earlier P9 physical-resampling and uncertainty-filter fixes remain in source;
+  the current audit does not infer a full production cohort rerun from them.
+
+RECOMMENDED ORDER
+
+1. Put training mask/target data on the NCCT reference and add actual-dataset
+   displaced/reoriented-grid regression cases.
+2. Repair strict mask fallback; require a valid candidate after the full search.
+3. Make tests independently collect and run using realistic temporary fixtures.
+4. Version generation and evaluation provenance, invalidate historical outputs
+   and rows, then rerun production inference/evaluation with count accounting.
+5. Regenerate affected figures/tables from that run and publish their manifests.
+
+Audit complete; validation is not clean. This report records findings and
+verification only and does not claim to remediate them.
