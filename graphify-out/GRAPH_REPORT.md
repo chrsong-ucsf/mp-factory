@@ -1,132 +1,142 @@
-# Graph Report - mp-factory  (2026-10-13)
+# Graph Report - mp-factory  (2026-10-30)
 
 ## Corpus Check
-- cluster-only mode — file stats not available
+- 101 files · ~1,784,292 words
+- Verdict: corpus is large enough that graph structure adds value.
+- Unclassified: 76 file(s) not represented in the graph (top: .sbatch 67, .nrrd 6, (none) 2)
 
 ## Summary
-- 735 nodes · 1591 edges · 56 communities (38 shown, 18 thin omitted)
-- Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 63 edges (avg confidence: 0.87)
+- 961 nodes · 2072 edges · 69 communities (40 shown, 29 thin omitted)
+- Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 82 edges (avg confidence: 0.88)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `46aa4145`
+- Built from commit: `46674074`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - multiphase_tumor_kinetics.py
 - evaluate_multi_model_ensemble.py
-- pandas
+- json
 - generate_showcase.py
 - run_scaling_sweep.py
-- mp-factory README
-- ActiveLearningPool
+- evaluate_gi_masks.py
+- test_active_learning.py
 - torch
 - register_multiphase_pairs.py
 - os
-- train_stage2_synthesis.py
-- test_ensemble_evaluation.py
-- numpy
+- test_unified_gastro_dataset.py
+- PART III: Master Publication Tables (Tables 1–4)
 - unified_gastro_dataset.py
 - evaluate_synthesis.py
-- train_stage1_autoencoder.py
+- main
 - sample_multiphase_diffusion.py
 - MedNeXt
-- train_mednext_phase2.py
+- quick_val_eval.py
 - train_swin_unetr.py
-- evaluate_gi_masks.py
-- audit_phase1_gi.py
-- predict_swin_unetr.py
-- autoencoder_3d.py
-- Tensor
-- train_mednext.py
+- test_stage2_checkpoint.py
 - glob
-- monitor_sweep_val.py
-- _ResBlock3D
-- run_gpu_evaluation
+- synthesis_net.py
+- stress_test_contrast_perturbation.py
+- autoencoder_3d.py
+- train_mednext.py
+- pandas
 - FixLiarLabelAffined
+- _ResBlock3D
+- TestPipelineDryRun
+- train_mednext_phase2.py
 - main
 - eval_scaling_checkpoints.py
-- compare_models.py
-- run_step4_boundary_split.py
-- test_val_loop_smoke.py
-- evaluate_jhu_radiologist_set.py
+- numpy
+- run_clinical_turing_test.py
+- train_swin_unetr_phase2.py
+- load_stage1_autoencoder
 - MultiphasePairedDataset
 - predict_mednext.py
 - sbatch_train_mednext.sh
 - train_full_anchor_4gpu.sh
 - run_p10_discovery.sh
-- launch_qwen.sh
+- 2. Detailed Per-Scan Clinical Annotations
 - eval_option_a.sh
 - eval_option_b.sh
 - submit_scaling_sweep.sh
 - train_full_anchor.sh
+- generate_multiphase_tumors.py
+- sys
+- main
+- predict_swin_unetr.py
+- MultiPhaseTumorGenerated
+- DiffusionSchedule
+- discover_multiphase_cohort.py
+- _center_crop_pad
+- Permission & Directive: Proactive Specialized Subagents
+- compute_scaling_law.py
+- worst_case_outlier_audit.py
+- BDMAP Radiologist Mask Reuse Notes
 
 ## God Nodes (most connected - your core abstractions)
-1. `mp-factory README` - 16 edges
-2. `AsymmetricPDCELoss` - 15 edges
-3. `evaluate_subject()` - 15 edges
-4. `main()` - 13 edges
-5. `process_subject()` - 13 edges
-6. `ActiveLearningPool` - 10 edges
-7. `main()` - 10 edges
-8. `register_pair()` - 10 edges
-9. `MultiPhaseTumorAugment` - 9 edges
-10. `LightweightAutoEncoder3D` - 9 edges
+1. `AsymmetricPDCELoss` - 18 edges
+2. `_dataset()` - 16 edges
+3. `mp-factory README` - 16 edges
+4. `evaluate_subject()` - 15 edges
+5. `main()` - 13 edges
+6. `process_subject()` - 13 edges
+7. `render_radiologist_comparison()` - 12 edges
+8. `ActiveLearningPool` - 11 edges
+9. `main()` - 11 edges
+10. `UncertaintyEstimator` - 10 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `test_roundtrip_dataloader()` --uses--> `UnifiedGI3Dataset`  [INFERRED]
-  code/utilities/test_unified_gastro_dataset.py → code/evaluation/unified_gastro_dataset.py
-- `main()` --uses--> `AnatomyConditionalSynthesisNet`  [INFERRED]
-  code/project10/evaluation/sample_multiphase_diffusion.py → code/project10/models/synthesis_net.py
-- `main()` --uses--> `AnatomyConditionalSynthesisNet`  [INFERRED]
-  code/project10/training/train_stage2_synthesis.py → code/project10/models/synthesis_net.py
-- `main()` --uses--> `AutoEncoder3DConfig`  [INFERRED]
-  code/project10/evaluation/sample_multiphase_diffusion.py → code/project10/models/autoencoder_3d.py
-- `main()` --uses--> `AutoEncoder3DConfig`  [INFERRED]
-  code/project10/training/train_stage1_autoencoder.py → code/project10/models/autoencoder_3d.py
+- `3. Recommended Action Plan & Implementation Steps` --references--> `AsymmetricPDCELoss`  [INFERRED]
+  JHU_data_radiologist_corrected/radiologist_clinical_feedback.md → code/training/asymmetric_loss.py
+- `3. Multi-Model Ensemble & Automated Data Cleansing` --references--> `triage_case()`  [INFERRED]
+  CLAUDE.md → code/evaluation/evaluate_multi_model_ensemble.py
+- `3. Multi-Model Ensemble & Automated Data Cleansing` --references--> `export_dataset_splits()`  [INFERRED]
+  CLAUDE.md → code/evaluation/evaluate_multi_model_ensemble.py
+- `6. Monitoring & Active Learning` --references--> `UncertaintyEstimator`  [INFERRED]
+  CLAUDE.md → code/active_learning/loop.py
+- `6. Monitoring & Active Learning` --references--> `ActiveLearningPool`  [INFERRED]
+  CLAUDE.md → code/active_learning/loop.py
 
 ## Import Cycles
 - None detected.
 
 ## Hyperedges (group relationships)
 - **Automated 3D Segmentation Workflows** — code_prediction_run_totalsegmentator_batch, code_slurm_scripts_run_totalseg, code_slurm_scripts_run_totalseg_bdmap, code_slurm_scripts_run_totalseg_gi_array, agents_totalsegmentator [EXTRACTED 1.00]
-- **Fully Automated Pipeline Four-Step Flow** — 02_projects_mp_factory_ensemble_fix_plan_automated_data_cleansing_pipeline, 02_projects_mp_factory_ensemble_fix_plan_noise_reject, 02_projects_mp_factory_ensemble_fix_plan_gkd_teacher_student_distillation, 02_projects_mp_factory_ensemble_fix_plan_hard_thresholding_auto_labeling, 02_projects_mp_factory_ensemble_fix_plan_asymmetric_partial_ce_dice_loss [EXTRACTED 1.00]
-- **4-Model Multi-Architecture Ensemble Composition** — 02_projects_mp_factory_ensemble_fix_plan_four_model_ensemble, 02_projects_mp_factory_ensemble_fix_plan_totalsegmentator, 02_projects_mp_factory_ensemble_fix_plan_deepgi, 02_projects_mp_factory_ensemble_fix_plan_swin_unetr, 02_projects_mp_factory_ensemble_fix_plan_mednext_b [EXTRACTED 1.00]
-- **Triage Logic Categorization Scheme** — 02_projects_mp_factory_code_evaluate_multi_model_ensemble_triage_logic, 02_projects_mp_factory_ensemble_fix_plan_noise_reject, 02_projects_mp_factory_ensemble_fix_plan_clean_high_confidence, 02_projects_mp_factory_ensemble_fix_plan_weak_coarse [EXTRACTED 1.00]
 
-## Communities (56 total, 18 thin omitted)
+## Communities (69 total, 29 thin omitted)
 
 ### Community 0 - "multiphase_tumor_kinetics.py"
-Cohesion: 0.06
-Nodes (12): extract_host_parenchyma_mask(), find_organ_mask(), load_nifti_volume(), main(), _add_texture_noise(), apply_kinetics(), _get_ring_mask(), _make_ellipsoid_mask() (+4 more)
+Cohesion: 0.13
+Nodes (6): _add_texture_noise(), apply_kinetics(), _get_ring_mask(), _make_ellipsoid_mask(), _make_tumor_geometry(), PhaseEnhancement
 
 ### Community 1 - "evaluate_multi_model_ensemble.py"
-Cohesion: 0.05
-Nodes (34): Triage / Categorization Logic, ensemble_audit_summary.csv, Multi-Model Ensemble Fix & Automated Cleansing Plan, Human-in-the-Loop Active Learning Radiologist Queue, Asymmetric Partial-CE/Dice Loss, Fully Automated Data Cleansing & Weakly-Supervised Distillation Pipeline, Betti-0 Topological Discrepancy Threshold (|Δβ0| > 5), CLEAN_HIGH_CONFIDENCE Triage Category (+26 more)
+Cohesion: 0.06
+Nodes (24): adjusted_rand_score_fast(), compute_betti_0(), compute_classification_metrics(), compute_clustering_metrics(), compute_composite_score(), compute_diversity_weights(), compute_ece(), compute_hd95_fast() (+16 more)
 
-### Community 2 - "pandas"
-Cohesion: 0.11
-Nodes (12): fit_and_print(), power_law(), export_dataset_splits(), main(), main(), build_manifest(), normalise_date(), parse_args() (+4 more)
+### Community 2 - "json"
+Cohesion: 0.28
+Nodes (4): compute_subject(), main(), build_manifest(), normalise_date()
 
 ### Community 3 - "generate_showcase.py"
-Cohesion: 0.11
-Nodes (9): plot_curves(), apply_window(), generate_interactive_3d_html(), process_subject(), render_3d_multiangle(), render_orthoview_figure(), render_progression_montage(), render_radiologist_comparison() (+1 more)
+Cohesion: 0.07
+Nodes (13): plot_curves(), apply_ct_window(), generate_comparison_figure(), generate_tumor_showcase_figure(), apply_window(), generate_interactive_3d_html(), main(), process_subject() (+5 more)
 
 ### Community 4 - "run_scaling_sweep.py"
 Cohesion: 0.11
 Nodes (14): MedNeXtB(), build_model(), build_transforms(), compute_dice_hd95(), _compute_hd95_numpy(), create_dummy_cohort(), evaluate_radiologist_true_dice(), _extract_3d_boundaries() (+6 more)
 
-### Community 5 - "mp-factory README"
-Cohesion: 0.10
-Nodes (22): download.sbatch, run_evaluation.sbatch, run_totalseg.sbatch, run_totalseg_bdmap.sbatch, run_totalseg_gi_array.sbatch, smoke_test.sbatch, main.py (SyntheticTumors trainer), mp-factory README (+14 more)
+### Community 5 - "evaluate_gi_masks.py"
+Cohesion: 0.09
+Nodes (23): download.sbatch, run_evaluation.sbatch, run_totalseg.sbatch, run_totalseg_bdmap.sbatch, run_totalseg_gi_array.sbatch, smoke_test.sbatch, main.py (SyntheticTumors trainer), mp-factory README (+15 more)
 
-### Community 6 - "ActiveLearningPool"
-Cohesion: 0.08
-Nodes (5): ActiveLearningOrchestrator, ActiveLearningPool, UncertaintyEstimator, test_active_learning_pool(), test_uncertainty_estimator()
+### Community 6 - "test_active_learning.py"
+Cohesion: 0.05
+Nodes (22): 1. Data Ingestion & Management, 2. Automated 3D Segmentation, 4. Model Training (Phase 1 & Phase 2 Distillation), 5. Comparison & Expert Validation, 6. Monitoring & Active Learning, 7. Synthetic Tumor Submodule (`code/SyntheticTumors/`), AGENTS.md — Workspace Architecture & Project Guide, 📂 Codebase Directory Layout (+14 more)
 
 ### Community 7 - "torch"
-Cohesion: 0.14
+Cohesion: 0.18
 Nodes (8): AsymmetricPDCELoss, test_asymmetric_penalty_fn_gt_fp(), test_gradient_flows_to_backbone(), __init__(), test_ignore_index_masks_voxels(), test_ignore_index_minus_one_noop(), test_multiclass_3d_shape(), test_probability_clamping_no_nan()
 
 ### Community 8 - "register_multiphase_pairs.py"
@@ -137,29 +147,25 @@ Nodes (8): affine_registration(), bspline_registration(), load_sitk_image(), mai
 Cohesion: 0.16
 Nodes (10): autolabel_subject(), main(), resolve_human_label(), _require_nibabel(), test_autolabel_e2e_synthetic(), test_ignore_index_consistency(), test_organ_classes(), test_resolve_human_label_combined() (+2 more)
 
-### Community 10 - "train_stage2_synthesis.py"
-Cohesion: 0.11
-Nodes (4): DiffusionSchedule, main(), parse_args(), setup_ddp()
+### Community 11 - "test_unified_gastro_dataset.py"
+Cohesion: 0.24
+Nodes (7): _sample_audit(), test_build_manifest_clean(), test_build_manifest_with_weak(), test_manifest_ignore_index_match(), test_manifest_no_use_weak(), test_roundtrip_dataloader(), test_verify_report_nonexistent()
 
-### Community 11 - "test_ensemble_evaluation.py"
-Cohesion: 0.17
-Nodes (10): test_active_learning_orchestrator(), _require_nibabel(), test_export_dataset_splits(), test_full_pipeline_mock(), _sample_audit(), test_build_manifest_clean(), test_build_manifest_with_weak(), test_manifest_ignore_index_match() (+2 more)
-
-### Community 12 - "numpy"
-Cohesion: 0.22
-Nodes (7): diagnose(), compute_spatial_uncertainty(), compute_subject(), verify_predictions(), test_spatial_uncertainty(), fix_consensus(), fix_gi_mask()
+### Community 12 - "PART III: Master Publication Tables (Tables 1–4)"
+Cohesion: 0.06
+Nodes (30): 1. Executive Summary & Clinical Scope, 1. Generative Multi-Phase Contrast CT & Anatomical Invariance Audit, 2. 4D Procedural Multi-Phase Tumor Perfusion Kinetics ($N = 1,990$ Lesions), 2. Anatomical Standards & Physical Windowing, 3. Downstream Model Segmentation Tolerance to Attenuation Shifts & Scanner Noise, 3-Plane Orthoview & JHU Radiologist Concordance, 4. Interactive 3D WebGL Viewers & Asset Downloads, 5. Conclusions & Verification Playbook (+22 more)
 
 ### Community 13 - "unified_gastro_dataset.py"
-Cohesion: 0.13
-Nodes (5): build_manifest(), main(), UnifiedGI3Dataset, verify_dataset_integrity(), test_verify_report_nonexistent()
+Cohesion: 0.14
+Nodes (5): 3. Multi-Model Ensemble & Automated Data Cleansing, build_manifest(), main(), UnifiedGI3Dataset, verify_dataset_integrity()
 
 ### Community 14 - "evaluate_synthesis.py"
-Cohesion: 0.18
+Cohesion: 0.20
 Nodes (6): compute_metrics_3d(), find_matching_real_file(), load_nifti(), main(), merge_worker_csvs(), resample_real_to_target()
 
-### Community 15 - "train_stage1_autoencoder.py"
-Cohesion: 0.15
-Nodes (7): normalise_hu(), _center_crop_pad(), main(), MultiPhaseVolumeDataset, parse_args(), _resample_to_isotropic(), setup_ddp()
+### Community 15 - "main"
+Cohesion: 0.22
+Nodes (4): main(), MultiPhaseVolumeDataset, parse_args(), setup_ddp()
 
 ### Community 16 - "sample_multiphase_diffusion.py"
 Cohesion: 0.15
@@ -170,72 +176,64 @@ Cohesion: 0.13
 Nodes (4): GRN, LayerNorm, MedNeXt, MedNeXtBlock
 
 ### Community 19 - "train_swin_unetr.py"
-Cohesion: 0.15
+Cohesion: 0.16
 Nodes (5): discover_dataset(), get_transforms(), GIDataset, main(), RemapGILabelTargets
 
-### Community 20 - "evaluate_gi_masks.py"
+### Community 20 - "test_stage2_checkpoint.py"
+Cohesion: 0.12
+Nodes (15): test_legacy_resume_continues_epoch_and_lr_without_new_fields(), test_legacy_resume_preserves_best_checkpoint_metric(), test_legacy_resume_requires_explicit_override(), test_main_rejects_missing_ae_before_empty_dataset(), test_new_checkpoint_records_resume_state_and_ae_identity(), test_resume_rejects_different_autoencoder_even_with_override(), test_resume_rejects_different_mask_conditioning_even_with_override(), test_resume_restores_scheduler_optimizer_and_best_loss() (+7 more)
+
+### Community 21 - "glob"
+Cohesion: 0.07
+Nodes (23): BodyMaps, CancerVerse, mp-factory, SyntheticTumors, TotalSegmentator, find_ct_file(), audit_section(), check_nifti_sample() (+15 more)
+
+### Community 23 - "stress_test_contrast_perturbation.py"
 Cohesion: 0.18
-Nodes (7): compute_betti_0(), compute_clustering_metrics(), compute_hd95(), compute_volumetric_dice(), evaluate_single_subject(), extract_3d_boundaries(), main()
+Nodes (6): apply_perturbation(), compute_binary_dice(), generate_markdown_report(), main(), plot_robustness_curves(), run_model_inference()
 
-### Community 21 - "audit_phase1_gi.py"
-Cohesion: 0.20
-Nodes (6): compute_betti_0(), compute_clustering_metrics(), compute_hd95_fast(), discover_pairs(), evaluate_case_pair(), main()
-
-### Community 22 - "predict_swin_unetr.py"
-Cohesion: 0.16
-Nodes (4): discover_ct_files(), get_preprocessing(), main(), AnatomyConditionalSynthesisNet
-
-### Community 23 - "autoencoder_3d.py"
-Cohesion: 0.16
-Nodes (4): AutoEncoder3DConfig, build_autoencoder(), denormalise_hu(), reconstruction_loss()
+### Community 24 - "autoencoder_3d.py"
+Cohesion: 0.11
+Nodes (7): AutoEncoder3DConfig, build_autoencoder(), denormalise_hu(), LightweightAutoEncoder3D, MONAI_VQVAE3D, normalise_hu(), reconstruction_loss()
 
 ### Community 25 - "train_mednext.py"
-Cohesion: 0.19
+Cohesion: 0.15
 Nodes (5): discover_dataset(), get_intensity_transform(), get_transforms(), GIDataset, main()
 
-### Community 26 - "glob"
-Cohesion: 0.26
-Nodes (4): find_ct_file(), main(), main(), main()
-
-### Community 27 - "monitor_sweep_val.py"
+### Community 26 - "pandas"
 Cohesion: 0.27
-Nodes (5): get_progress(), main(), display_status(), main(), parse_job_log()
+Nodes (8): build_table_1(), build_table_2(), build_table_3(), build_table_4(), fmt_md_mean_std(), fmt_mean_std(), main(), generate_audit_report()
+
+### Community 27 - "FixLiarLabelAffined"
+Cohesion: 0.13
+Nodes (6): DiceCEWithIgnoreLoss, discover_phase2_dataset(), FixLiarLabelAffined, get_transforms(), main(), RemapGILabelTargets
 
 ### Community 28 - "_ResBlock3D"
 Cohesion: 0.20
 Nodes (3): _DownBlock3D, _ResBlock3D, _UpBlock3D
 
-### Community 29 - "run_gpu_evaluation"
-Cohesion: 0.20
-Nodes (5): compute_betti_0(), compute_gpu_tensor_metrics(), compute_hd95_fast(), find_jhu_dir(), run_gpu_evaluation()
-
-### Community 30 - "FixLiarLabelAffined"
-Cohesion: 0.22
-Nodes (3): FixLiarLabelAffined, get_transforms(), RemapGILabelTargets
-
-### Community 31 - "main"
-Cohesion: 0.22
-Nodes (3): DiceCEWithIgnoreLoss, discover_phase2_dataset(), main()
+### Community 30 - "train_mednext_phase2.py"
+Cohesion: 0.11
+Nodes (6): DiceCEWithIgnoreLoss, discover_phase2_dataset(), FixLiarLabelAffined, get_transforms(), main(), RemapGILabelTargets
 
 ### Community 32 - "eval_scaling_checkpoints.py"
-Cohesion: 0.32
-Nodes (3): evaluate_checkpoint(), find_validation_cases(), main()
+Cohesion: 0.22
+Nodes (4): evaluate_checkpoint(), find_validation_cases(), main(), compute_dice_hd95()
 
-### Community 33 - "compare_models.py"
-Cohesion: 0.36
-Nodes (3): dice_score(), load_ground_truth(), main()
+### Community 33 - "numpy"
+Cohesion: 0.05
+Nodes (43): diagnose(), compute_betti_0(), compute_gpu_tensor_metrics(), compute_hd95_fast(), find_jhu_dir(), remap_prediction_labels(), run_gpu_evaluation(), evaluate_jhu_set() (+35 more)
 
-### Community 34 - "run_step4_boundary_split.py"
-Cohesion: 0.32
-Nodes (3): main(), process_subject(), _worker_process()
+### Community 34 - "run_clinical_turing_test.py"
+Cohesion: 0.24
+Nodes (4): compute_binary_dice(), main(), resample_real_to_target(), run_model_inference()
 
-### Community 35 - "test_val_loop_smoke.py"
-Cohesion: 0.25
+### Community 35 - "train_swin_unetr_phase2.py"
+Cohesion: 0.16
 Nodes (3): manual_mean_dice(), post_label_fn(), post_pred_fn()
 
-### Community 36 - "evaluate_jhu_radiologist_set.py"
-Cohesion: 0.48
-Nodes (4): compute_betti_0(), dice_score(), evaluate_jhu_set(), iou_score()
+### Community 36 - "load_stage1_autoencoder"
+Cohesion: 0.24
+Nodes (3): load_stage1_autoencoder(), restore_stage2_checkpoint(), stage2_checkpoint_payload()
 
 ### Community 38 - "predict_mednext.py"
 Cohesion: 0.47
@@ -249,25 +247,45 @@ Nodes (5): CUDA_DEVICE_ORDER, OMP_NUM_THREADS, PYTHONPATH, PYTORCH_CUDA_ALLOC_CO
 Cohesion: 0.33
 Nodes (5): MASTER_ADDR, MASTER_PORT, NCCL_TIMEOUT, PYTHONUNBUFFERED, train_full_anchor_4gpu.sh script
 
+### Community 42 - "2. Detailed Per-Scan Clinical Annotations"
+Cohesion: 0.18
+Nodes (10): 1. Multi-Phase Mask Propagation Matrix, 2. Detailed Per-Scan Clinical Annotations, 3. Recommended Action Plan & Implementation Steps, `BDMAP_00242131` (Source Image: `note1.png`), `BDMAP_00242133` (Source Image: `note2.png`), `BDMAP_00242134` (Source Image: `note2.png`), `BDMAP_00242136` (Source Image: `note2.png`), `BDMAP_00394224` (Source Image: `notes3_for224.png`) (+2 more)
+
+### Community 56 - "generate_multiphase_tumors.py"
+Cohesion: 0.27
+Nodes (3): extract_host_parenchyma_mask(), find_organ_mask(), load_nifti_volume()
+
+### Community 58 - "main"
+Cohesion: 0.25
+Nodes (5): checkpoint_sha256(), main(), mask_conditioning_identity(), parse_args(), setup_ddp()
+
+### Community 59 - "predict_swin_unetr.py"
+Cohesion: 0.47
+Nodes (3): discover_ct_files(), get_preprocessing(), main()
+
+### Community 64 - "Permission & Directive: Proactive Specialized Subagents"
+Cohesion: 0.50
+Nodes (3): Permission & Directive: Proactive Specialized Subagents, Registered Specialized Subagents:, Subagent Delegation & Proactivity Rule
+
 ## Knowledge Gaps
-- **22 isolated node(s):** `CUDA_DEVICE_ORDER`, `OMP_NUM_THREADS`, `PYTHONPATH`, `PYTORCH_CUDA_ALLOC_CONF`, `MASTER_ADDR` (+17 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 318 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **18 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **16 isolated node(s):** `PYTHONUNBUFFERED`, `PYTHONPATH`, `CUDA_DEVICE_ORDER`, `PYTORCH_CUDA_ALLOC_CONF`, `OMP_NUM_THREADS` (+11 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 423 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **29 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `mp-factory README` connect `mp-factory README` to `evaluate_gi_masks.py`?**
-  _High betweenness centrality (0.029) - this node is a cross-community bridge._
-- **What connects `CUDA_DEVICE_ORDER`, `OMP_NUM_THREADS`, `PYTHONPATH` to the rest of the system?**
-  _22 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `AsymmetricPDCELoss` connect `torch` to `train_swin_unetr_phase2.py`, `run_scaling_sweep.py`, `2. Detailed Per-Scan Clinical Annotations`, `train_mednext.py`, `FixLiarLabelAffined`, `train_mednext_phase2.py`?**
+  _High betweenness centrality (0.031) - this node is a cross-community bridge._
+- **What connects `PYTHONUNBUFFERED`, `PYTHONPATH`, `CUDA_DEVICE_ORDER` to the rest of the system?**
+  _16 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `multiphase_tumor_kinetics.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.06184012066365008 - nodes in this community are weakly interconnected._
-- **Why does `main()` connect `multiphase_tumor_kinetics.py` to `pandas`, `numpy`, `torch`?**
-  _High betweenness centrality (0.028) - this node is a cross-community bridge._
+  _Cohesion score 0.12857142857142856 - nodes in this community are weakly interconnected._
+- **Why does `🛠️ Key Scripts & Execution Pipelines` connect `test_active_learning.py` to `unified_gastro_dataset.py`?**
+  _High betweenness centrality (0.027) - this node is a cross-community bridge._
 - **Should `evaluate_multi_model_ensemble.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.05176470588235294 - nodes in this community are weakly interconnected._
-- **Why does `ActiveLearningPool` connect `ActiveLearningPool` to `pandas`, `test_ensemble_evaluation.py`, `torch`?**
-  _High betweenness centrality (0.021) - this node is a cross-community bridge._
-- **Should `pandas` be split into smaller, more focused modules?**
-  _Cohesion score 0.11260504201680673 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06382978723404255 - nodes in this community are weakly interconnected._
+- **Why does `3. Multi-Model Ensemble & Automated Data Cleansing` connect `unified_gastro_dataset.py` to `evaluate_multi_model_ensemble.py`, `test_active_learning.py`?**
+  _High betweenness centrality (0.026) - this node is a cross-community bridge._
+- **Should `generate_showcase.py` be split into smaller, more focused modules?**
+  _Cohesion score 0.0707070707070707 - nodes in this community are weakly interconnected._

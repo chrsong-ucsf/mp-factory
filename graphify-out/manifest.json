@@ -1,8 +1,9 @@
 {
   "AGENTS.md": {
-    "mtime": 1785228553.262887,
-    "ast_hash": "1a5ae5cd3f7cf82d2f481784c507ae3e",
-    "semantic_hash": "1a5ae5cd3f7cf82d2f481784c507ae3e"
+    "mtime": 1793343171.5208051,
+    "seen": 1793409119.770969,
+    "ast_hash": "bc342e2672c5cc7b62c43e56d448bd47",
+    "semantic_hash": ""
   },
   "code/active_learning/__init__.py": {
     "mtime": 1785680856.1107903,
@@ -16,21 +17,11 @@
     "ast_hash": "c51a806e72d8ed647c95bc4c1577c4a6",
     "semantic_hash": "c51a806e72d8ed647c95bc4c1577c4a6"
   },
-  "ENSEMBLE_FIX_PLAN.md": {
-    "mtime": 1785729432.335888,
-    "ast_hash": "a32f520c64bbbf86d5d9ee7f906e1a18",
-    "semantic_hash": "a32f520c64bbbf86d5d9ee7f906e1a18"
-  },
   "README.md": {
-    "mtime": 1785229102.9141746,
-    "ast_hash": "e54995a82f169ee2b24931667fbc2ed8",
-    "semantic_hash": "e54995a82f169ee2b24931667fbc2ed8"
-  },
-  "check_align.py": {
-    "mtime": 1789423674.6938038,
-    "seen": 1791941393.6729615,
-    "ast_hash": "84e0c1bc1e4ea6a5e752fa82569025f1",
-    "semantic_hash": "84e0c1bc1e4ea6a5e752fa82569025f1"
+    "mtime": 1793343166.9357526,
+    "seen": 1793409119.7709734,
+    "ast_hash": "22ac39e317ce0def0ea9ef83f618d700",
+    "semantic_hash": ""
   },
   "code/__init__.py": {
     "mtime": 1789663631.7802012,
@@ -63,22 +54,22 @@
     "semantic_hash": "1995baf25a6e5f2ff1cf4c6ada5fdd89"
   },
   "code/evaluation/evaluate_jhu_radiologist_gpu.py": {
-    "mtime": 1790103027.4542015,
-    "seen": 1791941393.6729772,
-    "ast_hash": "98e9b0d40cd68922ee9b1446556e31e9",
-    "semantic_hash": "98e9b0d40cd68922ee9b1446556e31e9"
+    "mtime": 1793381960.162758,
+    "seen": 1793409119.7708507,
+    "ast_hash": "6e26bf98ff926acfdb945f40f422dd4f",
+    "semantic_hash": ""
   },
   "code/evaluation/evaluate_jhu_radiologist_set.py": {
-    "mtime": 1786032806.0331764,
-    "seen": 1791941393.672978,
-    "ast_hash": "1fd9dae36d0fdf2c97681ef61a1dd04f",
-    "semantic_hash": "1fd9dae36d0fdf2c97681ef61a1dd04f"
+    "mtime": 1793399750.8631685,
+    "seen": 1793409119.7708523,
+    "ast_hash": "da67360c136fa218722a96a95458be95",
+    "semantic_hash": ""
   },
   "code/evaluation/evaluate_multi_model_ensemble.py": {
-    "mtime": 1790112101.371482,
-    "seen": 1791941393.672979,
-    "ast_hash": "e9d70c15f471d89bd06da24a6ae3f399",
-    "semantic_hash": "e9d70c15f471d89bd06da24a6ae3f399"
+    "mtime": 1793344592.2618742,
+    "seen": 1793409119.7708542,
+    "ast_hash": "619a4406a4c67473ec8b1c0a1398cc52",
+    "semantic_hash": ""
   },
   "code/evaluation/generate_audit_from_predictions.py": {
     "mtime": 1791926696.6661499,
@@ -99,10 +90,10 @@
     "semantic_hash": "28ef1dbfe48301dbd0095e3a0069a74c"
   },
   "code/evaluation/unified_gastro_dataset.py": {
-    "mtime": 1786085925.2600646,
-    "seen": 1791941393.6729836,
-    "ast_hash": "b8aed9e631d60dec79d7263ecf7b86d7",
-    "semantic_hash": "b8aed9e631d60dec79d7263ecf7b86d7"
+    "mtime": 1793211416.6980238,
+    "seen": 1793409119.7708678,
+    "ast_hash": "ba62a2235af7b7dbf135b03ef49b3bca",
+    "semantic_hash": ""
   },
   "code/evaluation/verify_pipeline_run.py": {
     "mtime": 1786032806.0429413,
@@ -123,16 +114,16 @@
     "semantic_hash": "60d42e4b63853ccd626049d9c049b6be"
   },
   "code/prediction/predict_mednext.py": {
-    "mtime": 1786032806.0590384,
-    "seen": 1791941393.6729877,
-    "ast_hash": "067dcb34215e315a24e97c395ea3640a",
-    "semantic_hash": "067dcb34215e315a24e97c395ea3640a"
+    "mtime": 1793399539.3132145,
+    "seen": 1793409119.7708771,
+    "ast_hash": "9d611f8dc1590a65a0f79c96e41de35d",
+    "semantic_hash": ""
   },
   "code/prediction/predict_swin_unetr.py": {
-    "mtime": 1786032806.0634701,
-    "seen": 1791941393.6729891,
-    "ast_hash": "f55bb1a829066df5b7b2fe76e9e2c392",
-    "semantic_hash": "f55bb1a829066df5b7b2fe76e9e2c392"
+    "mtime": 1793399543.3870509,
+    "seen": 1793409119.7708786,
+    "ast_hash": "c0d25249e1620a5822215959a3e4d71a",
+    "semantic_hash": ""
   },
   "code/prediction/run_totalsegmentator_batch.py": {
     "mtime": 1786032806.068543,
@@ -159,10 +150,10 @@
     "semantic_hash": "d59242ba1c4488031f4a2a140f64761e"
   },
   "code/project10/datasets/multiphase_paired_dataset.py": {
-    "mtime": 1789847359.390049,
-    "seen": 1791941393.6729944,
-    "ast_hash": "1a7aa4b142741903c416d3625a0a830e",
-    "semantic_hash": "1a7aa4b142741903c416d3625a0a830e"
+    "mtime": 1793371405.313982,
+    "seen": 1793409119.7708843,
+    "ast_hash": "355824ec9fe7a545efd153a4d616b345",
+    "semantic_hash": ""
   },
   "code/project10/datasets/register_multiphase_pairs.py": {
     "mtime": 1789568436.7709906,
@@ -177,16 +168,16 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "code/project10/evaluation/evaluate_synthesis.py": {
-    "mtime": 1791856057.7698765,
-    "seen": 1791941393.6729968,
-    "ast_hash": "9d4373f818de43a47602196ff14df741",
-    "semantic_hash": "9d4373f818de43a47602196ff14df741"
+    "mtime": 1793399379.9183903,
+    "seen": 1793409119.7708898,
+    "ast_hash": "84a0fda1e0fb3b6ec5c470b9d78f4878",
+    "semantic_hash": ""
   },
   "code/project10/evaluation/sample_multiphase_diffusion.py": {
-    "mtime": 1791851407.6290195,
-    "seen": 1791941393.672998,
-    "ast_hash": "849750328df6e8a32e41b8dc07d8f355",
-    "semantic_hash": "849750328df6e8a32e41b8dc07d8f355"
+    "mtime": 1793399369.7021751,
+    "seen": 1793409119.7708945,
+    "ast_hash": "61c5fc19f60fec404044461d745ca5e8",
+    "semantic_hash": ""
   },
   "code/project10/kinetics/__init__.py": {
     "mtime": 1789568446.2472684,
@@ -195,16 +186,16 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "code/project10/kinetics/generate_multiphase_tumors.py": {
-    "mtime": 1791858816.0408695,
-    "seen": 1791941393.6729999,
-    "ast_hash": "06dce3411f2a4623933720a00eee3b87",
-    "semantic_hash": "06dce3411f2a4623933720a00eee3b87"
+    "mtime": 1793399578.138952,
+    "seen": 1793409119.7709022,
+    "ast_hash": "ce4038ed2069eb6235280f578122996e",
+    "semantic_hash": ""
   },
   "code/project10/kinetics/multiphase_tumor_kinetics.py": {
-    "mtime": 1789568697.7230911,
-    "seen": 1791941393.6730008,
-    "ast_hash": "65b5b60d0119caa7248babf567fcf405",
-    "semantic_hash": "65b5b60d0119caa7248babf567fcf405"
+    "mtime": 1793344788.5174363,
+    "seen": 1793409119.7709038,
+    "ast_hash": "81e19c17b2a81ab481409dc58a48dcfa",
+    "semantic_hash": ""
   },
   "code/project10/losses/__init__.py": {
     "mtime": 1789568446.253026,
@@ -243,10 +234,10 @@
     "semantic_hash": "c201495ddf5cd127d6215240e5cc0970"
   },
   "code/project10/training/train_stage2_synthesis.py": {
-    "mtime": 1790022446.622557,
-    "seen": 1791941393.6730082,
-    "ast_hash": "c6e9f51784e8583f96fc407ff807fa98",
-    "semantic_hash": "c6e9f51784e8583f96fc407ff807fa98"
+    "mtime": 1793371525.7223403,
+    "seen": 1793409119.770913,
+    "ast_hash": "ec20d784192d0d0cdb6d77bd7d9a6543",
+    "semantic_hash": ""
   },
   "code/slurm_scripts/eval_option_a.sh": {
     "mtime": 1791859473.3370836,
@@ -345,10 +336,10 @@
     "semantic_hash": "13b0e4071f0d4796fd269b81e4af78f2"
   },
   "code/training/train_mednext_phase2.py": {
-    "mtime": 1789700287.376488,
-    "seen": 1791941393.6730273,
-    "ast_hash": "45da0ae0fdc5f926b051f80d580861cf",
-    "semantic_hash": "45da0ae0fdc5f926b051f80d580861cf"
+    "mtime": 1793028964.2812276,
+    "seen": 1793409119.7709339,
+    "ast_hash": "838514f9bb7f6e2bbaa1c52e85dddf49",
+    "semantic_hash": ""
   },
   "code/training/train_swin_unetr.py": {
     "mtime": 1789771914.0097983,
@@ -369,10 +360,10 @@
     "semantic_hash": "b030424dd457ca94c2b58c4cbe8baea0"
   },
   "code/utilities/compare_models.py": {
-    "mtime": 1786032806.1170735,
-    "seen": 1791941393.673031,
-    "ast_hash": "437d65f25367d57c4904835eb58edb4a",
-    "semantic_hash": "437d65f25367d57c4904835eb58edb4a"
+    "mtime": 1793207967.814277,
+    "seen": 1793409119.7709386,
+    "ast_hash": "173de68d779d91f8623674bc41e01578",
+    "semantic_hash": ""
   },
   "code/utilities/diagnose_labels.py": {
     "mtime": 1789360705.1545157,
@@ -381,10 +372,10 @@
     "semantic_hash": "6eb1a5c9802e862edce67a3fd0a0a3ab"
   },
   "code/utilities/generate_showcase.py": {
-    "mtime": 1789510149.2106693,
-    "seen": 1791941393.6730335,
-    "ast_hash": "b4178411cad0b60f4af9e0ffd06fa77e",
-    "semantic_hash": "b4178411cad0b60f4af9e0ffd06fa77e"
+    "mtime": 1793400360.723914,
+    "seen": 1793409119.770941,
+    "ast_hash": "055df1d1be0e90b705271fb366067ef3",
+    "semantic_hash": ""
   },
   "code/utilities/merge_ensemble_chunks.py": {
     "mtime": 1786040000.5868883,
@@ -405,10 +396,10 @@
     "semantic_hash": "d958d55c3fa503af4bd237f6acdeb423"
   },
   "code/utilities/run_active_learning.py": {
-    "mtime": 1786032806.1265955,
-    "seen": 1791941393.6730375,
-    "ast_hash": "422c4ce02ea547a7e1857da0983428eb",
-    "semantic_hash": "422c4ce02ea547a7e1857da0983428eb"
+    "mtime": 1793345433.9590425,
+    "seen": 1793409119.770952,
+    "ast_hash": "e98c50bd866e792b5ef026a77cdfb283",
+    "semantic_hash": ""
   },
   "code/utilities/run_step4_boundary_split.py": {
     "mtime": 1786086579.160213,
@@ -423,16 +414,16 @@
     "semantic_hash": "2930033959683a7dde7e666752b5d301"
   },
   "code/utilities/test_active_learning.py": {
-    "mtime": 1786032806.136025,
-    "seen": 1791941393.6730409,
-    "ast_hash": "0d4ad1fcc5c8a053e5a3a188f7c8d6a2",
-    "semantic_hash": "0d4ad1fcc5c8a053e5a3a188f7c8d6a2"
+    "mtime": 1793345427.8703647,
+    "seen": 1793409119.7709553,
+    "ast_hash": "3a42032e01b113e36eeb82ad24dbd1c1",
+    "semantic_hash": ""
   },
   "code/utilities/test_asymmetric_loss.py": {
-    "mtime": 1786085925.2867181,
-    "seen": 1791941393.6730418,
-    "ast_hash": "f2e5770f9eafba7c5b7e93424afe4a9b",
-    "semantic_hash": "f2e5770f9eafba7c5b7e93424afe4a9b"
+    "mtime": 1793371040.4389753,
+    "seen": 1793409119.7709565,
+    "ast_hash": "b4cd04f2444f76ffaf7909cfb413c1cc",
+    "semantic_hash": ""
   },
   "code/utilities/test_ensemble_evaluation.py": {
     "mtime": 1786040000.5917354,
@@ -458,46 +449,364 @@
     "ast_hash": "0ed80daee99b9d7262532d8b88f02e48",
     "semantic_hash": "0ed80daee99b9d7262532d8b88f02e48"
   },
-  "fix_labels.py": {
-    "mtime": 1789424497.539248,
-    "seen": 1791941393.673047,
-    "ast_hash": "522208aa5d108385e860e736817a7a43",
-    "semantic_hash": "522208aa5d108385e860e736817a7a43"
-  },
-  "fix_one.py": {
-    "mtime": 1789424615.8339539,
-    "seen": 1791941393.673048,
-    "ast_hash": "5a1d477d1e1666c27da8513280f2cad6",
-    "semantic_hash": "5a1d477d1e1666c27da8513280f2cad6"
-  },
-  "fix_one_consensus.py": {
-    "mtime": 1789424808.6177845,
-    "seen": 1791941393.673049,
-    "ast_hash": "4c1e67c361a86a746f4f6e09fa257afd",
-    "semantic_hash": "4c1e67c361a86a746f4f6e09fa257afd"
-  },
-  "launch_qwen.sh": {
-    "mtime": 1791876870.0621285,
-    "seen": 1791941393.6730502,
-    "ast_hash": "1f807c87e94a539813bd6518604abcaa",
-    "semantic_hash": "1f807c87e94a539813bd6518604abcaa"
-  },
   "setup.py": {
-    "mtime": 1786085925.382884,
-    "seen": 1791941393.673051,
-    "ast_hash": "d69d65279cd93966ed561536df3a8f15",
-    "semantic_hash": "d69d65279cd93966ed561536df3a8f15"
+    "mtime": 1793310340.943643,
+    "seen": 1793409119.770965,
+    "ast_hash": "4a732e254f627daca1b8c9f21f6f656a",
+    "semantic_hash": ""
   },
-  "test_mapping.py": {
-    "mtime": 1789419372.3038104,
-    "seen": 1791941393.6730523,
-    "ast_hash": "652f3dd512d2e24ff3e33c8c4e282aa1",
-    "semantic_hash": "652f3dd512d2e24ff3e33c8c4e282aa1"
+  "code/evaluation/project_wide_sanity_check.py": {
+    "mtime": 1793345634.8059072,
+    "seen": 1793409119.770863,
+    "ast_hash": "8984cf43087510f2b2a4997e538b99c3",
+    "semantic_hash": ""
   },
-  "update_report.py": {
+  "code/evaluation/statistical_significance_test.py": {
+    "mtime": 1793347769.3436058,
+    "seen": 1793409119.7708652,
+    "ast_hash": "7b4de9341b3c16671e40b9f9f322d427",
+    "semantic_hash": ""
+  },
+  "code/evaluation/test_totalseg_label_maps.py": {
+    "mtime": 1793379102.9818556,
+    "seen": 1793409119.7708662,
+    "ast_hash": "8b71d6f4a2a56f68ebb9ee301654b9f9",
+    "semantic_hash": ""
+  },
+  "code/evaluation/worst_case_outlier_audit.py": {
+    "mtime": 1793312318.273179,
+    "seen": 1793409119.7708738,
+    "ast_hash": "acce33bfacb90e7d6e0d69fe8aa6ba21",
+    "semantic_hash": ""
+  },
+  "code/manuscript/compile_manuscript_tables.py": {
+    "mtime": 1793344962.3969967,
+    "seen": 1793409119.7708752,
+    "ast_hash": "67045fae26ba0bdb0be909299d8e844a",
+    "semantic_hash": ""
+  },
+  "code/project10/datasets/test_multiphase_paired_dataset.py": {
+    "mtime": 1793343888.9080749,
+    "seen": 1793409119.7708871,
+    "ast_hash": "c43d0263ed3468db4bd068b77e965497",
+    "semantic_hash": ""
+  },
+  "code/project10/evaluation/generate_project10_showcase_figures.py": {
+    "mtime": 1793377790.7915492,
+    "seen": 1793409119.7708907,
+    "ast_hash": "c25fb6e6c4745a673767019673a29027",
+    "semantic_hash": ""
+  },
+  "code/project10/evaluation/plot_tumor_kinetics.py": {
+    "mtime": 1793329599.455866,
+    "seen": 1793409119.7708921,
+    "ast_hash": "577e9129755911cd1908e18a32f6801b",
+    "semantic_hash": ""
+  },
+  "code/project10/evaluation/run_clinical_turing_test.py": {
+    "mtime": 1793345303.289214,
+    "seen": 1793409119.7708933,
+    "ast_hash": "17f3e63cb9af17347cec1705735193b2",
+    "semantic_hash": ""
+  },
+  "code/project10/evaluation/stress_test_contrast_perturbation.py": {
+    "mtime": 1793344722.5648491,
+    "seen": 1793409119.7708952,
+    "ast_hash": "ab926e5530140816bb8299133c9635ea",
+    "semantic_hash": ""
+  },
+  "code/project10/training/test_stage2_checkpoint.py": {
+    "mtime": 1793343888.9128373,
+    "seen": 1793409119.7709107,
+    "ast_hash": "7c82ce0f8a486e8f5caad19cda984a5e",
+    "semantic_hash": ""
+  },
+  "code/training/train_swin_unetr_phase2.py": {
+    "mtime": 1793028973.2464252,
+    "seen": 1793409119.7709353,
+    "ast_hash": "194d1fdeac6ef52310f387a75f5a6a25",
+    "semantic_hash": ""
+  },
+  "code/utilities/legacy_fixes/check_align.py": {
+    "mtime": 1789423674.6938038,
+    "seen": 1793409119.7709417,
+    "ast_hash": "84e0c1bc1e4ea6a5e752fa82569025f1",
+    "semantic_hash": ""
+  },
+  "code/utilities/legacy_fixes/fix_labels.py": {
+    "mtime": 1789424497.539248,
+    "seen": 1793409119.770943,
+    "ast_hash": "522208aa5d108385e860e736817a7a43",
+    "semantic_hash": ""
+  },
+  "code/utilities/legacy_fixes/fix_one.py": {
+    "mtime": 1789424615.8339539,
+    "seen": 1793409119.7709436,
+    "ast_hash": "5a1d477d1e1666c27da8513280f2cad6",
+    "semantic_hash": ""
+  },
+  "code/utilities/legacy_fixes/fix_one_consensus.py": {
+    "mtime": 1789424808.6177845,
+    "seen": 1793409119.7709446,
+    "ast_hash": "4c1e67c361a86a746f4f6e09fa257afd",
+    "semantic_hash": ""
+  },
+  "code/utilities/legacy_fixes/test_mapping.py": {
+    "mtime": 1793345315.0400357,
+    "seen": 1793409119.7709458,
+    "ast_hash": "36455fb59a23a9726952b345ef8d2dc1",
+    "semantic_hash": ""
+  },
+  "code/utilities/legacy_fixes/update_report.py": {
     "mtime": 1789404709.7959461,
-    "seen": 1791941393.6730535,
+    "seen": 1793409119.7709467,
     "ast_hash": "8f409293b0fbff0910af4c2be710f3f0",
-    "semantic_hash": "8f409293b0fbff0910af4c2be710f3f0"
+    "semantic_hash": ""
+  },
+  "code/utilities/test_fix.py": {
+    "mtime": 1793345333.2123342,
+    "seen": 1793409119.7709587,
+    "ast_hash": "732cc0088dbff334fea1d4fb9bcfd24d",
+    "semantic_hash": ""
+  },
+  "tests/test_pipeline_e2e_dryrun.py": {
+    "mtime": 1793029001.2989886,
+    "seen": 1793409119.7709663,
+    "ast_hash": "531676beaa0ecb35ba731fff5a547f64",
+    "semantic_hash": ""
+  },
+  ".agents/rules/subagents.md": {
+    "mtime": 1792105243.8784654,
+    "seen": 1793409119.7709672,
+    "ast_hash": "d2ad3f56f5fbadf39386208ac5a61444",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1793343171.5208051,
+    "seen": 1793409119.77097,
+    "ast_hash": "bc342e2672c5cc7b62c43e56d448bd47",
+    "semantic_hash": ""
+  },
+  "JHU_data_radiologist_corrected/notes.md": {
+    "mtime": 1786031821.1608675,
+    "seen": 1793409119.770971,
+    "ast_hash": "e3e3513cb0d4ab648c22d757b02bb1f9",
+    "semantic_hash": ""
+  },
+  "JHU_data_radiologist_corrected/radiologist_clinical_feedback.md": {
+    "mtime": 1786031821.1808813,
+    "seen": 1793409119.7709723,
+    "ast_hash": "1192d4312e22bc35f729db6fca66402c",
+    "semantic_hash": ""
+  },
+  "code/utilities/legacy_fixes/diagnose_small_bowel_labels.txt": {
+    "mtime": 1791849820.5116055,
+    "seen": 1793409119.7709744,
+    "ast_hash": "b31df57b4454ef5a016fea3add92e35e",
+    "semantic_hash": ""
+  },
+  "docs/SHOWCASE.md": {
+    "mtime": 1793400512.7184186,
+    "seen": 1793409119.770975,
+    "ast_hash": "7e775bf1d64dc544c9c94532db343128",
+    "semantic_hash": ""
+  },
+  "docs/SHOWCASE_FULL_AUDIT_2026-10-30.txt": {
+    "mtime": 1793396592.8984406,
+    "seen": 1793409119.7709763,
+    "ast_hash": "e83ae8b1a0311c5e769475c63d9b4ec4",
+    "semantic_hash": ""
+  },
+  "docs/SHOWCASE_SANITY_RECHECK.txt": {
+    "mtime": 1793396592.9028752,
+    "seen": 1793409119.770977,
+    "ast_hash": "9ec8496ab7ed449c76b017f328a180b3",
+    "semantic_hash": ""
+  },
+  "docs/SHOWCASE_SANITY_REVIEW.txt": {
+    "mtime": 1793343888.921198,
+    "seen": 1793409119.7709777,
+    "ast_hash": "8ccf1563f4881a859763c66bfd8b8888",
+    "semantic_hash": ""
+  },
+  "environment.yml": {
+    "mtime": 1786085925.2976205,
+    "seen": 1793409119.7709785,
+    "ast_hash": "d979c71d68397a450a8e10cd143f9295",
+    "semantic_hash": ""
+  },
+  "requirements.txt": {
+    "mtime": 1786085925.378486,
+    "seen": 1793409119.77098,
+    "ast_hash": "b9d50cc8b3a0ffe4100a2c46f9a742be",
+    "semantic_hash": ""
+  },
+  "JHU_data_radiologist_corrected/note1.png": {
+    "mtime": 1791849813.1448176,
+    "seen": 1793409119.7709806,
+    "ast_hash": "a25929e53103d304c6e0a5c49f054be3",
+    "semantic_hash": ""
+  },
+  "JHU_data_radiologist_corrected/note2.png": {
+    "mtime": 1791849813.1490328,
+    "seen": 1793409119.7709813,
+    "ast_hash": "a18b6e7a90f2c89d9468469b2eed311b",
+    "semantic_hash": ""
+  },
+  "JHU_data_radiologist_corrected/notes3_for224.png": {
+    "mtime": 1791849813.1658256,
+    "seen": 1793409119.770982,
+    "ast_hash": "d1b6b4a4cb797a777757f61c9b1a6302",
+    "semantic_hash": ""
+  },
+  "JHU_data_radiologist_corrected/preview_242131.png": {
+    "mtime": 1791849813.1894703,
+    "seen": 1793409119.7709835,
+    "ast_hash": "59b84bc1a422e8d6a4e575869e463ee5",
+    "semantic_hash": ""
+  },
+  "docs/figures/project10_4d_tumor_hemodynamics_showcase.png": {
+    "mtime": 1793345172.6789205,
+    "seen": 1793409119.7709844,
+    "ast_hash": "812369e3e34335fa5858826d366e4737",
+    "semantic_hash": ""
+  },
+  "docs/figures/project10_clinical_turing_comparison.png": {
+    "mtime": 1793377762.2069502,
+    "seen": 1793409119.770985,
+    "ast_hash": "c80ceb2da607b188b8d6dc718448ce64",
+    "semantic_hash": ""
+  },
+  "docs/figures/project10_contrast_perturbation_robustness.png": {
+    "mtime": 1793379688.672988,
+    "seen": 1793409119.770986,
+    "ast_hash": "c630a06c6dee8e0564cac3ca060761f3",
+    "semantic_hash": ""
+  },
+  "docs/figures/project10_tumor_kinetics_curves.png": {
+    "mtime": 1793329626.5591092,
+    "seen": 1793409119.7709868,
+    "ast_hash": "d26861877c50f8fffca7f6d5cda093ee",
+    "semantic_hash": ""
+  },
+  "docs/figures/scaling_curve_20cases_overall.png": {
+    "mtime": 1791849813.2299366,
+    "seen": 1793409119.7709877,
+    "ast_hash": "7d27622dbaf2de1a08934a51d6a0f41e",
+    "semantic_hash": ""
+  },
+  "docs/figures/scaling_curve_20cases_per_organ.png": {
+    "mtime": 1791849813.2382298,
+    "seen": 1793409119.7709885,
+    "ast_hash": "1deda4b100696785a4d1a48f5058dd74",
+    "semantic_hash": ""
+  },
+  "docs/figures/scaling_curve_goldstandard_overall.png": {
+    "mtime": 1791849813.2450306,
+    "seen": 1793409119.7709894,
+    "ast_hash": "f1a2088148a3a083422855878041bed7",
+    "semantic_hash": ""
+  },
+  "docs/figures/scaling_curve_goldstandard_per_organ.png": {
+    "mtime": 1791849813.2504554,
+    "seen": 1793409119.7709901,
+    "ast_hash": "7b222d65570561733e75a5ede1eaf9a3",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242114_3d_renders.png": {
+    "mtime": 1791849813.2754524,
+    "seen": 1793409119.7709908,
+    "ast_hash": "9e6d30c7c702f6061d01986980e1a2d2",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242114_montage.png": {
+    "mtime": 1791849813.2999575,
+    "seen": 1793409119.7709916,
+    "ast_hash": "448676e85f1c6212d5810ba3d98cdf5f",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242114_orthoview.png": {
+    "mtime": 1791849813.3202493,
+    "seen": 1793409119.7709923,
+    "ast_hash": "1ef6febf4c32f8036158912fbea7c937",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242114_radiologist_gt_comparison.png": {
+    "mtime": 1791849813.3364594,
+    "seen": 1793409119.7709932,
+    "ast_hash": "153307492ecde818be83f405432fa25e",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242131_3d_renders.png": {
+    "mtime": 1791849813.357957,
+    "seen": 1793409119.770994,
+    "ast_hash": "3a73e28540169cdbbccf6dbc6ad53143",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242131_montage.png": {
+    "mtime": 1791849813.3910732,
+    "seen": 1793409119.770995,
+    "ast_hash": "f916c63a03c4c6d5e32db7bdbce62f8a",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242131_orthoview.png": {
+    "mtime": 1791849813.40968,
+    "seen": 1793409119.7709956,
+    "ast_hash": "4def1cd247415de933b8badce4e73ffc",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242131_radiologist_gt_comparison.png": {
+    "mtime": 1791849813.4299831,
+    "seen": 1793409119.7709968,
+    "ast_hash": "b95ab58dbf065aa51d36d2cb4cca42a9",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242136_3d_renders.png": {
+    "mtime": 1791849813.4492912,
+    "seen": 1793409119.7709975,
+    "ast_hash": "e1ed8e26aaf696cc4a7f202993eecafe",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242136_montage.png": {
+    "mtime": 1791849813.47999,
+    "seen": 1793409119.7709982,
+    "ast_hash": "059785e238eb26b28fcdb72d9c569b54",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242136_orthoview.png": {
+    "mtime": 1791849813.501605,
+    "seen": 1793409119.770999,
+    "ast_hash": "71a3776851ccd417ed8698bfa8b442f6",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00242136_radiologist_gt_comparison.png": {
+    "mtime": 1791849813.5233083,
+    "seen": 1793409119.771,
+    "ast_hash": "8e7266e61ccca06dc3acdcce2a74ff50",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00394224_3d_renders.png": {
+    "mtime": 1791849813.5462804,
+    "seen": 1793409119.7710006,
+    "ast_hash": "a7e651dc6ecf1212962ba074e3c8558d",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00394224_montage.png": {
+    "mtime": 1791849813.5727284,
+    "seen": 1793409119.7710013,
+    "ast_hash": "62b7a72a22915f65df72a2b55956b25c",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00394224_orthoview.png": {
+    "mtime": 1791849813.5939689,
+    "seen": 1793409119.7710023,
+    "ast_hash": "ebdd80e29aa5f184eb86f128e238d3cb",
+    "semantic_hash": ""
+  },
+  "docs/figures/showcase/BDMAP_00394224_radiologist_gt_comparison.png": {
+    "mtime": 1793400444.8466249,
+    "seen": 1793409119.7710032,
+    "ast_hash": "a05f7c0746eae001d00a827ecd3ca10a",
+    "semantic_hash": ""
   }
 }
