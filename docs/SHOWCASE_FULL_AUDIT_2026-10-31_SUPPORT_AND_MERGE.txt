@@ -1,0 +1,140 @@
+FULL SHOWCASE AUDIT: SUPPORT-AWARE SUPERVISION AND RUN CONSISTENCY
+October 31, 2026
+
+Audited source: 715ebe91328fba9413dced2e32f020ec7fe43a6d (main).
+Verdict: 100 tests pass. The preceding fixes improve behavior, but four
+confirmed defects remain in partial-support handling and worker-run consistency.
+This report records verification and findings; application code is unchanged.
+
+SCOPE AND FRESH VALIDATION
+
+Reviewed the seven-file remediation since audit commit 7155f92, the current
+SHOWCASE description/evidence and related P9 comparison, P10 training/dataset,
+clinical and voxel metrics, output reuse and worker merge paths. Graphify
+query preceded source searches. Independent read-only P9/evidence and P10
+reviews were reconciled with source and actual-function probes. Repository
+AGENTS.md authorizes specialized parallel auditing. No cluster jobs, remote
+data, production checkpoint inference or cohort regeneration was performed.
+
+- Full pytest: python -m pytest --continue-on-collection-errors -q
+  100 passed, 1 warning in 10.79 seconds. Warning: infinite PSNR on an exact-
+  match synthetic fixture, not a failing assertion.
+- project_wide_sanity_check.py: 31 checks; 10 passed, 17 warnings, 3 failures,
+  one INFO. Remaining failures: missing local ensemble_phase3_audit_summary.csv,
+  missing multiphase_pairs.csv, and unavailable nnunet_mednext in standalone
+  empty-mask smoke import. This inventory check is not a production run.
+- AST syntax: 87 Python files pass; bash -n: 75 shell/SLURM files pass.
+- Pyflakes finds no undefined names. The prior subject_dir typo is repaired.
+- All 18 embedded PNGs decode. Ten local output links remain unavailable.
+  All 20 associated figure files are unchanged from the preceding visual
+  audits; source fixes have not regenerated their image evidence.
+- git diff --check: clean. Source tree was clean at audit start.
+- No CodeRabbit review was rerun; its prior authentication requirement remains
+  unresolved. No external CodeRabbit clean result is claimed.
+
+CONFIRMED FINDINGS
+
+1. [P1/P2] Partially unsupported targets still enter training as real air.
+   code/project10/datasets/multiphase_paired_dataset.py:329-339 accepts target
+   patches with >=10% support and returns target_support. But production
+   training at training/train_stage2_synthesis.py:459-480 and validation at
+   503-517 never consume that mask: the full filled target is encoded, and
+   all latent voxels enter MSE.
+   Actual dataset probe: 64-cubed NCCT, edge-aligned 32x64x64 target, and
+   8-cubed center patch were accepted with target_support mean 0.5. The
+   unsupported half of target was entirely -0.5 normalized fill air.
+   Zero-support rejection is now correct, but partial support still supplies
+   fabricated supervision. Reject inadequately supported patches, or propagate
+   support into latent supervision with appropriate encoder receptive-field
+   treatment. Merely returning a support mask does not change the loss.
+
+2. [P2] Voxel evaluation scores missing reference data as measured -1000 HU.
+   code/project10/evaluation/evaluate_synthesis.py:59-109 accepts references
+   covering >=10% of the generated grid and fills the rest with -1000 HU.
+   compute_metrics_3d at 112-166 and the caller at 410-413 score that filled
+   array without a reference-support mask. Uncovered space is missing data,
+   not an observed air measurement.
+   Actual unmocked probe: two constant 100-HU 8-cubed volumes at 1.5-mm spacing,
+   with the real reference shifted 6 mm, have 50% coverage. Supported-voxel
+   L1 was 0, but whole-volume reported L1 was 550 HU because the other half
+   became -1000 HU. Thus source coverage changes a supposedly paired image
+   error even where all observed voxels agree.
+   Either require sufficient complete reference support for the reported
+   endpoint, or return/propagate support and compute appropriately defined
+   metrics only on comparable observed regions. Structural metrics need a
+   valid-window policy, not just multiplying missing voxels by zero. Report
+   coverage and do not infer support from intensity values.
+
+3. [P2] Merge silently chooses an arbitrary row from conflicting runs.
+   evaluate_synthesis.py:227-244 checks expected worker indices and metric
+   version, then drops duplicate Subject rows keeping the first. There is
+   no common run/assignment/input manifest or conflict check.
+   Two independent actual merge_worker_csvs probes supplied valid-version
+   expected worker_0 and worker_1 records for the same subject with different
+   real/fake hashes. Worker 0's stale L1=999 survived; worker 1's L1=1 was
+   discarded without an error. Both worker files passed the new checks.
+   Require a shared run identity/assignment and completion manifest, validate
+   input hashes, and reject conflicting duplicates. Matching the metric
+   implementation version does not prove two shards belong to the same run.
+
+4. [P2] Successful idle workers do not produce the shards merge now requires.
+   evaluate_synthesis.py:444-448 returns without writing a CSV when a worker
+   has no assigned cases. Merge at 204-215 requires every index from zero
+   through total_workers-1 to have a CSV.
+   Actual unmocked one-case/two-worker run: worker 0 scored its case, worker 1
+   had zero assigned cases and returned successfully; only worker_0.csv
+   existed. The subsequent merge raised RuntimeError for missing worker_1.
+   Emit schema-bearing empty shards plus completion metadata, or derive
+   expected nonempty shards from an explicit assignment manifest. Preserve
+   detection of genuinely failed/missing workers while allowing legitimate
+   zero-case assignments. A small smoke cohort should remain mergeable.
+
+VERIFIED RESOLUTIONS
+
+- Actual comparison main() with CT, both predictions and combined-only GT,
+  without segmentations/, now succeeds and scores Dice 1.0 for matching masks.
+  The prior undefined subject_dir fallback crash is resolved.
+- Actual clinical evaluator reference-resampling function now rejects the
+  +1000-mm displaced real volume with ValueError. Its main route passes the
+  synthetic NIfTI reference, repairing shape-only correspondence.
+- Actual dataset now transforms target support through spacing/cropping and
+  rejects the earlier 25%-global-coverage but zero-supported-center-patch
+  fixture. Finding 1 concerns accepted partial support, not this fixed case.
+- Worker merge now selects expected worker indices, ignores obsolete indices,
+  and rejects missing/unversioned/incompatible-version shards. This repairs
+  the prior worker_7 contamination example but does not prove run consistency
+  or account for valid idle workers.
+- SHOWCASE.md now correctly names the deterministic continuous
+  LightweightAutoEncoder3D with use_vq=False, rather than VQ-VAE or
+  AutoencoderKL with a Gaussian posterior.
+- The 100 passing tests include new regression coverage for these repairs;
+  they do not cover all four confirmed counterexamples above.
+
+EVIDENCE LIMITS AND UNCHANGED CONTENT
+
+The PNGs retain their historical content: three JHU comparisons use legacy
+mapping/scores, now qualified beside the figures; the P10 synthesis/tumor
+panels remain visibly saturated. No figure changed in the remediation.
+The available publication tables and local volume arithmetic do not establish
+that corrected production models were run or that remote cohort metrics were
+regenerated. The document's qualifications are useful but do not substitute
+for a measured rerun with complete manifests.
+
+The claimed 50 pooled JHU evaluations, 400 clinical cases, 1,067 generated
+volumes and 1,990 lesions were not independently reproduced in this local
+checkout. Remote dataset/checkpoint/output existence and freshness were not
+checked. No clinical diagnostic fidelity conclusion follows from the passing
+software tests or the temporary synthetic probes used in this audit.
+
+NEXT VERIFICATION
+
+1. Define valid target coverage for training and voxel/structural evaluation;
+   reject missing supervision or explicitly exclude it with correct masks.
+2. Test partial support, including the encoder/latent loss boundary and metric
+   windows, rather than only entirely disjoint or zero-support examples.
+3. Add explicit run assignments/completion records, conflict rejection and
+   empty-worker handling to worker output and merge.
+4. After these checks pass, regenerate production outputs/metrics and figures
+   with auditable input/checkpoint/code/run identities and cohort accounting.
+
+Audit complete. The test suite is green; the broader validation is not clean.
