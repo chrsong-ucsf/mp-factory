@@ -47,7 +47,9 @@ def dice_score(pred, gt, organ_id):
 
 
 def load_ground_truth(subject_dir):
-    """Merge individual organ segmentation NIfTIs into a single label map."""
+    """Merge individual organ segmentation NIfTIs into a single label map aligned to CT geometry."""
+    import nibabel.processing as nip
+
     seg_dir = os.path.join(subject_dir, "segmentations")
     search_dir = seg_dir if os.path.exists(seg_dir) else subject_dir
 
@@ -57,7 +59,13 @@ def load_ground_truth(subject_dir):
     # Check for combined mask first
     combined_mask = os.path.join(subject_dir, "gi_mask.nii.gz")
     if os.path.exists(combined_mask):
-        return nib.load(combined_mask).get_fdata().astype(np.uint8), ct_nii
+        comb_nii = nib.load(combined_mask)
+        comb_data = np.asanyarray(comb_nii.dataobj).squeeze().astype(np.uint8)
+        comb_3d = nib.Nifti1Image(comb_data, comb_nii.affine, comb_nii.header)
+        if comb_data.shape != ct_nii.shape or not np.allclose(comb_nii.affine, ct_nii.affine, atol=1e-3):
+            comb_res = nip.resample_from_to(comb_3d, ct_nii, order=0)
+            return np.asanyarray(comb_res.dataobj).astype(np.uint8), ct_nii
+        return comb_data, ct_nii
 
     gt_arr  = np.zeros(ct_nii.shape, dtype=np.uint8)
 
@@ -66,10 +74,10 @@ def load_ground_truth(subject_dir):
             fpath = os.path.join(search_dir, f"{alias}.nii.gz")
             if os.path.exists(fpath):
                 o_nii = nib.load(fpath)
-                o_data = np.asanyarray(o_nii.dataobj).squeeze()
-                if o_data.shape != ct_nii.shape:
-                    import nibabel.processing as nip
-                    o_res = nip.resample_from_to(nib.Nifti1Image(o_data.astype(np.uint8), o_nii.affine, o_nii.header), ct_nii, order=0)
+                o_data = np.asanyarray(o_nii.dataobj).squeeze().astype(np.uint8)
+                o_3d = nib.Nifti1Image(o_data, o_nii.affine, o_nii.header)
+                if o_data.shape != ct_nii.shape or not np.allclose(o_nii.affine, ct_nii.affine, atol=1e-3):
+                    o_res = nip.resample_from_to(o_3d, ct_nii, order=0)
                     o_arr = np.asanyarray(o_res.dataobj) > 0
                 else:
                     o_arr = o_data > 0
@@ -120,13 +128,13 @@ def main():
             skipped += 1
             continue
 
-        # Check ground truth has at least one organ label
+        # Check ground truth has at least one organ label or combined mask
         seg_dir    = os.path.join(sub_dir, "segmentations")
-        search_dir = seg_dir if os.path.exists(seg_dir) else sub_dir
+        search_dir = seg_dir if os.path.exists(seg_dir) else subject_dir
         has_gt = any(
             any(os.path.exists(os.path.join(search_dir, f"{alias}.nii.gz")) for alias in aliases)
             for aliases in ORGAN_ALIASES.values()
-        )
+        ) or os.path.exists(os.path.join(sub_dir, "gi_mask.nii.gz"))
         if not has_gt:
             skipped += 1
             continue

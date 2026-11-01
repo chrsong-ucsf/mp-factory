@@ -31,9 +31,15 @@ from code.project10.evaluation.sample_multiphase_diffusion import load_anatomy_m
 from code.project10.kinetics.generate_multiphase_tumors import find_and_extract_host_parenchyma
 from code.project10.common_spatial import preprocess_single_volume
 from code.manuscript.compile_manuscript_tables import (
+    build_table_1,
     build_table_2,
     resolve_jhu_patient_id,
     JHU_SCAN_TO_PATIENT_MAP,
+)
+from code.utilities.compare_models import load_ground_truth
+from code.project10.evaluation.evaluate_synthesis import (
+    resample_real_to_target,
+    merge_worker_csvs,
 )
 
 
@@ -313,3 +319,160 @@ def test_production_manuscript_tables_patient_counting():
         assert md_code is not None
         assert "| **MedNeXt** | 11 | 5 |" in md_code, "Table 2 markdown must report 11 scans across 5 unique patients"
         assert "11 evaluated scans correspond to 5 distinct patients" in md_code
+
+
+def test_production_compare_models_displaced_ground_truth_resampling():
+    """Finding 1: load_ground_truth checks full geometry and resamples displaced GT masks into CT space."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sub_dir = os.path.join(tmpdir, "SUBJ_DISPLACED")
+        seg_dir = os.path.join(sub_dir, "segmentations")
+        os.makedirs(seg_dir, exist_ok=True)
+
+        shape = (8, 8, 8)
+        ct_affine = np.diag([1.5, 1.5, 1.5, 1.0])
+        ct_arr = np.zeros(shape, dtype=np.float32)
+        nib.save(nib.Nifti1Image(ct_arr, ct_affine), os.path.join(sub_dir, "ct.nii.gz"))
+
+        # Create stomach mask translated by +1000mm in physical space (same array shape)
+        gt_affine = np.copy(ct_affine)
+        gt_affine[0, 3] = 1000.0
+        gt_arr = np.zeros(shape, dtype=np.uint8)
+        gt_arr[2:6, 2:6, 2:6] = 1
+        nib.save(nib.Nifti1Image(gt_arr, gt_affine), os.path.join(seg_dir, "stomach.nii.gz"))
+
+        # Under physical coordinate check, stomach must be resampled onto ct_nii grid and have 0 overlap
+        merged_gt, ct_nii = load_ground_truth(sub_dir)
+        assert np.count_nonzero(merged_gt == 1) == 0, "Displaced stomach (+1000mm) must have 0 overlap in CT reference grid"
+
+
+def test_production_evaluate_synthesis_disjoint_physical_overlap_rejection():
+    """Finding 2: resample_real_to_target rejects real CT translated +1000mm with insufficient overlap ValueError."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        shape = (8, 8, 8)
+        fake_affine = np.diag([1.5, 1.5, 1.5, 1.0])
+        fake_path = os.path.join(tmpdir, "fake.nii.gz")
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), fake_affine), fake_path)
+
+        # Real CT translated +1000mm in X
+        real_affine = np.copy(fake_affine)
+        real_affine[0, 3] = 1000.0
+        real_path = os.path.join(tmpdir, "real.nii.gz")
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), real_affine), real_path)
+
+        with pytest.raises(ValueError, match="Insufficient physical overlap"):
+            resample_real_to_target(real_path, target_ref=fake_path)
+
+
+def test_production_evaluate_synthesis_summary_aggregation_and_merge_smoke():
+    """Finding 3: merge_worker_csvs and summary aggregation exclude text/provenance columns without TypeError."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_csv = Path(tmpdir) / "merged_report.csv"
+        worker0_csv = Path(tmpdir) / "merged_report_worker_0.csv"
+        worker1_csv = Path(tmpdir) / "merged_report_worker_1.csv"
+
+        df0 = pd.DataFrame([{
+            "Subject": "CASE_01.nii.gz",
+            "SSIM": 0.85,
+            "PSNR": 28.5,
+            "L1_Error": 45.0,
+            "Body_L1_Error": 55.0,
+            "RMSE": 60.0,
+            "Pearson_R": 0.88,
+            "fake_sha256": "fake_sha_01",
+            "real_sha256": "real_sha_01",
+            "real_file": "CASE_01_reg.nii.gz",
+            "fake_mtime": 1730000000.0,
+            "metric_version": "v2_canonical_spatial",
+        }])
+        df1 = pd.DataFrame([{
+            "Subject": "CASE_02.nii.gz",
+            "SSIM": 0.90,
+            "PSNR": 30.0,
+            "L1_Error": 40.0,
+            "Body_L1_Error": 50.0,
+            "RMSE": 50.0,
+            "Pearson_R": 0.92,
+            "fake_sha256": "fake_sha_02",
+            "real_sha256": "real_sha_02",
+            "real_file": "CASE_02_reg.nii.gz",
+            "fake_mtime": 1730000001.0,
+            "metric_version": "v2_canonical_spatial",
+        }])
+        df0.to_csv(worker0_csv, index=False)
+        df1.to_csv(worker1_csv, index=False)
+
+        # Must merge and compute numeric summary without raising TypeError
+        merge_worker_csvs(out_csv, total_workers=2)
+        assert out_csv.exists()
+        merged = pd.read_csv(out_csv)
+        assert len(merged) == 2
+
+
+def test_production_manuscript_table1_literature_qualification():
+    """Finding 7: build_table_1 carries literature reference qualification into LaTeX output."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        csv_path = os.path.join(tmpdir, "model_comparison.csv")
+        records = [{
+            "subject_id": "BDMAP_001",
+            "swin_stomach_dice": 0.0,
+            "mednext_stomach_dice": 0.0,
+            "swin_duodenum_dice": 0.0,
+            "mednext_duodenum_dice": 0.0,
+            "swin_small_bowel_dice": 0.01,
+            "mednext_small_bowel_dice": 0.01,
+            "swin_colon_dice": 0.0,
+            "mednext_colon_dice": 0.0,
+            "swin_mean_dice": 0.002,
+            "mednext_mean_dice": 0.002,
+            "winner": "tie",
+        }]
+        pd.DataFrame(records).to_csv(csv_path, index=False)
+        latex_code, md_code = build_table_1(csv_file=csv_path)
+        assert "TotalSegmentator v2 (Ref)" in latex_code, "LaTeX table must carry reference qualification"
+        assert "External literature baseline reference" in latex_code, "LaTeX table must have literature reference footnote"
+
+
+def test_production_sample_multiphase_diffusion_empty_mask_dirs_rejected_when_required():
+    """Finding 5: load_anatomy_mask raises FileNotFoundError when conditioning is required and dirs are empty."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        empty_dir = os.path.join(tmpdir, "empty_masks")
+        os.makedirs(empty_dir, exist_ok=True)
+        with pytest.raises(FileNotFoundError, match="Required organ conditioning mask"):
+            load_anatomy_mask(
+                subject_id="CASE_NO_MASK",
+                mask_dirs=[empty_dir],
+                require_conditioning=True,
+            )
+
+
+def test_production_evaluate_synthesis_mixed_batch_failure_raises():
+    """Finding 9: evaluate_synthesis raises RuntimeError when any assigned scan fails (e.g. missing target)."""
+    from code.project10.evaluation.evaluate_synthesis import main as eval_main
+    import unittest.mock as mock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_dir = os.path.join(tmpdir, "fake")
+        real_dir = os.path.join(tmpdir, "real")
+        out_csv = os.path.join(tmpdir, "eval_out.csv")
+        os.makedirs(fake_dir, exist_ok=True)
+        os.makedirs(real_dir, exist_ok=True)
+
+        shape = (8, 8, 8)
+        affine = np.diag([1.5, 1.5, 1.5, 1.0])
+        # Case 1: valid fake and real
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), affine), os.path.join(fake_dir, "SUBJ_01.nii.gz"))
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), affine), os.path.join(real_dir, "SUBJ_01.nii.gz"))
+
+        # Case 2: fake exists but real target is missing in real_dir
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), affine), os.path.join(fake_dir, "SUBJ_02.nii.gz"))
+
+        test_args = [
+            "evaluate_synthesis.py",
+            "--fake_dir", fake_dir,
+            "--real_dir", real_dir,
+            "--output_csv", out_csv,
+            "--device", "cpu",
+        ]
+        with mock.patch("sys.argv", test_args):
+            with pytest.raises(RuntimeError, match="assigned cases failed evaluation"):
+                eval_main()

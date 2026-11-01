@@ -199,6 +199,27 @@ class MultiphasePairedDataset(Dataset):
 
         try:
             target_itk = sitk.ReadImage(str(target_path))
+
+            # Verify physical overlap between target CT and reference NCCT
+            target_support = sitk.Image(target_itk.GetSize(), sitk.sitkUInt8)
+            target_support.CopyInformation(target_itk)
+            target_support = sitk.Add(target_support, 1)
+
+            resampler_supp = sitk.ResampleImageFilter()
+            resampler_supp.SetReferenceImage(ncct_itk)
+            resampler_supp.SetInterpolator(sitk.sitkNearestNeighbor)
+            resampler_supp.SetDefaultPixelValue(0)
+            res_target_supp = resampler_supp.Execute(target_support)
+            target_overlap_arr = sitk.GetArrayFromImage(res_target_supp)
+            overlap_vox = int(np.count_nonzero(target_overlap_arr))
+            overlap_frac = overlap_vox / float(target_overlap_arr.size) if target_overlap_arr.size > 0 else 0.0
+
+            if overlap_vox == 0 or overlap_frac < 0.10:
+                raise ValueError(
+                    f"Target CT {target_path} has insufficient physical overlap ({overlap_frac:.2%}) "
+                    f"with NCCT reference {ncct_path} for subject {subject_p0}"
+                )
+
             is_target_aligned = (
                 target_itk.GetSize() == ncct_itk.GetSize()
                 and np.allclose(target_itk.GetSpacing(), ncct_itk.GetSpacing(), atol=1e-3)
@@ -212,6 +233,8 @@ class MultiphasePairedDataset(Dataset):
                 resampler.SetDefaultPixelValue(-1000.0)
                 target_itk = resampler.Execute(target_itk)
                 target_arr = sitk.GetArrayFromImage(target_itk).transpose(2, 1, 0).astype(np.float32)
+        except ValueError:
+            raise
         except Exception as e:
             raise RuntimeError(f"Failed aligning target CT for subject {subject_p0}: {e}")
 

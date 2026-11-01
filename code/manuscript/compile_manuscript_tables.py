@@ -64,9 +64,10 @@ def fmt_md_mean_std(arr, precision=3, scale=1.0):
     return f"{mean:.{precision}f} ± {std:.{precision}f}"
 
 
-def build_table_1():
+def build_table_1(csv_file=None):
     """Table 1: GI Organ Segmentation Benchmark."""
-    csv_file = CSV_MODEL_COMP_POOL if (os.path.exists(CSV_MODEL_COMP_POOL) and os.path.getsize(CSV_MODEL_COMP_POOL) > 100) else CSV_MODEL_COMP_PHASE3
+    if csv_file is None:
+        csv_file = CSV_MODEL_COMP_POOL if (os.path.exists(CSV_MODEL_COMP_POOL) and os.path.getsize(CSV_MODEL_COMP_POOL) > 100) else CSV_MODEL_COMP_PHASE3
     if not os.path.exists(csv_file):
         print(f"[Warning] No model comparison CSV found at {csv_file}")
         return None, None
@@ -113,7 +114,22 @@ def build_table_1():
         totalseg_val_md = totalseg_benchmarks_md[name]
         md_rows.append(f"| **{name}** | {totalseg_val_md} | {swin_val_md} | **{med_val_md}** |")
 
-    latex_code = "\\begin{table}[htbp]\n\\centering\n\\caption{3D Gastrointestinal Organ Segmentation Performance (Dice Similarity Coefficient $\\pm$ Standard Deviation).}\n\\label{tab:segmentation_comparison}\n\\begin{tabular}{lccc}\n\\hline\n\\textbf{Organ Target} & \\textbf{TotalSegmentator v2} & \\textbf{Swin-UNETR} & \\textbf{" + model_name_label + "} \\\\\n\\hline\n" + "\n".join(latex_rows) + "\n\\hline\n\\end{tabular}\n\\end{table}\n"
+    latex_code = (
+        "\\begin{table}[htbp]\n"
+        "\\centering\n"
+        "\\caption{3D Gastrointestinal Organ Segmentation Performance (Dice Similarity Coefficient $\\pm$ Standard Deviation).}\n"
+        "\\label{tab:segmentation_comparison}\n"
+        "\\begin{tabular}{lccc}\n"
+        "\\hline\n"
+        "\\textbf{Organ Target} & \\textbf{TotalSegmentator v2 (Ref)$^*$} & \\textbf{Swin-UNETR} & \\textbf{" + model_name_label + "} \\\\\n"
+        "\\hline\n"
+        + "\n".join(latex_rows) + "\n"
+        "\\hline\n"
+        "\\multicolumn{4}{l}{\\footnotesize $^*$External literature baseline reference on non-contrast abdominal CT (Wasserthal et al., DOI: 10.1148/ryai.230024).} \\\\\n"
+        "\\multicolumn{4}{l}{\\footnotesize Values reflect unverified literature references rather than internal cohort benchmarks.} \\\\\n"
+        "\\end{tabular}\n"
+        "\\end{table}\n"
+    )
     
     md_code = f"### Table 1: 3D GI Organ Segmentation Performance (N = {len(df)} Scans)\n\n"
     md_code += f"| Organ Target | TotalSegmentator v2 (Ref)* | Swin-UNETR | **{model_name_label}** |\n| :--- | :--- | :--- | :--- |\n"

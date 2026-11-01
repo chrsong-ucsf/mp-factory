@@ -52,7 +52,7 @@ Centered at the GI anatomical center of mass:
 
 Direct 4-panel comparison against expert JHU radiologist ground truth (Legacy Pipeline):
 ![BDMAP_00242131 Radiologist Comparison](figures/showcase/BDMAP_00242131_radiologist_gt_comparison.png)
-* *Verification Note:* In Panel D (Concordance Map), green denotes exact spatial agreement. The automated model cleanly isolates the transverse colon (Blue in Panel C) from adjacent jejunal loops, resolving haustral colonic borders that were conflated in manual queues.
+* *Verification Note:* In Panel D (Concordance Map from legacy evaluation), green denotes binary foreground overlap between legacy predictions and unadjusted annotations (retained for historical visualization of colonic course delineation; does not reflect class-aware physical evaluation).
 
 #### Progression Montage & 3D Surface Reconstruction
 ![BDMAP_00242131 Montage](figures/showcase/BDMAP_00242131_montage.png)
@@ -65,7 +65,7 @@ Direct 4-panel comparison against expert JHU radiologist ground truth (Legacy Pi
 > **Legacy Pipeline Visualization Notice:** The visualization panels for `BDMAP_00242114` represent early exploratory renders from the legacy pipeline. While they illustrate qualitative luminal distension across sequential scans, quantitative validation under the corrected physical coordinate pipeline is established by Case 4 and Table 2.
 
 * **Scan Parameters:** High-distension scan ($512 \times 512 \times 429$, voxel spacing $0.85 \times 0.85 \times 1.50\text{ mm}^3$).
-* **Clinical Role:** Validates contrast-phase invariance across sequential scans (`BDMAP_00242113` $\rightarrow$ `114`/`115`/`116`), providing the structural priors required for Project 10 generative conditioning.
+* **Clinical Role:** Illustrates qualitative luminal distension and gross structural alignment across sequential scans (`BDMAP_00242113` $\rightarrow$ `114`/`115`/`116`), providing exploratory visualization for Project 10 generative conditioning (formal phase invariance is benchmarked in Table 2 and Case 4).
 * **Organ Volumes:** Stomach: 228.7 cm³, Duodenum: 49.4 cm³, Small Bowel: 819.8 cm³, Colon: 807.4 cm³.
 
 ![BDMAP_00242114 Orthoview](figures/showcase/BDMAP_00242114_orthoview.png)
@@ -132,7 +132,7 @@ Direct 4-panel comparison against expert JHU radiologist ground truth (Legacy Pi
 # PART II: Project 10 — Multi-Phase Contrast CT Synthesis & 4D Tumor Kinetics
 
 ### 1. Generative Multi-Phase Contrast CT & Anatomical Invariance Audit
-Project 10 synthesizes 3D contrast-enhanced CT volumes from non-contrast scans (NCCT) using an anatomy-conditioned **Latent Diffusion Model** operating on a frozen 3D VQ-VAE latent space, sampled via fast deterministic DDIM reverse diffusion.
+Project 10 synthesizes 3D contrast-enhanced CT volumes from non-contrast scans (NCCT) using an anatomy-conditioned **Latent Diffusion Model** operating on a continuous 3D AutoencoderKL latent space (continuous latent space with diagonal Gaussian posterior, as trained in Phase 1 and enforced by production load_stage1_autoencoder), sampled via fast deterministic DDIM reverse diffusion.
 
 To audit whether synthetic contrast scans preserve visceral anatomical boundaries, the frozen MedNeXt-B backbone was evaluated on paired real vs. synthetic volumes across $N = 400$ patient cases.
 
@@ -141,7 +141,7 @@ Below is an axial cross-section through native validation case `CV_00000042--CV_
 ![Project 10 Clinical Comparison](figures/project10_clinical_turing_comparison.png)
 
 > [!WARNING]
-> **Diffusion Output Saturation & Quality Notice:** The generative synthesis panel above exhibits significant hyper-attenuation trajectory saturation (elevated visceral baseline ~400 HU) and background air DC shift (~0 HU vs. -1000 HU native air), yielding weak visual correlation ($R = 0.191$, $\text{SSIM} = 0.062$). While the model successfully learns structural organ geometry from the frozen VQ-VAE latents, this raw output requires downstream air-clamping, intensity re-calibration, or trajectory correction before clinical deployment. This visualization documents the raw diffusion output quality prior to downstream post-processing and does not demonstrate corrected diagnostic image fidelity.
+> **Diffusion Output Saturation & Quality Notice:** The generative synthesis panel above exhibits significant hyper-attenuation trajectory saturation (elevated visceral baseline ~400 HU) and background air DC shift (~0 HU vs. -1000 HU native air), yielding weak visual correlation ($R = 0.191$, $\text{SSIM} = 0.062$). While the continuous autoencoder encodes regional abdominal volume bounds, the diffusion trajectory exhibits prominent baseline saturation and air DC offset, requiring downstream air-clamping, intensity re-calibration, or trajectory correction before clinical utility. This visualization documents the raw diffusion output quality prior to downstream post-processing and does not demonstrate corrected diagnostic image fidelity or independently proven organ-level fidelity.
 
 * **Panel A (Non-Contrast Input CT):** Native baseline abdominal attenuation prior to contrast injection.
 * **Panel B (Generative Contrast Synthesis):** Synthetic contrast CT generated by the 3D Latent Diffusion Model. While parenchymal and visceral structures demonstrate spatial anatomical alignment, elevated baseline values (~400 HU median) reflect the known diffusion trajectory saturation and background air offset (~0 HU vs -1000 HU) present in this mid-tier cohort scan.

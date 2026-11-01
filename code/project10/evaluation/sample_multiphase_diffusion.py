@@ -19,7 +19,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Union
 
 import nibabel as nib
 import numpy as np
@@ -191,7 +191,8 @@ def load_anatomy_mask(
     totalseg_task="auto",
     require_conditioning=False,
     reference_ct_path: Optional[str] = None,
-) -> torch.Tensor:
+    return_path: bool = False,
+) -> Union[torch.Tensor, Tuple[torch.Tensor, Optional[str]]]:
     """
     Load 5-organ GI mask if available, physically align to reference CT grid,
     semantically remap TotalSeg if needed, one-hot encode, and downsample to latent resolution.
@@ -307,8 +308,11 @@ def load_anatomy_mask(
 
                     mask_t = torch.from_numpy(mapped).unsqueeze(0).long().clamp(0, 4)
                     one_hot = F.one_hot(mask_t, num_classes=5).permute(0, 4, 1, 2, 3).float().to(device)
+                    interp_mask = F.interpolate(one_hot, size=latent_shape, mode="nearest")
                     log.info(f"Successfully loaded and verified anatomy conditioning mask: {mpath}")
-                    return F.interpolate(one_hot, size=latent_shape, mode="nearest")
+                    if return_path:
+                        return interp_mask, mpath
+                    return interp_mask
                 except Exception as e:
                     rejection_reasons.append((mpath, str(e)))
                     log.warning(f"Failed loading candidate mask from {mpath}: {e}; trying next candidate.")
@@ -328,6 +332,8 @@ def load_anatomy_mask(
     log.warning(f"No organ mask found for {subject_id}; generating with neutral background prior.")
     dummy = torch.zeros((1, 5, *latent_shape), device=device, dtype=torch.float32)
     dummy[:, 0] = 1.0
+    if return_path:
+        return dummy, None
     return dummy
 
 
@@ -516,6 +522,26 @@ def main():
 
         ncct_sha = checkpoint_sha256(ncct_input_file)
 
+        # Resolve candidate anatomy conditioning mask before resume check to ensure contract validity
+        try:
+            anatomy_mask, mask_path = load_anatomy_mask(
+                subject_id=subject_p0,
+                mask_dirs=args.mask_dirs,
+                target_shape=(128, 128, 128),
+                latent_shape=(16, 16, 16),
+                device=device,
+                totalseg_task=args.totalseg_task,
+                require_conditioning=args.require_conditioning,
+                reference_ct_path=ncct_input_file,
+                return_path=True,
+            )
+        except Exception as e:
+            failed_count += 1
+            log.error(f"Failed resolving required anatomy conditioning mask for {pair_name}: {e}")
+            continue
+
+        mask_sha = checkpoint_sha256(mask_path) if mask_path and os.path.exists(mask_path) else None
+
         # Complete generation contract verification
         if os.path.exists(out_path) and not args.overwrite:
             try:
@@ -525,6 +551,8 @@ def main():
                         prov_data = json.load(pf)
                     if (
                         prov_data.get("ncct_sha256") == ncct_sha
+                        and prov_data.get("mask_sha256") == mask_sha
+                        and prov_data.get("mask_path") == mask_path
                         and prov_data.get("diffusion_checkpoint_sha256") == diff_sha
                         and prov_data.get("ae_checkpoint_sha256") == ae_sha
                         and prov_data.get("totalseg_task") == args.totalseg_task
@@ -536,11 +564,11 @@ def main():
                         if test_nii.shape == (128, 128, 128) and np.all(np.isfinite(test_data)):
                             is_valid = True
                 if is_valid:
-                    log.info(f"[{idx}/{len(my_files)}] Skipping valid existing verified volume (matching input and model contract): {pair_name}")
+                    log.info(f"[{idx}/{len(my_files)}] Skipping valid existing verified volume (matching input, mask, and model contract): {pair_name}")
                     skipped_count += 1
                     continue
                 else:
-                    log.warning(f"Existing {out_path} lacks matching provenance or has altered input/model contract; regenerating...")
+                    log.warning(f"Existing {out_path} lacks matching provenance or has altered input/mask/model contract; regenerating...")
             except Exception as e:
                 log.warning(f"Existing {out_path} unreadable ({e}), regenerating...")
 
@@ -551,17 +579,6 @@ def main():
             # Preprocess volume to normalised range [-0.5, 1.0] and get resampled affine
             ncct_tensor, resampled_affine = preprocess_ct(ncct_input_file)
             ncct_tensor = ncct_tensor.to(device)
-
-            anatomy_mask = load_anatomy_mask(
-                subject_id=subject_p0,
-                mask_dirs=args.mask_dirs,
-                target_shape=(128, 128, 128),
-                latent_shape=(16, 16, 16),
-                device=device,
-                totalseg_task=args.totalseg_task,
-                require_conditioning=args.require_conditioning,
-                reference_ct_path=ncct_input_file,
-            )
 
             with torch.no_grad():
                 # Encode NCCT to latent space: (1, 4, 16, 16, 16)
@@ -593,6 +610,8 @@ def main():
                     "subject_p0": subject_p0,
                     "ncct_input_file": ncct_input_file,
                     "ncct_sha256": ncct_sha,
+                    "mask_path": mask_path,
+                    "mask_sha256": mask_sha,
                     "diffusion_checkpoint": args.diffusion_checkpoint,
                     "diffusion_checkpoint_sha256": diff_sha,
                     "ae_checkpoint": args.ae_checkpoint,

@@ -125,3 +125,13 @@ def test_physically_disjoint_mask_is_rejected(tmp_path):
     nib.save(nib.Nifti1Image(np.ones((4, 4, 4), dtype=np.uint8), shifted_affine), tmp_path / "masks" / "CASE_gi_mask.nii.gz")
     with pytest.raises(ValueError, match="zero physical overlap"):
         dataset[0]
+
+
+def test_physically_disjoint_target_is_rejected(tmp_path):
+    """Finding 4: A target CT translated +1000mm in physical space has zero physical overlap and must be rejected."""
+    dataset = _dataset(tmp_path, mask=np.ones((4, 4, 4), dtype=np.uint8))
+    shifted_affine = np.eye(4)
+    shifted_affine[0, 3] = 1000.0
+    nib.save(nib.Nifti1Image(np.ones((4, 4, 4), dtype=np.float32), shifted_affine), tmp_path / "registered.nii.gz")
+    with pytest.raises(ValueError, match="insufficient physical overlap"):
+        dataset[0]

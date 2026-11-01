@@ -10,11 +10,12 @@ against ground-truth registered CT volumes resampled to the 1.5mm / 128^3 latent
 
 import argparse
 import glob
+import hashlib
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import nibabel as nib
 import numpy as np
@@ -36,6 +37,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("evaluate_synthesis")
 
+METRIC_COLUMNS = ["SSIM", "PSNR", "L1_Error", "Body_L1_Error", "RMSE", "Pearson_R"]
+
+
+def compute_file_sha256(filepath: str | Path) -> str:
+    """Compute SHA-256 hash of a file."""
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
 
 def load_nifti(filepath: str | Path) -> np.ndarray:
     """Load a NIfTI file and return its data array as a float32 numpy array."""
@@ -45,17 +57,51 @@ def load_nifti(filepath: str | Path) -> np.ndarray:
 
 def resample_real_to_target(
     real_path: str | Path,
-    target_shape: Tuple[int, int, int] = (128, 128, 128),
+    target_ref: Union[str, Path, nib.Nifti1Image, Tuple[int, int, int]] = (128, 128, 128),
+    target_shape: Optional[Tuple[int, int, int]] = None,
     spacing_mm: float = 1.5,
+    min_overlap: float = 0.10,
 ) -> np.ndarray:
     """
-    Resample ground-truth registered CT volume using unified common_spatial preprocessing,
-    matching the exact spatial grid used by the 3D latent diffusion model.
+    Resample ground-truth registered CT volume onto the exact physical coordinate grid
+    of the synthetic CT target. Checks physical overlap and rejects disjoint inputs.
     """
+    import nibabel.processing as nip
+
+    real_path = Path(real_path)
+    real_nii = nib.load(str(real_path))
+
+    # If target_ref is a file path or NIfTI image, use its exact physical geometry
+    if isinstance(target_ref, (str, Path)) or isinstance(target_ref, nib.Nifti1Image):
+        if isinstance(target_ref, nib.Nifti1Image):
+            fake_nii = target_ref
+        else:
+            fake_nii = nib.load(str(target_ref))
+
+        # Check physical overlap using a unit support mask in real_nii space
+        real_support = nib.Nifti1Image(np.ones(real_nii.shape[:3], dtype=np.float32), real_nii.affine)
+        overlap_nii = nip.resample_from_to(real_support, fake_nii, order=0, cval=0.0)
+        overlap_arr = np.asanyarray(overlap_nii.dataobj)
+        total_voxels = overlap_arr.size
+        overlap_voxels = int(np.count_nonzero(overlap_arr > 0.5))
+        overlap_fraction = overlap_voxels / float(total_voxels) if total_voxels > 0 else 0.0
+
+        if overlap_voxels == 0 or overlap_fraction < min_overlap:
+            raise ValueError(
+                f"Insufficient physical overlap between real CT ({real_path}) and target ({getattr(target_ref, 'name', target_ref)}): "
+                f"{overlap_fraction:.2%} overlap (threshold: {min_overlap:.2%})"
+            )
+
+        resampled_real = nip.resample_from_to(real_nii, fake_nii, order=1, cval=-1000.0)
+        vol = np.asanyarray(resampled_real.dataobj).astype(np.float32)
+        return np.clip(vol, -1000.0, 2000.0)
+
+    # Legacy fallback when target_ref is a shape tuple
+    t_shape = target_shape if target_shape is not None else target_ref
     from code.project10.common_spatial import preprocess_single_volume
     vol, _ = preprocess_single_volume(
         str(real_path),
-        target_shape=target_shape,
+        target_shape=t_shape,
         spacing=(spacing_mm, spacing_mm, spacing_mm),
         is_mask=False,
     )
@@ -161,8 +207,11 @@ def merge_worker_csvs(output_csv: Path, total_workers: int):
     merged_df.to_csv(output_csv, index=False)
 
     logger.info(f"Merged CSV saved to {output_csv} ({len(merged_df)} total scans).")
-    numeric_cols = [c for c in merged_df.columns if c != "Subject"]
-    summary = merged_df[numeric_cols].mean()
+    metric_cols = [c for c in METRIC_COLUMNS if c in merged_df.columns]
+    if not metric_cols:
+        excluded = {"Subject", "metric_version", "fake_mtime", "real_mtime", "code_version", "fake_sha256", "real_sha256", "real_file"}
+        metric_cols = [c for c in merged_df.select_dtypes(include=[np.number]).columns if c not in excluded]
+    summary = merged_df[metric_cols].mean()
     logger.info("================== Unified Summary Metrics ==================")
     for metric, value in summary.items():
         logger.info(f"  Mean {metric:15s}: {value:.4f}")
@@ -213,6 +262,12 @@ def main():
         action="store_true",
         help="Force recomputation of all metrics, invalidating cached CSV records.",
     )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Device to use ('cuda' or 'cpu'). Defaults to auto-detect.",
+    )
 
     args = parser.parse_args()
 
@@ -225,7 +280,10 @@ def main():
         merge_worker_csvs(output_csv, args.total_workers)
         return
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if args.device is not None:
+        device = torch.device(args.device)
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(
         f"Evaluation Worker [{args.array_id}/{args.total_workers}] starting on device: {device}"
     )
@@ -277,11 +335,19 @@ def main():
             if "Subject" in prev_df.columns:
                 for rec in prev_df.to_dict(orient="records"):
                     subj = str(rec.get("Subject", ""))
-                    # Invalidate stale rows: must have matching metric_version and not have newer file modification
+                    # Invalidate stale rows: must have matching metric_version and verified input identities
                     if rec.get("metric_version") == METRIC_VERSION:
                         f_cand = fake_dir / subj
-                        if f_cand.exists() and f_cand.stat().st_mtime <= float(rec.get("fake_mtime", 0)) + 1e-3:
-                            processed_subjects[subj] = rec
+                        real_cand = find_matching_real_file(f_cand, real_dir)
+                        if f_cand.exists() and real_cand is not None and real_cand.exists():
+                            f_sha = compute_file_sha256(f_cand)
+                            r_sha = compute_file_sha256(real_cand)
+                            if (
+                                rec.get("fake_sha256") == f_sha
+                                and rec.get("real_sha256") == r_sha
+                                and rec.get("real_file") == real_cand.name
+                            ):
+                                processed_subjects[subj] = rec
                 results = list(processed_subjects.values())
                 logger.info(
                     f"Resuming worker {args.array_id}: loaded {len(results)} valid verified evaluated scans (version {METRIC_VERSION})."
@@ -305,10 +371,13 @@ def main():
 
         try:
             fake_vol = load_nifti(fake_path)
-            real_vol = resample_real_to_target(real_path, target_shape=fake_vol.shape)
+            real_vol = resample_real_to_target(real_path, target_ref=fake_path)
 
             metrics = compute_metrics_3d(real_vol, fake_vol, device=device)
             metrics["Subject"] = filename
+            metrics["fake_sha256"] = compute_file_sha256(fake_path)
+            metrics["real_sha256"] = compute_file_sha256(real_path)
+            metrics["real_file"] = real_path.name
             metrics["fake_mtime"] = float(fake_path.stat().st_mtime)
             metrics["metric_version"] = METRIC_VERSION
 
@@ -350,12 +419,18 @@ def main():
         f"Scored: {len(df)}, Errors: {error_count}. Saved to {worker_csv}"
     )
 
-    if error_count > 0 and error_count == len(my_files):
-        raise RuntimeError(f"All {error_count} assigned cases failed on worker {args.array_id}.")
+    if error_count > 0:
+        raise RuntimeError(
+            f"{error_count}/{len(my_files)} assigned cases failed evaluation on worker {args.array_id}."
+        )
 
     # If single worker, print summary
     if args.total_workers == 1:
-        summary = df.drop(columns=["Subject"]).mean()
+        metric_cols = [c for c in METRIC_COLUMNS if c in df.columns]
+        if not metric_cols:
+            excluded = {"Subject", "metric_version", "fake_mtime", "real_mtime", "code_version", "fake_sha256", "real_sha256", "real_file"}
+            metric_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c not in excluded]
+        summary = df[metric_cols].mean()
         logger.info("=== Overall Summary Metrics ===")
         for metric, value in summary.items():
             logger.info(f"Mean {metric:15s}: {value:.4f}")
