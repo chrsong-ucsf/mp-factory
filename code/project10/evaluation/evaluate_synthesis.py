@@ -38,7 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger("evaluate_synthesis")
 
 METRIC_COLUMNS = ["SSIM", "PSNR", "L1_Error", "Body_L1_Error", "RMSE", "Pearson_R", "Reference_Coverage"]
-METRIC_VERSION = "v2_canonical_spatial"
+METRIC_VERSION = "v3_supported_spatial"
 
 
 def compute_file_sha256(filepath: str | Path) -> str:
@@ -183,27 +183,18 @@ def compute_metrics_3d(
             slice_psnr = float(10 * np.log10((data_range ** 2) / mse_slice))
         psnr_vals.append(slice_psnr)
 
-        # SSIM with valid-window bounding box
-        if s_slice.all():
-            slice_ssim = ssim(r_slice, f_slice, data_range=data_range)
-            ssim_vals.append(slice_ssim)
-        else:
-            rows = np.where(s_slice.any(axis=1))[0]
-            cols = np.where(s_slice.any(axis=0))[0]
-            if len(rows) >= 7 and len(cols) >= 7:
-                r_min, r_max = rows[0], rows[-1] + 1
-                c_min, c_max = cols[0], cols[-1] + 1
-                win_size = min(7, r_max - r_min, c_max - c_min)
-                if win_size % 2 == 0:
-                    win_size -= 1
-                if win_size >= 3:
-                    crop_r = r_slice[r_min:r_max, c_min:c_max]
-                    crop_f = f_slice[r_min:r_max, c_min:c_max]
-                    try:
-                        slice_ssim = ssim(crop_r, crop_f, data_range=data_range, win_size=win_size)
-                        ssim_vals.append(slice_ssim)
-                    except Exception:
-                        pass
+        # SSIM strictly evaluated on fully supported window footprints
+        win_size = 7
+        if min(r_slice.shape[:2]) >= win_size:
+            from scipy.ndimage import binary_erosion
+            # Compute full 2D local SSIM map
+            _, ssim_map = ssim(r_slice, f_slice, data_range=data_range, win_size=win_size, full=True)
+            # A pixel (r, c) is the center of a fully-supported win_size x win_size window
+            # if and only if all pixels in that window have s_slice == True
+            valid_win = binary_erosion(s_slice, structure=np.ones((win_size, win_size), dtype=bool))
+            if valid_win.any():
+                slice_ssim = float(np.mean(ssim_map[valid_win]))
+                ssim_vals.append(slice_ssim)
 
     coverage = float(np.mean(support_mask))
 
@@ -212,8 +203,8 @@ def compute_metrics_3d(
         "Body_L1_Error": body_l1,
         "L2_Error": l2_error,
         "RMSE": rmse,
-        "SSIM": float(np.mean(ssim_vals)) if ssim_vals else 0.0,
-        "PSNR": float(np.mean(psnr_vals)) if psnr_vals else 0.0,
+        "SSIM": float(np.mean(ssim_vals)) if ssim_vals else float("nan"),
+        "PSNR": float(np.mean(psnr_vals)) if psnr_vals else float("nan"),
         "Pearson_R": corr,
         "Reference_Coverage": coverage,
     }
@@ -243,7 +234,7 @@ def find_matching_real_file(fake_path: Path, real_dir: Path) -> Optional[Path]:
     return None
 
 
-def merge_worker_csvs(output_csv: Path, total_workers: int):
+def merge_worker_csvs(output_csv: Path, total_workers: int, expected_run_id: Optional[str] = None):
     """Combine individual worker CSV files into a unified report."""
     output_csv = Path(output_csv)
     if total_workers < 1:
@@ -288,6 +279,14 @@ def merge_worker_csvs(output_csv: Path, total_workers: int):
                 f"Shard {shard.name} contains invalid/stale metric_version entries "
                 f"(expected '{METRIC_VERSION}', found {bad_versions['metric_version'].unique().tolist()})."
             )
+        if "run_id" not in df.columns:
+            raise ValueError(
+                f"Shard {shard.name} is missing required 'run_id' provenance. Unidentified shards cannot be merged."
+            )
+        if "Reference_Coverage" not in df.columns:
+            raise ValueError(
+                f"Shard {shard.name} is missing required 'Reference_Coverage' column (version '{METRIC_VERSION}' required)."
+            )
         dfs.append(df)
 
     merged_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
@@ -296,6 +295,18 @@ def merge_worker_csvs(output_csv: Path, total_workers: int):
         logger.info(f"All worker shards were empty; empty output CSV written to {output_csv}.")
         merged_df.to_csv(output_csv, index=False)
         return
+
+    # Verify single consistent run_id across all shards
+    run_ids = merged_df["run_id"].dropna().unique()
+    if len(run_ids) != 1:
+        raise ValueError(
+            f"Worker shards originate from conflicting runs: found multiple or zero run_ids {run_ids.tolist()}. "
+            f"All shards must share a single verified run identity to be merged."
+        )
+    if expected_run_id is not None and run_ids[0] != expected_run_id:
+        raise ValueError(
+            f"Merged run_id '{run_ids[0]}' does not match expected run_id '{expected_run_id}'."
+        )
 
     # Check for conflicting duplicate subjects across shards
     if "Subject" in merged_df.columns:
@@ -315,7 +326,7 @@ def merge_worker_csvs(output_csv: Path, total_workers: int):
                 for col in METRIC_COLUMNS:
                     if col in group.columns:
                         vals = group[col].dropna()
-                        if len(vals) > 1 and not np.allclose(vals, vals.iloc[0], atol=1e-4):
+                        if len(vals) > 1 and not np.allclose(vals, vals.iloc[0], atol=1e-4, equal_nan=True):
                             raise ValueError(
                                 f"Conflicting '{col}' values ({vals.tolist()}) found for duplicate subject '{subj}' across shards. "
                                 f"Shards originate from conflicting/stale runs and cannot be merged."
@@ -324,14 +335,6 @@ def merge_worker_csvs(output_csv: Path, total_workers: int):
                 f"Found {len(dup_subjects)} identical duplicate subject(s) across shards; deduplicating identical entries."
             )
             merged_df = merged_df.drop_duplicates(subset=["Subject"])
-
-    # Verify common run_id if present
-    if "run_id" in merged_df.columns:
-        run_ids = merged_df["run_id"].dropna().unique()
-        if len(run_ids) > 1:
-            raise ValueError(
-                f"Worker shards originate from conflicting runs: multiple run_ids found {run_ids.tolist()}."
-            )
 
     merged_df = merged_df.sort_values("Subject")
     merged_df.to_csv(output_csv, index=False)
@@ -383,6 +386,12 @@ def main():
         help="Total number of parallel workers.",
     )
     parser.add_argument(
+        "--run_id",
+        type=str,
+        default=None,
+        help="Run identifier. If omitted, a deterministic cohort run ID is generated.",
+    )
+    parser.add_argument(
         "--merge_only",
         action="store_true",
         help="Merge existing worker CSVs and exit.",
@@ -407,7 +416,7 @@ def main():
     output_csv.parent.mkdir(parents=True, exist_ok=True)
 
     if args.merge_only:
-        merge_worker_csvs(output_csv, args.total_workers)
+        merge_worker_csvs(output_csv, args.total_workers, expected_run_id=args.run_id)
         return
 
     if args.device is not None:
@@ -439,13 +448,19 @@ def main():
         return
 
     total_discovered = len(fake_files)
+    if args.run_id:
+        run_id = str(args.run_id).strip()
+    else:
+        cohort_sig = f"{fake_dir.resolve()}:{real_dir.resolve()}:{METRIC_VERSION}:{total_discovered}:{','.join(f.name for f in fake_files)}"
+        run_id = f"run_{hashlib.sha256(cohort_sig.encode()).hexdigest()[:16]}"
+
     chunk_size = (total_discovered + args.total_workers - 1) // args.total_workers
     start_idx = args.array_id * chunk_size
     end_idx = min(start_idx + chunk_size, total_discovered)
     my_files = fake_files[start_idx:end_idx]
 
     logger.info(
-        f"Total synthetic volumes: {total_discovered} | Assigned to worker {args.array_id}: {len(my_files)}"
+        f"Total synthetic volumes: {total_discovered} | Assigned to worker {args.array_id}: {len(my_files)} | run_id: {run_id}"
     )
 
     # Worker output CSV
@@ -460,7 +475,7 @@ def main():
             f"Writing empty schema-bearing shard to {worker_csv}."
         )
         schema_cols = [
-            "Subject", "metric_version", "fake_sha256", "real_sha256", "real_file", "fake_mtime"
+            "Subject", "metric_version", "run_id", "fake_sha256", "real_sha256", "real_file", "fake_mtime"
         ] + METRIC_COLUMNS
         empty_df = pd.DataFrame(columns=schema_cols)
         empty_df.to_csv(worker_csv, index=False)
@@ -476,8 +491,13 @@ def main():
             if "Subject" in prev_df.columns:
                 for rec in prev_df.to_dict(orient="records"):
                     subj = str(rec.get("Subject", ""))
-                    # Invalidate stale rows: must have matching metric_version and verified input identities
-                    if rec.get("metric_version") == METRIC_VERSION:
+                    # Invalidate stale rows: must have matching metric_version, valid Reference_Coverage, and matching run_id
+                    if (
+                        rec.get("metric_version") == METRIC_VERSION
+                        and "Reference_Coverage" in rec
+                        and not pd.isna(rec.get("Reference_Coverage"))
+                        and ("run_id" not in rec or rec.get("run_id") == run_id)
+                    ):
                         f_cand = fake_dir / subj
                         real_cand = find_matching_real_file(f_cand, real_dir)
                         if f_cand.exists() and real_cand is not None and real_cand.exists():
@@ -516,6 +536,7 @@ def main():
 
             metrics = compute_metrics_3d(real_vol, fake_vol, support_mask=support_mask, device=device)
             metrics["Subject"] = filename
+            metrics["run_id"] = run_id
             metrics["fake_sha256"] = compute_file_sha256(fake_path)
             metrics["real_sha256"] = compute_file_sha256(real_path)
             metrics["real_file"] = real_path.name

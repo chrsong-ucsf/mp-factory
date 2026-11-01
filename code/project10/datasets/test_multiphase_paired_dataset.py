@@ -154,12 +154,12 @@ def test_insufficient_patch_target_support_is_rejected(tmp_path):
         csv.writer(f).writerow(["pair", "patient", "CASE", "TARGET", "VENOUS", "OK", "1", "", "registered.nii.gz"])
 
     dataset = MultiphasePairedDataset("registration.csv", str(base), "masks", target_shape=(8, 8, 8), spacing_mm=1.0, totalseg_task="gi")
-    with pytest.raises(ValueError, match="insufficient physical target support"):
+    with pytest.raises(ValueError, match="partial/unsupported voxels"):
         dataset[0]
 
 
 def test_partially_unsupported_patch_is_rejected(tmp_path):
-    """Finding 1 (f9e5ad2): Target with 50% physical support in the cropped patch must be rejected."""
+    """Finding 1 (f9e5ad2) & Finding 3 (81137d6): Target with partial physical support in cropped patch must be rejected."""
     base = tmp_path
     ncct_path = base / "CancerVerse" / "CancerVerse" / "CASE" / "ct.nii.gz"
     _volume(ncct_path, np.ones((64, 64, 64)))
@@ -179,7 +179,31 @@ def test_partially_unsupported_patch_is_rejected(tmp_path):
     # 8-cubed center crop covers [28:36, 28:36, 28:36]; since target is [0:32, 0:64, 0:64],
     # the x-dimension has target in [28:32] (4 voxels) and missing in [32:36] (4 voxels) -> exactly 50% patch coverage!
     dataset = MultiphasePairedDataset(
-        "registration.csv", str(base), "masks", target_shape=(8, 8, 8), spacing_mm=1.0, totalseg_task="gi", min_patch_overlap=0.95
+        "registration.csv", str(base), "masks", target_shape=(8, 8, 8), spacing_mm=1.0, totalseg_task="gi"
     )
-    with pytest.raises(ValueError, match="insufficient physical target support"):
+    with pytest.raises(ValueError, match="partial/unsupported voxels"):
+        dataset[0]
+
+
+def test_near_complete_unsupported_patch_rejected_for_encoder_integrity(tmp_path):
+    """Finding 3 (81137d6): 62x64x64 target (96.875% support) must be rejected to prevent GroupNorm dependency leakage."""
+    base = tmp_path
+    ncct_path = base / "CancerVerse" / "CancerVerse" / "CASE" / "ct.nii.gz"
+    _volume(ncct_path, np.ones((64, 64, 64)))
+
+    # 62x64x64 target -> 96.875% coverage of 64-cubed NCCT
+    target_path = base / "registered.nii.gz"
+    _volume(target_path, np.ones((62, 64, 64)))
+
+    mask = np.zeros((64, 64, 64), dtype=np.uint8)
+    mask[10:20, 10:20, 10:20] = 1
+    _volume(base / "masks" / "CASE_gi_mask.nii.gz", mask)
+
+    with (base / "registration.csv").open("w", newline="") as f:
+        csv.writer(f).writerow(["pair", "patient", "CASE", "TARGET", "VENOUS", "OK", "1", "", "registered.nii.gz"])
+
+    dataset = MultiphasePairedDataset(
+        "registration.csv", str(base), "masks", target_shape=(64, 64, 64), spacing_mm=1.0, totalseg_task="gi"
+    )
+    with pytest.raises(ValueError, match="partial/unsupported voxels"):
         dataset[0]

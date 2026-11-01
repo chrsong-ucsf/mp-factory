@@ -39,8 +39,14 @@ import torch.nn.functional as F
 BASE_DIR = Path(__file__).resolve().parents[3]
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
+CODE_DIR = Path(__file__).resolve().parents[2]
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
 
-from code.project10.evaluation.evaluate_synthesis import resample_real_to_target
+try:
+    from code.project10.evaluation.evaluate_synthesis import resample_real_to_target
+except (ImportError, ModuleNotFoundError, AttributeError):
+    from project10.evaluation.evaluate_synthesis import resample_real_to_target
 
 try:
     from nnunet_mednext import create_mednext_v1

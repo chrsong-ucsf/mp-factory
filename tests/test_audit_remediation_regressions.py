@@ -41,6 +41,7 @@ from code.project10.evaluation.evaluate_synthesis import (
     resample_real_to_target,
     compute_metrics_3d,
     merge_worker_csvs,
+    METRIC_VERSION,
 )
 
 
@@ -379,11 +380,13 @@ def test_production_evaluate_synthesis_summary_aggregation_and_merge_smoke():
             "Body_L1_Error": 55.0,
             "RMSE": 60.0,
             "Pearson_R": 0.88,
+            "Reference_Coverage": 1.0,
+            "run_id": "test_run",
             "fake_sha256": "fake_sha_01",
             "real_sha256": "real_sha_01",
             "real_file": "CASE_01_reg.nii.gz",
             "fake_mtime": 1730000000.0,
-            "metric_version": "v2_canonical_spatial",
+            "metric_version": METRIC_VERSION,
         }])
         df1 = pd.DataFrame([{
             "Subject": "CASE_02.nii.gz",
@@ -393,11 +396,13 @@ def test_production_evaluate_synthesis_summary_aggregation_and_merge_smoke():
             "Body_L1_Error": 50.0,
             "RMSE": 50.0,
             "Pearson_R": 0.92,
+            "Reference_Coverage": 1.0,
+            "run_id": "test_run",
             "fake_sha256": "fake_sha_02",
             "real_sha256": "real_sha_02",
             "real_file": "CASE_02_reg.nii.gz",
             "fake_mtime": 1730000001.0,
-            "metric_version": "v2_canonical_spatial",
+            "metric_version": METRIC_VERSION,
         }])
         df0.to_csv(worker0_csv, index=False)
         df1.to_csv(worker1_csv, index=False)
@@ -571,7 +576,9 @@ def test_production_evaluate_synthesis_merge_worker_manifest_and_version_enforce
             "SSIM": 0.85,
             "PSNR": 28.5,
             "L1_Error": 1.0,
-            "metric_version": "v2_canonical_spatial",
+            "Reference_Coverage": 1.0,
+            "run_id": "run_test",
+            "metric_version": METRIC_VERSION,
         }])
         df0.to_csv(worker0, index=False)
 
@@ -596,7 +603,9 @@ def test_production_evaluate_synthesis_merge_worker_manifest_and_version_enforce
             "SSIM": 0.90,
             "PSNR": 30.0,
             "L1_Error": 3.0,
-            "metric_version": "v2_canonical_spatial",
+            "Reference_Coverage": 1.0,
+            "run_id": "run_test",
+            "metric_version": METRIC_VERSION,
         }])
         df1.to_csv(worker1, index=False)
         df_unversioned.to_csv(worker_stale, index=False)
@@ -654,18 +663,22 @@ def test_production_evaluate_synthesis_merge_rejects_conflicting_duplicates():
             "SSIM": 0.85,
             "PSNR": 28.5,
             "L1_Error": 999.0,
+            "Reference_Coverage": 1.0,
+            "run_id": "test_run",
             "fake_sha256": "fake_sha_old",
             "real_sha256": "real_sha_old",
-            "metric_version": "v2_canonical_spatial",
+            "metric_version": METRIC_VERSION,
         }])
         df1 = pd.DataFrame([{
             "Subject": "CASE_01.nii.gz",
             "SSIM": 0.85,
             "PSNR": 28.5,
             "L1_Error": 1.0,
+            "Reference_Coverage": 1.0,
+            "run_id": "test_run",
             "fake_sha256": "fake_sha_new",
             "real_sha256": "real_sha_new",
-            "metric_version": "v2_canonical_spatial",
+            "metric_version": METRIC_VERSION,
         }])
         df0.to_csv(worker0, index=False)
         df1.to_csv(worker1, index=False)
@@ -730,3 +743,139 @@ def test_production_evaluate_synthesis_idle_workers_emit_empty_shards_and_merge(
         merged = pd.read_csv(out_csv)
         assert len(merged) == 1
         assert merged.iloc[0]["Subject"] == "CASE_01.nii.gz"
+
+
+def test_production_evaluate_synthesis_resume_invalidates_old_metric_version():
+    """Finding 1 (81137d6): evaluate_synthesis invalidates cached records from old metric versions or missing Reference_Coverage."""
+    from code.project10.evaluation.evaluate_synthesis import main as eval_main
+    import unittest.mock as mock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_dir = os.path.join(tmpdir, "fake")
+        real_dir = os.path.join(tmpdir, "real")
+        out_csv = Path(tmpdir) / "synthesis_metrics.csv"
+        os.makedirs(fake_dir, exist_ok=True)
+        os.makedirs(real_dir, exist_ok=True)
+
+        shape = (8, 8, 8)
+        affine = np.diag([1.5, 1.5, 1.5, 1.0])
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), affine), os.path.join(fake_dir, "CASE_01.nii.gz"))
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), affine), os.path.join(real_dir, "CASE_01.nii.gz"))
+
+        # Pre-seed worker CSV with a cached record from old version "v2_canonical_spatial" lacking Reference_Coverage
+        # and reporting obsolete L1_Error=550.0
+        old_df = pd.DataFrame([{
+            "Subject": "CASE_01.nii.gz",
+            "SSIM": 0.50,
+            "PSNR": 20.0,
+            "L1_Error": 550.0,
+            "fake_sha256": "fake_sha_01",
+            "real_sha256": "real_sha_01",
+            "real_file": "CASE_01.nii.gz",
+            "fake_mtime": 1730000000.0,
+            "metric_version": "v2_canonical_spatial",
+        }])
+        old_df.to_csv(out_csv, index=False)
+
+        args = [
+            "evaluate_synthesis.py",
+            "--fake_dir", fake_dir,
+            "--real_dir", real_dir,
+            "--output_csv", str(out_csv),
+            "--total_workers", "1",
+            "--device", "cpu",
+        ]
+        with mock.patch("sys.argv", args):
+            eval_main()
+
+        res_df = pd.read_csv(out_csv)
+        assert len(res_df) == 1
+        assert res_df.iloc[0]["metric_version"] == METRIC_VERSION
+        assert "Reference_Coverage" in res_df.columns
+        # Fresh computation on identical 0-volumes produces L1_Error == 0.0 (not obsolete 550.0)
+        assert res_df.iloc[0]["L1_Error"] == pytest.approx(0.0, abs=1e-5)
+
+
+def test_production_evaluate_synthesis_ssim_unsupported_pixels_ignored():
+    """Finding 2 (81137d6): SSIM footprint policy evaluates only fully supported windows; returns NaN when none qualify."""
+    shape = (32, 32, 8)
+    data_range = 3000.0
+    fake = np.ones(shape, dtype=np.float32) * 100.0
+
+    # Oblique/triangular support region on each 32x32 slice
+    support_mask = np.zeros(shape, dtype=bool)
+    for r in range(8, 24):
+        for c in range(8, 24):
+            if 24 <= r + c <= 40:
+                support_mask[r, c, :] = True
+
+    real1 = np.ones(shape, dtype=np.float32) * 100.0
+    real1[~support_mask] = -1000.0  # fill air
+
+    real2 = np.ones(shape, dtype=np.float32) * 100.0
+    real2[~support_mask] = 2000.0   # contrasting fill in unsupported region
+
+    m1 = compute_metrics_3d(real1, fake, support_mask=support_mask)
+    m2 = compute_metrics_3d(real2, fake, support_mask=support_mask)
+
+    # Both must match exactly (1.0) because unsupported pixels are excluded from valid windows
+    assert np.isclose(m1["SSIM"], 1.0)
+    assert np.isclose(m2["SSIM"], 1.0)
+    assert np.isclose(m1["L1_Error"], 0.0)
+    assert np.isclose(m2["L1_Error"], 0.0)
+
+    # When support is too narrow for any 7x7 window to fit, SSIM reports NaN, not 0.0
+    narrow_support = np.zeros(shape, dtype=bool)
+    narrow_support[15:18, 15:18, :] = True  # only 3x3 support -> no 7x7 window fits
+    m_narrow = compute_metrics_3d(real1, fake, support_mask=narrow_support)
+    assert np.isnan(m_narrow["SSIM"])
+
+
+def test_production_evaluate_synthesis_merge_requires_run_id_consistency():
+    """Finding 4 (81137d6): merge_worker_csvs requires run_id provenance and rejects mismatched run IDs."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_csv = Path(tmpdir) / "merged_report.csv"
+        worker0 = Path(tmpdir) / "merged_report_worker_0.csv"
+        worker1 = Path(tmpdir) / "merged_report_worker_1.csv"
+
+        # 1. Shards without run_id must be rejected
+        df0_no_run = pd.DataFrame([{
+            "Subject": "CASE_01.nii.gz",
+            "SSIM": 0.85,
+            "PSNR": 28.5,
+            "L1_Error": 1.0,
+            "Reference_Coverage": 1.0,
+            "metric_version": METRIC_VERSION,
+        }])
+        df1_no_run = pd.DataFrame([{
+            "Subject": "CASE_02.nii.gz",
+            "SSIM": 0.90,
+            "PSNR": 30.0,
+            "L1_Error": 2.0,
+            "Reference_Coverage": 1.0,
+            "metric_version": METRIC_VERSION,
+        }])
+        df0_no_run.to_csv(worker0, index=False)
+        df1_no_run.to_csv(worker1, index=False)
+        with pytest.raises(ValueError, match="missing required 'run_id' provenance"):
+            merge_worker_csvs(out_csv, total_workers=2)
+
+        # 2. Shards with conflicting run_ids must be rejected
+        df0_run_a = df0_no_run.copy()
+        df0_run_a["run_id"] = "run_alpha"
+        df1_run_b = df1_no_run.copy()
+        df1_run_b["run_id"] = "run_beta"
+        df0_run_a.to_csv(worker0, index=False)
+        df1_run_b.to_csv(worker1, index=False)
+        with pytest.raises(ValueError, match="Worker shards originate from conflicting runs"):
+            merge_worker_csvs(out_csv, total_workers=2)
+
+        # 3. Shards with matching run_id succeed
+        df1_run_a = df1_no_run.copy()
+        df1_run_a["run_id"] = "run_alpha"
+        df1_run_a.to_csv(worker1, index=False)
+        merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_alpha")
+        assert out_csv.exists()
+        merged = pd.read_csv(out_csv)
+        assert len(merged) == 2
+        assert merged["run_id"].unique().tolist() == ["run_alpha"]

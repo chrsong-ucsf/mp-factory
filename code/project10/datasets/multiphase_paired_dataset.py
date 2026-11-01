@@ -64,7 +64,7 @@ class MultiphasePairedDataset(Dataset):
         target_shape: Tuple[int, int, int] = (128, 128, 128),
         spacing_mm: float = 1.5,
         totalseg_task: Optional[str] = "gi",
-        min_patch_overlap: float = 0.95,
+        min_patch_overlap: float = 1.0,
     ):
         """
         Args:
@@ -74,7 +74,7 @@ class MultiphasePairedDataset(Dataset):
             target_shape (tuple): Spatial dimensions for Padding/Cropping.
             spacing_mm (float): Isotropic voxel spacing in mm.
             totalseg_task (str, optional): 'gi', 'total', 'total_v1', or None.
-            min_patch_overlap (float): Minimum physical target support fraction required in cropped patch.
+            min_patch_overlap (float): Minimum physical target support fraction required in cropped patch (1.0 = full support).
         """
         super().__init__()
         self.base_dir = Path(base_dir).resolve()
@@ -329,10 +329,11 @@ class MultiphasePairedDataset(Dataset):
             patch_overlap_vox = int(torch.count_nonzero(target_supp_tensor > 0.5).item())
             patch_overlap_frac = patch_overlap_vox / float(patch_total) if patch_total > 0 else 0.0
 
-            if patch_overlap_vox == 0 or patch_overlap_frac < self.min_patch_overlap:
+            if patch_overlap_vox < patch_total or patch_overlap_frac < self.min_patch_overlap:
                 raise ValueError(
-                    f"Cropped target patch for subject {subject_p0} has insufficient physical target support "
-                    f"({patch_overlap_frac:.2%} patch coverage, threshold: {self.min_patch_overlap:.2%})"
+                    f"Cropped target patch for subject {subject_p0} has partial/unsupported voxels "
+                    f"({patch_overlap_frac:.2%} patch coverage, required: {self.min_patch_overlap:.2%}). "
+                    f"Training requires full observed target support to guarantee encoder latent dependency integrity."
                 )
 
             return {
