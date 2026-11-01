@@ -477,7 +477,18 @@ def main() -> None:
 
             with autocast():
                 eps_pred = model(z_t, t, z_ncct, mask_down)
-                loss = F.mse_loss(eps_pred, noise)
+                if "target_support" in batch:
+                    # Propagate support into latent space with receptive field treatment (>0.99 area coverage)
+                    supp_latent = (F.interpolate(
+                        batch["target_support"].float().to(device, non_blocking=True),
+                        size=z_target.shape[2:],
+                        mode="area"
+                    ) > 0.99).float()
+                    diff_sq = (eps_pred - noise) ** 2
+                    supp_mask_4d = supp_latent.expand_as(diff_sq)
+                    loss = (diff_sq * supp_mask_4d).sum() / supp_mask_4d.sum().clamp(min=1.0)
+                else:
+                    loss = F.mse_loss(eps_pred, noise)
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -514,7 +525,17 @@ def main() -> None:
 
                     with autocast():
                         eps_pred = model(z_t, t, z_ncct, mask_down)
-                        v_loss = F.mse_loss(eps_pred, noise)
+                        if "target_support" in batch:
+                            supp_latent = (F.interpolate(
+                                batch["target_support"].float().to(device, non_blocking=True),
+                                size=z_target.shape[2:],
+                                mode="area"
+                            ) > 0.99).float()
+                            diff_sq = (eps_pred - noise) ** 2
+                            supp_mask_4d = supp_latent.expand_as(diff_sq)
+                            v_loss = (diff_sq * supp_mask_4d).sum() / supp_mask_4d.sum().clamp(min=1.0)
+                        else:
+                            v_loss = F.mse_loss(eps_pred, noise)
 
                     val_loss_acc += v_loss.item()
                     n_val_batches += 1

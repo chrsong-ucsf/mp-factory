@@ -37,7 +37,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("evaluate_synthesis")
 
-METRIC_COLUMNS = ["SSIM", "PSNR", "L1_Error", "Body_L1_Error", "RMSE", "Pearson_R"]
+METRIC_COLUMNS = ["SSIM", "PSNR", "L1_Error", "Body_L1_Error", "RMSE", "Pearson_R", "Reference_Coverage"]
 METRIC_VERSION = "v2_canonical_spatial"
 
 
@@ -62,10 +62,12 @@ def resample_real_to_target(
     target_shape: Optional[Tuple[int, int, int]] = None,
     spacing_mm: float = 1.5,
     min_overlap: float = 0.10,
-) -> np.ndarray:
+    return_support: bool = False,
+) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
     """
     Resample ground-truth registered CT volume onto the exact physical coordinate grid
     of the synthetic CT target. Checks physical overlap and rejects disjoint inputs.
+    Optionally returns the binary support mask of valid reference voxels.
     """
     import nibabel.processing as nip
 
@@ -94,8 +96,11 @@ def resample_real_to_target(
             )
 
         resampled_real = nip.resample_from_to(real_nii, fake_nii, order=1, cval=-1000.0)
-        vol = np.asanyarray(resampled_real.dataobj).astype(np.float32)
-        return np.clip(vol, -1000.0, 2000.0)
+        vol = np.clip(np.asanyarray(resampled_real.dataobj).astype(np.float32), -1000.0, 2000.0)
+        support_mask = (overlap_arr > 0.5)
+        if return_support:
+            return vol, support_mask
+        return vol
 
     # Legacy fallback when target_ref is a shape tuple
     t_shape = target_shape if target_shape is not None else target_ref
@@ -106,39 +111,52 @@ def resample_real_to_target(
         spacing=(spacing_mm, spacing_mm, spacing_mm),
         is_mask=False,
     )
-    return np.clip(vol, -1000.0, 2000.0)
+    clipped = np.clip(vol, -1000.0, 2000.0)
+    if return_support:
+        return clipped, np.ones(clipped.shape, dtype=bool)
+    return clipped
 
 
 def compute_metrics_3d(
     real_vol: np.ndarray,
     fake_vol: np.ndarray,
+    support_mask: Optional[np.ndarray] = None,
     device: Optional[torch.device] = None,
 ) -> Dict[str, float]:
     """
-    Compute SSIM, PSNR, L1 (Overall MAE), Body L1 (> -500 HU), RMSE, and Pearson Correlation.
+    Compute SSIM, PSNR, L1 (Overall MAE), Body L1 (> -500 HU), RMSE, Pearson Correlation,
+    and Reference Coverage restricted strictly to valid reference support.
     """
     if real_vol.shape != fake_vol.shape:
         raise ValueError(f"Shape mismatch: {real_vol.shape} vs {fake_vol.shape}")
 
+    if support_mask is None:
+        support_mask = np.ones(real_vol.shape, dtype=bool)
+    else:
+        support_mask = np.asanyarray(support_mask, dtype=bool)
+
+    if not np.any(support_mask):
+        raise ValueError("support_mask has zero supported voxels; cannot compute metrics.")
+
     # Standard CT attenuation dynamic range [-1000, 2000] HU -> 3000 HU
     data_range = 3000.0
 
-    # Overall L1 and L2
-    diff = real_vol - fake_vol
+    # Overall L1 and L2 on supported region
+    diff = (real_vol - fake_vol)[support_mask]
     l1_error = float(np.mean(np.abs(diff)))
     l2_error = float(np.mean(diff ** 2))
     rmse = float(np.sqrt(l2_error))
 
-    # Soft tissue / body region (> -500 HU)
-    body_mask = (real_vol > -500.0) | (fake_vol > -500.0)
+    # Soft tissue / body region (> -500 HU) restricted to supported region
+    body_mask = ((real_vol > -500.0) | (fake_vol > -500.0)) & support_mask
     if body_mask.any():
         body_l1 = float(np.mean(np.abs(real_vol[body_mask] - fake_vol[body_mask])))
     else:
         body_l1 = l1_error
 
-    # Pearson correlation
-    real_flat = real_vol.flatten()
-    fake_flat = fake_vol.flatten()
+    # Pearson correlation on supported region
+    real_flat = real_vol[support_mask]
+    fake_flat = fake_vol[support_mask]
     std_prod = np.std(real_flat) * np.std(fake_flat)
     if std_prod > 1e-6:
         corr = float(np.corrcoef(real_flat, fake_flat)[0, 1])
@@ -150,22 +168,54 @@ def compute_metrics_3d(
     psnr_vals = []
     z_dim = real_vol.shape[-1]
     for z in range(z_dim):
+        s_slice = support_mask[..., z]
+        if not s_slice.any():
+            continue
+
         r_slice = real_vol[..., z]
         f_slice = fake_vol[..., z]
 
-        slice_ssim = ssim(r_slice, f_slice, data_range=data_range)
-        slice_psnr = psnr(r_slice, f_slice, data_range=data_range)
-        ssim_vals.append(slice_ssim)
+        # PSNR on supported slice voxels
+        mse_slice = float(np.mean((r_slice[s_slice] - f_slice[s_slice]) ** 2))
+        if mse_slice <= 1e-12:
+            slice_psnr = float("inf")
+        else:
+            slice_psnr = float(10 * np.log10((data_range ** 2) / mse_slice))
         psnr_vals.append(slice_psnr)
+
+        # SSIM with valid-window bounding box
+        if s_slice.all():
+            slice_ssim = ssim(r_slice, f_slice, data_range=data_range)
+            ssim_vals.append(slice_ssim)
+        else:
+            rows = np.where(s_slice.any(axis=1))[0]
+            cols = np.where(s_slice.any(axis=0))[0]
+            if len(rows) >= 7 and len(cols) >= 7:
+                r_min, r_max = rows[0], rows[-1] + 1
+                c_min, c_max = cols[0], cols[-1] + 1
+                win_size = min(7, r_max - r_min, c_max - c_min)
+                if win_size % 2 == 0:
+                    win_size -= 1
+                if win_size >= 3:
+                    crop_r = r_slice[r_min:r_max, c_min:c_max]
+                    crop_f = f_slice[r_min:r_max, c_min:c_max]
+                    try:
+                        slice_ssim = ssim(crop_r, crop_f, data_range=data_range, win_size=win_size)
+                        ssim_vals.append(slice_ssim)
+                    except Exception:
+                        pass
+
+    coverage = float(np.mean(support_mask))
 
     return {
         "L1_Error": l1_error,
         "Body_L1_Error": body_l1,
         "L2_Error": l2_error,
         "RMSE": rmse,
-        "SSIM": float(np.mean(ssim_vals)),
-        "PSNR": float(np.mean(psnr_vals)),
+        "SSIM": float(np.mean(ssim_vals)) if ssim_vals else 0.0,
+        "PSNR": float(np.mean(psnr_vals)) if psnr_vals else 0.0,
         "Pearson_R": corr,
+        "Reference_Coverage": coverage,
     }
 
 
@@ -240,8 +290,50 @@ def merge_worker_csvs(output_csv: Path, total_workers: int):
             )
         dfs.append(df)
 
-    merged_df = pd.concat(dfs, ignore_index=True)
-    merged_df = merged_df.drop_duplicates(subset=["Subject"]).sort_values("Subject")
+    merged_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+
+    if merged_df.empty:
+        logger.info(f"All worker shards were empty; empty output CSV written to {output_csv}.")
+        merged_df.to_csv(output_csv, index=False)
+        return
+
+    # Check for conflicting duplicate subjects across shards
+    if "Subject" in merged_df.columns:
+        dup_mask = merged_df.duplicated(subset=["Subject"], keep=False)
+        if dup_mask.any():
+            dup_subjects = merged_df[dup_mask]["Subject"].unique()
+            for subj in dup_subjects:
+                group = merged_df[merged_df["Subject"] == subj]
+                # Check hash consistency
+                for hash_col in ["fake_sha256", "real_sha256"]:
+                    if hash_col in group.columns and group[hash_col].nunique() > 1:
+                        raise ValueError(
+                            f"Conflicting {hash_col} found for duplicate subject '{subj}' across shards "
+                            f"({group[hash_col].tolist()}). Shards originate from conflicting/stale runs and cannot be merged."
+                        )
+                # Check metric consistency
+                for col in METRIC_COLUMNS:
+                    if col in group.columns:
+                        vals = group[col].dropna()
+                        if len(vals) > 1 and not np.allclose(vals, vals.iloc[0], atol=1e-4):
+                            raise ValueError(
+                                f"Conflicting '{col}' values ({vals.tolist()}) found for duplicate subject '{subj}' across shards. "
+                                f"Shards originate from conflicting/stale runs and cannot be merged."
+                            )
+            logger.warning(
+                f"Found {len(dup_subjects)} identical duplicate subject(s) across shards; deduplicating identical entries."
+            )
+            merged_df = merged_df.drop_duplicates(subset=["Subject"])
+
+    # Verify common run_id if present
+    if "run_id" in merged_df.columns:
+        run_ids = merged_df["run_id"].dropna().unique()
+        if len(run_ids) > 1:
+            raise ValueError(
+                f"Worker shards originate from conflicting runs: multiple run_ids found {run_ids.tolist()}."
+            )
+
+    merged_df = merged_df.sort_values("Subject")
     merged_df.to_csv(output_csv, index=False)
 
     logger.info(f"Merged CSV saved to {output_csv} ({len(merged_df)} total scans).")
@@ -362,6 +454,18 @@ def main():
     else:
         worker_csv = output_csv
 
+    if not my_files:
+        logger.info(
+            f"Worker {args.array_id}: 0 files assigned (idle worker out of {args.total_workers} total workers). "
+            f"Writing empty schema-bearing shard to {worker_csv}."
+        )
+        schema_cols = [
+            "Subject", "metric_version", "fake_sha256", "real_sha256", "real_file", "fake_mtime"
+        ] + METRIC_COLUMNS
+        empty_df = pd.DataFrame(columns=schema_cols)
+        empty_df.to_csv(worker_csv, index=False)
+        return
+
 
     # Check for existing valid progress
     results = []
@@ -408,9 +512,9 @@ def main():
 
         try:
             fake_vol = load_nifti(fake_path)
-            real_vol = resample_real_to_target(real_path, target_ref=fake_path)
+            real_vol, support_mask = resample_real_to_target(real_path, target_ref=fake_path, return_support=True)
 
-            metrics = compute_metrics_3d(real_vol, fake_vol, device=device)
+            metrics = compute_metrics_3d(real_vol, fake_vol, support_mask=support_mask, device=device)
             metrics["Subject"] = filename
             metrics["fake_sha256"] = compute_file_sha256(fake_path)
             metrics["real_sha256"] = compute_file_sha256(real_path)
@@ -445,7 +549,7 @@ def main():
         logger.warning(f"Worker {args.array_id}: No files were successfully evaluated.")
         if error_count > 0:
             raise RuntimeError(f"All {error_count} assigned cases failed evaluation on worker {args.array_id}.")
-        return
+        raise RuntimeError(f"Worker {args.array_id} had {len(my_files)} assigned cases but produced zero results.")
 
     # Final save for this worker
     df = pd.DataFrame(results)

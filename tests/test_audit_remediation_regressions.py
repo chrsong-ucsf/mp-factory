@@ -39,6 +39,7 @@ from code.manuscript.compile_manuscript_tables import (
 from code.utilities.compare_models import load_ground_truth
 from code.project10.evaluation.evaluate_synthesis import (
     resample_real_to_target,
+    compute_metrics_3d,
     merge_worker_csvs,
 )
 
@@ -618,3 +619,114 @@ def test_production_showcase_compressor_architecture_label():
     assert "Gaussian posterior" not in content, "SHOWCASE.md must not claim Gaussian posterior"
     assert "LightweightAutoEncoder3D" in content, "SHOWCASE.md must reference production LightweightAutoEncoder3D"
     assert "deterministic continuous 3D autoencoder" in content
+
+
+def test_production_evaluate_synthesis_partial_support_metric_masking():
+    """Finding 2 (f9e5ad2): Voxel metrics restrict evaluation to valid reference support and do not score missing data as -1000 HU."""
+    shape = (8, 8, 8)
+    real_vol = np.ones(shape, dtype=np.float32) * 100.0
+    fake_vol = np.ones(shape, dtype=np.float32) * 100.0
+
+    # 50% physical coverage: only half the volume has valid reference support
+    support_mask = np.zeros(shape, dtype=bool)
+    support_mask[:4, :, :] = True
+
+    # If the uncovered half were filled with -1000 HU and unmasked, whole-volume L1 would be 550 HU.
+    # With support masking, supported voxels are identical (100 vs 100) -> L1 is 0.0 and Reference_Coverage is 0.5.
+    real_vol[~support_mask] = -1000.0  # fill value for missing reference
+    metrics = compute_metrics_3d(real_vol, fake_vol, support_mask=support_mask)
+
+    assert metrics["L1_Error"] == pytest.approx(0.0, abs=1e-5)
+    assert metrics["Body_L1_Error"] == pytest.approx(0.0, abs=1e-5)
+    assert metrics["Reference_Coverage"] == pytest.approx(0.5, abs=1e-5)
+
+
+def test_production_evaluate_synthesis_merge_rejects_conflicting_duplicates():
+    """Finding 3 (f9e5ad2): merge_worker_csvs rejects conflicting duplicate subject rows across shards."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_csv = Path(tmpdir) / "merged_report.csv"
+        worker0 = Path(tmpdir) / "merged_report_worker_0.csv"
+        worker1 = Path(tmpdir) / "merged_report_worker_1.csv"
+
+        # Worker 0 and Worker 1 have conflicting rows for the same subject CASE_01
+        df0 = pd.DataFrame([{
+            "Subject": "CASE_01.nii.gz",
+            "SSIM": 0.85,
+            "PSNR": 28.5,
+            "L1_Error": 999.0,
+            "fake_sha256": "fake_sha_old",
+            "real_sha256": "real_sha_old",
+            "metric_version": "v2_canonical_spatial",
+        }])
+        df1 = pd.DataFrame([{
+            "Subject": "CASE_01.nii.gz",
+            "SSIM": 0.85,
+            "PSNR": 28.5,
+            "L1_Error": 1.0,
+            "fake_sha256": "fake_sha_new",
+            "real_sha256": "real_sha_new",
+            "metric_version": "v2_canonical_spatial",
+        }])
+        df0.to_csv(worker0, index=False)
+        df1.to_csv(worker1, index=False)
+
+        with pytest.raises(ValueError, match="Conflicting .* found for duplicate subject 'CASE_01.nii.gz'"):
+            merge_worker_csvs(out_csv, total_workers=2)
+
+
+def test_production_evaluate_synthesis_idle_workers_emit_empty_shards_and_merge():
+    """Finding 4 (f9e5ad2): Idle workers with zero assigned cases emit empty schema-bearing shards and merge cleanly."""
+    from code.project10.evaluation.evaluate_synthesis import main as eval_main
+    import unittest.mock as mock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_dir = os.path.join(tmpdir, "fake")
+        real_dir = os.path.join(tmpdir, "real")
+        out_csv = Path(tmpdir) / "merged_eval.csv"
+        os.makedirs(fake_dir, exist_ok=True)
+        os.makedirs(real_dir, exist_ok=True)
+
+        shape = (8, 8, 8)
+        affine = np.diag([1.5, 1.5, 1.5, 1.0])
+        # Only 1 volume in cohort
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), affine), os.path.join(fake_dir, "CASE_01.nii.gz"))
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), affine), os.path.join(real_dir, "CASE_01.nii.gz"))
+
+        # Run Worker 0 of 2: processes CASE_01
+        args_w0 = [
+            "evaluate_synthesis.py",
+            "--fake_dir", fake_dir,
+            "--real_dir", real_dir,
+            "--output_csv", str(out_csv),
+            "--array_id", "0",
+            "--total_workers", "2",
+            "--device", "cpu",
+        ]
+        with mock.patch("sys.argv", args_w0):
+            eval_main()
+
+        # Run Worker 1 of 2: 0 cases assigned (idle worker) -> must emit schema-bearing empty shard
+        args_w1 = [
+            "evaluate_synthesis.py",
+            "--fake_dir", fake_dir,
+            "--real_dir", real_dir,
+            "--output_csv", str(out_csv),
+            "--array_id", "1",
+            "--total_workers", "2",
+            "--device", "cpu",
+        ]
+        with mock.patch("sys.argv", args_w1):
+            eval_main()
+
+        worker1_csv = out_csv.parent / f"{out_csv.stem}_worker_1{out_csv.suffix}"
+        assert worker1_csv.exists(), "Idle worker must write empty schema-bearing shard"
+        w1_df = pd.read_csv(worker1_csv)
+        assert len(w1_df) == 0
+        assert "metric_version" in w1_df.columns
+
+        # Merge with total_workers=2: must succeed without RuntimeError
+        merge_worker_csvs(out_csv, total_workers=2)
+        assert out_csv.exists()
+        merged = pd.read_csv(out_csv)
+        assert len(merged) == 1
+        assert merged.iloc[0]["Subject"] == "CASE_01.nii.gz"

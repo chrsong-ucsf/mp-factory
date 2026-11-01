@@ -156,3 +156,30 @@ def test_insufficient_patch_target_support_is_rejected(tmp_path):
     dataset = MultiphasePairedDataset("registration.csv", str(base), "masks", target_shape=(8, 8, 8), spacing_mm=1.0, totalseg_task="gi")
     with pytest.raises(ValueError, match="insufficient physical target support"):
         dataset[0]
+
+
+def test_partially_unsupported_patch_is_rejected(tmp_path):
+    """Finding 1 (f9e5ad2): Target with 50% physical support in the cropped patch must be rejected."""
+    base = tmp_path
+    ncct_path = base / "CancerVerse" / "CancerVerse" / "CASE" / "ct.nii.gz"
+    _volume(ncct_path, np.ones((64, 64, 64)))
+
+    # Edge-aligned 32x64x64 target -> 50% coverage of the 64-cubed NCCT
+    target_path = base / "registered.nii.gz"
+    _volume(target_path, np.ones((32, 64, 64)))
+
+    # GI mask placed in the center region [28:36]
+    mask = np.zeros((64, 64, 64), dtype=np.uint8)
+    mask[28:36, 28:36, 28:36] = 1
+    _volume(base / "masks" / "CASE_gi_mask.nii.gz", mask)
+
+    with (base / "registration.csv").open("w", newline="") as f:
+        csv.writer(f).writerow(["pair", "patient", "CASE", "TARGET", "VENOUS", "OK", "1", "", "registered.nii.gz"])
+
+    # 8-cubed center crop covers [28:36, 28:36, 28:36]; since target is [0:32, 0:64, 0:64],
+    # the x-dimension has target in [28:32] (4 voxels) and missing in [32:36] (4 voxels) -> exactly 50% patch coverage!
+    dataset = MultiphasePairedDataset(
+        "registration.csv", str(base), "masks", target_shape=(8, 8, 8), spacing_mm=1.0, totalseg_task="gi", min_patch_overlap=0.95
+    )
+    with pytest.raises(ValueError, match="insufficient physical target support"):
+        dataset[0]
