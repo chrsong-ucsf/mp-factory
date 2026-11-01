@@ -407,6 +407,29 @@ def test_production_evaluate_synthesis_summary_aggregation_and_merge_smoke():
         df0.to_csv(worker0_csv, index=False)
         df1.to_csv(worker1_csv, index=False)
 
+        # Provide minimal manifest and worker completion metadata
+        import json
+        manifest = {
+            "run_id": "test_run",
+            "metric_version": METRIC_VERSION,
+            "total_workers": 2,
+            "items": [
+                {"fake_file": "CASE_01.nii.gz", "worker_id": 0},
+                {"fake_file": "CASE_02.nii.gz", "worker_id": 1},
+            ],
+        }
+        (Path(tmpdir) / "merged_report_manifest.json").write_text(json.dumps(manifest))
+        meta0 = {
+            "run_id": "test_run",
+            "metric_version": METRIC_VERSION,
+            "status": "completed",
+            "error_count": 0,
+            "num_assigned": 1,
+            "num_scored": 1,
+        }
+        worker0_csv.with_suffix(".meta.json").write_text(json.dumps(meta0))
+        worker1_csv.with_suffix(".meta.json").write_text(json.dumps(meta0))
+
         # Must merge and compute numeric summary without raising TypeError
         merge_worker_csvs(out_csv, total_workers=2)
         assert out_csv.exists()
@@ -610,6 +633,29 @@ def test_production_evaluate_synthesis_merge_worker_manifest_and_version_enforce
         df1.to_csv(worker1, index=False)
         df_unversioned.to_csv(worker_stale, index=False)
 
+        # Write manifest and completion metadata for workers 0 and 1
+        import json
+        manifest = {
+            "run_id": "run_test",
+            "metric_version": METRIC_VERSION,
+            "total_workers": 2,
+            "items": [
+                {"fake_file": "CASE_01.nii.gz", "worker_id": 0},
+                {"fake_file": "CASE_02.nii.gz", "worker_id": 1},
+            ],
+        }
+        (Path(tmpdir) / "merged_report_manifest.json").write_text(json.dumps(manifest))
+        meta = {
+            "run_id": "run_test",
+            "metric_version": METRIC_VERSION,
+            "status": "completed",
+            "error_count": 0,
+            "num_assigned": 1,
+            "num_scored": 1,
+        }
+        worker0.with_suffix(".meta.json").write_text(json.dumps(meta))
+        worker1.with_suffix(".meta.json").write_text(json.dumps(meta))
+
         # Merging with total_workers=2 must merge ONLY worker_0 and worker_1 (L1=(1+3)/2=2.0)
         # and ignore obsolete worker_7 (L1=999)
         merge_worker_csvs(out_csv, total_workers=2)
@@ -684,7 +730,7 @@ def test_production_evaluate_synthesis_merge_rejects_conflicting_duplicates():
         df1.to_csv(worker1, index=False)
 
         with pytest.raises(ValueError, match="Conflicting .* found for duplicate subject 'CASE_01.nii.gz'"):
-            merge_worker_csvs(out_csv, total_workers=2)
+            merge_worker_csvs(out_csv, total_workers=2, allow_partial=True)
 
 
 def test_production_evaluate_synthesis_idle_workers_emit_empty_shards_and_merge():
@@ -858,7 +904,7 @@ def test_production_evaluate_synthesis_merge_requires_run_id_consistency():
         df0_no_run.to_csv(worker0, index=False)
         df1_no_run.to_csv(worker1, index=False)
         with pytest.raises(ValueError, match="missing required 'run_id' provenance"):
-            merge_worker_csvs(out_csv, total_workers=2)
+            merge_worker_csvs(out_csv, total_workers=2, allow_partial=True)
 
         # 2. Shards with conflicting run_ids must be rejected
         df0_run_a = df0_no_run.copy()
@@ -868,13 +914,13 @@ def test_production_evaluate_synthesis_merge_requires_run_id_consistency():
         df0_run_a.to_csv(worker0, index=False)
         df1_run_b.to_csv(worker1, index=False)
         with pytest.raises(ValueError, match="Worker shards originate from conflicting runs"):
-            merge_worker_csvs(out_csv, total_workers=2)
+            merge_worker_csvs(out_csv, total_workers=2, allow_partial=True)
 
         # 3. Shards with matching run_id succeed
         df1_run_a = df1_no_run.copy()
         df1_run_a["run_id"] = "run_alpha"
         df1_run_a.to_csv(worker1, index=False)
-        merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_alpha")
+        merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_alpha", allow_partial=True)
         assert out_csv.exists()
         merged = pd.read_csv(out_csv)
         assert len(merged) == 2
@@ -952,7 +998,7 @@ def test_production_evaluate_synthesis_changing_input_contents_updates_run_id_an
         assert new_run_id != initial_run_id
 
         # Merge must reject because worker 1's shard has the old run_id!
-        with pytest.raises(ValueError, match="Worker shards originate from conflicting runs"):
+        with pytest.raises(ValueError, match="Worker shards originate from conflicting runs|does not match expected run_id"):
             merge_worker_csvs(out_csv, total_workers=2)
 
         # Even if someone attempts to pass the old run_id, worker 0 is rejected
@@ -962,7 +1008,7 @@ def test_production_evaluate_synthesis_changing_input_contents_updates_run_id_an
         # 4. If someone forges the old run_id on worker 0's CSV without metadata, it is caught
         df0_new["run_id"] = initial_run_id
         df0_new.to_csv(worker0_csv, index=False)
-        with pytest.raises(ValueError, match="does not match worker metadata run_id"):
+        with pytest.raises(ValueError, match="does not match worker metadata run_id|does not match expected run_id"):
             merge_worker_csvs(out_csv, total_workers=2)
 
         # 5. Even if worker metadata is also altered, manifest check catches the outdated run ID
@@ -970,13 +1016,13 @@ def test_production_evaluate_synthesis_changing_input_contents_updates_run_id_an
         meta0 = json.loads(worker0_csv.with_suffix(".meta.json").read_text())
         meta0["run_id"] = initial_run_id
         worker0_csv.with_suffix(".meta.json").write_text(json.dumps(meta0))
-        with pytest.raises(ValueError, match="does not match input manifest run_id"):
+        with pytest.raises(ValueError, match="does not match input manifest run_id|does not match expected run_id"):
             merge_worker_csvs(out_csv, total_workers=2, fake_dir=fake_dir, real_dir=real_dir)
 
         # 6. If manifest is removed, direct file revalidation catches worker 1's stale real_sha256
         (tmp_path / "report_manifest.json").unlink()
         with pytest.raises(ValueError, match="stale real_sha256"):
-            merge_worker_csvs(out_csv, total_workers=2, fake_dir=fake_dir, real_dir=real_dir)
+            merge_worker_csvs(out_csv, total_workers=2, fake_dir=fake_dir, real_dir=real_dir, allow_partial=True)
 
 
 def test_production_evaluate_synthesis_merge_rejects_blank_run_ids_on_rows():
@@ -1012,7 +1058,7 @@ def test_production_evaluate_synthesis_merge_rejects_blank_run_ids_on_rows():
 
         # Must reject blank run_id even when expected_run_id is passed!
         with pytest.raises(ValueError, match="blank/missing 'run_id' provenance"):
-            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known")
+            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known", allow_partial=True)
 
         # Shard with NaN run_id
         df1_nan = pd.DataFrame([{
@@ -1026,7 +1072,7 @@ def test_production_evaluate_synthesis_merge_rejects_blank_run_ids_on_rows():
         }])
         df1_nan.to_csv(worker1, index=False)
         with pytest.raises(ValueError, match="blank/missing 'run_id' provenance"):
-            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known")
+            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known", allow_partial=True)
 
         # Shard with whitespace-only run_id
         df1_ws = pd.DataFrame([{
@@ -1040,7 +1086,7 @@ def test_production_evaluate_synthesis_merge_rejects_blank_run_ids_on_rows():
         }])
         df1_ws.to_csv(worker1, index=False)
         with pytest.raises(ValueError, match="blank/missing 'run_id' provenance"):
-            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known")
+            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known", allow_partial=True)
 
         # Mixed valid and blank in the same shard
         df_mixed = pd.concat([df0, df1_blank], ignore_index=True)
@@ -1048,7 +1094,7 @@ def test_production_evaluate_synthesis_merge_rejects_blank_run_ids_on_rows():
         empty_schema = pd.DataFrame(columns=df0.columns)
         empty_schema.to_csv(worker1, index=False)
         with pytest.raises(ValueError, match="blank/missing 'run_id' provenance"):
-            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known")
+            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known", allow_partial=True)
 
 
 def test_production_clinical_turing_dice_masks_uncovered_reference_space():
@@ -1274,3 +1320,194 @@ def test_production_evaluate_synthesis_merge_only_resolves_manifest_paths_and_fa
         with mock.patch("sys.argv", missing_merge_args):
             with pytest.raises(FileNotFoundError, match="Input verification failed: fake directory"):
                 eval_main()
+
+
+def test_production_evaluate_synthesis_merge_rejects_csv_only_transfer_without_completion_proof():
+    """Finding 1 (9083497): Default merge rejects transferred CSVs lacking manifest and completion metadata proof."""
+    import shutil
+    import json
+    import unittest.mock as mock
+    from code.project10.evaluation.evaluate_synthesis import main as eval_main
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        fake_dir = tmp_path / "fake"
+        real_dir = tmp_path / "real"
+        eval_dir = tmp_path / "eval"
+        transfer_dir = tmp_path / "transferred_reports"
+        fake_dir.mkdir()
+        real_dir.mkdir()
+        eval_dir.mkdir()
+        transfer_dir.mkdir()
+
+        case_a_fake = fake_dir / "CASE_A.nii.gz"
+        case_a_real = real_dir / "CASE_A_reg.nii.gz"
+        case_b_fake = fake_dir / "CASE_B.nii.gz"
+        # CASE_B real is omitted so worker 0 fails on CASE_B
+
+        arr = np.ones((8, 8, 8), dtype=np.float32)
+        nib.save(nib.Nifti1Image(arr, np.eye(4)), str(case_a_fake))
+        nib.save(nib.Nifti1Image(arr, np.eye(4)), str(case_a_real))
+        nib.save(nib.Nifti1Image(arr, np.eye(4)), str(case_b_fake))
+
+        out_csv = eval_dir / "report.csv"
+
+        # Worker 0 evaluates CASE_A (success) and fails on CASE_B
+        args0 = [
+            "evaluate_synthesis.py",
+            "--fake_dir", str(fake_dir),
+            "--real_dir", str(real_dir),
+            "--output_csv", str(out_csv),
+            "--total_workers", "1",
+            "--array_id", "0",
+            "--device", "cpu",
+        ]
+        with mock.patch("sys.argv", args0):
+            with pytest.raises(RuntimeError):
+                eval_main()
+
+        worker_csv = eval_dir / "report.csv"
+        assert worker_csv.exists()
+        # Original failed metadata blocked merge
+        with pytest.raises(ValueError, match="non-completed status 'failed'|evaluation error"):
+            merge_worker_csvs(out_csv, total_workers=1)
+
+        # Counterexample A: User copies ONLY the CSV into transferred_reports (without manifest or .meta.json)
+        transferred_csv = transfer_dir / "report.csv"
+        shutil.copy(worker_csv, transferred_csv)
+
+        # Verified default merge MUST reject because manifest is missing
+        with pytest.raises(FileNotFoundError, match="missing required cohort manifest"):
+            merge_worker_csvs(transferred_csv, total_workers=1)
+
+        # If a manifest is supplied but metadata is missing, it must still reject
+        df_transferred = pd.read_csv(transferred_csv)
+        real_run_id = df_transferred.iloc[0]["run_id"]
+        manifest = {
+            "run_id": real_run_id,
+            "metric_version": METRIC_VERSION,
+            "total_workers": 1,
+            "items": [{"fake_file": "CASE_A.nii.gz", "worker_id": 0}],
+        }
+        (transfer_dir / "report_manifest.json").write_text(json.dumps(manifest))
+        with pytest.raises(FileNotFoundError, match="missing required completion metadata sidecar"):
+            merge_worker_csvs(transferred_csv, total_workers=1)
+
+        # Explicitly requested partial/unverified export succeeds when allow_partial=True
+        merge_worker_csvs(transferred_csv, total_workers=1, allow_partial=True)
+        assert transferred_csv.exists()
+        merged = pd.read_csv(transferred_csv)
+        assert len(merged) == 1
+        assert merged.iloc[0]["Subject"] == "CASE_A.nii.gz"
+
+
+def test_production_evaluate_synthesis_merge_rejects_empty_shard_when_manifest_nonempty():
+    """Finding 1 (9083497): Merge rejects schema-only shards when manifest expects subjects, preventing empty-result bypass."""
+    import json
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        out_csv = tmp_path / "report.csv"
+        worker_csv = tmp_path / "report_worker_0.csv"
+
+        # Schema-only worker CSV (0 rows)
+        schema_cols = [
+            "Subject", "metric_version", "run_id", "fake_sha256", "real_sha256", "real_file", "fake_mtime",
+            "SSIM", "PSNR", "L1_Error", "Reference_Coverage",
+        ]
+        empty_df = pd.DataFrame(columns=schema_cols)
+        empty_df.to_csv(worker_csv, index=False)
+
+        # Manifest expecting CASE_A assigned to worker 0, with nonexistent input directories
+        manifest = {
+            "run_id": "run_test",
+            "metric_version": METRIC_VERSION,
+            "fake_dir": str(tmp_path / "nonexistent_fake"),
+            "real_dir": str(tmp_path / "nonexistent_real"),
+            "total_files": 1,
+            "total_workers": 1,
+            "items": [
+                {"fake_file": "CASE_A.nii.gz", "worker_id": 0},
+            ],
+        }
+        (tmp_path / "report_manifest.json").write_text(json.dumps(manifest))
+
+        # Counterexample B: worker metadata claiming 0 assigned / 0 scored / completed
+        meta = {
+            "worker_id": 0,
+            "total_workers": 1,
+            "run_id": "run_test",
+            "metric_version": METRIC_VERSION,
+            "num_assigned": 0,
+            "num_scored": 0,
+            "error_count": 0,
+            "status": "completed",
+        }
+        worker_csv.with_suffix(".meta.json").write_text(json.dumps(meta))
+
+        # 1. Contradiction between worker metadata (0 assigned) and manifest (1 assigned) must be rejected
+        with pytest.raises(ValueError, match="contradicts manifest assignment count"):
+            merge_worker_csvs(out_csv, total_workers=1)
+
+        # 2. Even if worker metadata num_assigned is corrected to 1 (but num_scored=0):
+        meta["num_assigned"] = 1
+        worker_csv.with_suffix(".meta.json").write_text(json.dumps(meta))
+        with pytest.raises(ValueError, match="evaluated only 0 of 1 assigned cases"):
+            merge_worker_csvs(out_csv, total_workers=1)
+
+        # 3. Even if worker metadata num_scored was doctored to 1:
+        meta["num_scored"] = 1
+        worker_csv.with_suffix(".meta.json").write_text(json.dumps(meta))
+        # Input directory verification fails first because fake_dir does not exist
+        with pytest.raises(FileNotFoundError, match="Input verification failed: fake directory"):
+            merge_worker_csvs(out_csv, total_workers=1)
+
+        # 4. If input directories are created, manifest coverage check rejects empty merged dataset
+        Path(manifest["fake_dir"]).mkdir()
+        Path(manifest["real_dir"]).mkdir()
+        with pytest.raises(ValueError, match="Incomplete cohort: merged dataset contains 0 of 1 expected subjects"):
+            merge_worker_csvs(out_csv, total_workers=1)
+
+
+def test_production_run_p10_evaluate_synthesis_sbatch_propagates_evaluator_exit_status():
+    """Finding 2 (9083497): run_p10_evaluate_synthesis.sbatch propagates evaluator exit status and only prints completion on success."""
+    import subprocess
+    script_path = Path(BASE_DIR) / "code" / "slurm_scripts" / "run_p10_evaluate_synthesis.sbatch"
+    assert script_path.exists()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env_file = Path(tmpdir) / "test_env.sh"
+        # Stubs for module, mamba, mkdir, and python
+        env_file.write_text(
+            'module() { return 0; }\n'
+            'mamba() { return 0; }\n'
+            'mkdir() { return 0; }\n'
+            'python() { return "${STUB_PYTHON_EXIT:-0}"; }\n'
+            'export -f module mamba mkdir python\n'
+        )
+        env = os.environ.copy()
+        env["BASH_ENV"] = str(env_file)
+        env["SLURM_ARRAY_TASK_ID"] = "2"
+
+        # 1. Failure case: evaluator stub returns 7
+        env["STUB_PYTHON_EXIT"] = "7"
+        proc = subprocess.run(
+            ["bash", str(script_path)],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 7
+        assert "completed evaluation" not in proc.stdout
+        assert "failed evaluation with status 7" in proc.stdout
+
+        # 2. Success case: evaluator stub returns 0
+        env["STUB_PYTHON_EXIT"] = "0"
+        proc = subprocess.run(
+            ["bash", str(script_path)],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0
+        assert "completed evaluation" in proc.stdout

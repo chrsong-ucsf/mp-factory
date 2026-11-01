@@ -339,13 +339,16 @@ def merge_worker_csvs(
                 fake_dir = Path(manifest["fake_dir"])
             if real_dir is None and "real_dir" in manifest:
                 real_dir = Path(manifest["real_dir"])
+            if expected_run_id is None and "run_id" in manifest:
+                expected_run_id = str(manifest["run_id"]).strip()
         except Exception as e:
             logger.warning(f"Could not load manifest {manifest_path}: {e}")
 
     logger.info(f"Merging {len(expected_shards)} worker CSVs into {output_csv}...")
     dfs = []
+    shard_metas = []
     shard_runs = []
-    for shard in expected_shards:
+    for i, shard in enumerate(expected_shards):
         df = pd.read_csv(shard)
 
         # Check worker completion metadata JSON if present
@@ -367,30 +370,11 @@ def merge_worker_csvs(
                         f"Shard {shard.name} metadata run_id '{meta_run}' does not match expected run_id '{expected_run_id}'."
                     )
                 shard_runs.append(meta_run)
-
-                # Validate completion status and counts unless allow_partial is requested
-                if not allow_partial:
-                    meta_status = meta.get("status", "")
-                    meta_errors = int(meta.get("error_count", 0))
-                    num_assigned = meta.get("num_assigned")
-                    num_scored = meta.get("num_scored")
-                    if meta_status != "completed":
-                        raise ValueError(
-                            f"Shard {shard.name} has non-completed status '{meta_status}' (recorded {meta_errors} error(s)). "
-                            "Worker run failed or is incomplete; cannot publish partial cohort without allow_partial=True."
-                        )
-                    if meta_errors > 0:
-                        raise ValueError(
-                            f"Shard {shard.name} recorded {meta_errors} evaluation error(s); cannot publish partial cohort."
-                        )
-                    if num_assigned is not None and num_scored is not None and num_scored < num_assigned:
-                        raise ValueError(
-                            f"Shard {shard.name} evaluated only {num_scored} of {num_assigned} assigned cases; cannot publish partial cohort."
-                        )
             except Exception as e:
                 if isinstance(e, ValueError):
                     raise
                 logger.warning(f"Could not load metadata for shard {shard.name}: {e}")
+        shard_metas.append(meta)
 
         if "metric_version" not in df.columns:
             raise ValueError(
@@ -440,6 +424,106 @@ def merge_worker_csvs(
 
     merged_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
+    # Enforce cohort completion proof (manifest, worker metadata sidecars, and coverage)
+    if not allow_partial:
+        if manifest is None:
+            raise FileNotFoundError(
+                f"Cannot perform verified merge: missing required cohort manifest '{manifest_path.name}'. "
+                "Verified default merging requires manifest proof of the complete cohort; specify allow_partial=True to allow unverified/partial export."
+            )
+        for i, shard in enumerate(expected_shards):
+            meta = shard_metas[i]
+            if meta is None:
+                meta_file = shard.with_suffix(".meta.json")
+                raise FileNotFoundError(
+                    f"Cannot perform verified merge: missing required completion metadata sidecar '{meta_file.name}' for shard '{shard.name}'. "
+                    "Verified default merging requires worker completion proof; specify allow_partial=True to allow unverified/partial export."
+                )
+            meta_status = meta.get("status", "")
+            meta_errors = int(meta.get("error_count", 0))
+            num_assigned = meta.get("num_assigned")
+            num_scored = meta.get("num_scored")
+            if meta_status != "completed":
+                raise ValueError(
+                    f"Shard {shard.name} has non-completed status '{meta_status}' (recorded {meta_errors} error(s)). "
+                    "Worker run failed or is incomplete; cannot publish partial cohort without allow_partial=True."
+                )
+            if meta_errors > 0:
+                raise ValueError(
+                    f"Shard {shard.name} recorded {meta_errors} evaluation error(s); cannot publish partial cohort."
+                )
+            if num_assigned is not None and num_scored is not None and num_scored < num_assigned:
+                raise ValueError(
+                    f"Shard {shard.name} evaluated only {num_scored} of {num_assigned} assigned cases; cannot publish partial cohort."
+                )
+            worker_expected_items = [it for it in manifest.get("items", []) if it.get("worker_id") == i]
+            if num_assigned is not None and num_assigned != len(worker_expected_items):
+                raise ValueError(
+                    f"Worker {i} metadata num_assigned ({num_assigned}) contradicts manifest assignment count ({len(worker_expected_items)})."
+                )
+
+    # Revalidate input directories
+    if fake_dir is not None or real_dir is not None:
+        if fake_dir is None or not Path(fake_dir).is_dir():
+            raise FileNotFoundError(
+                f"Input verification failed: fake directory '{fake_dir}' does not exist or is not a directory."
+            )
+        if real_dir is None or not Path(real_dir).is_dir():
+            raise FileNotFoundError(
+                f"Input verification failed: real directory '{real_dir}' does not exist or is not a directory."
+            )
+
+    # Enforce complete manifest cohort coverage unless partial merge is explicitly authorized
+    if manifest is not None and not allow_partial:
+        expected_items = manifest.get("items", [])
+        if expected_items:
+            expected_subjects = {item["fake_file"] for item in expected_items}
+            merged_subjects = set(merged_df["Subject"]) if ("Subject" in merged_df.columns and not merged_df.empty) else set()
+            missing_subjects = expected_subjects - merged_subjects
+            if missing_subjects:
+                raise ValueError(
+                    f"Incomplete cohort: merged dataset contains {len(merged_subjects)} of {len(expected_subjects)} "
+                    f"expected subjects from manifest (missing {len(missing_subjects)} cases: {sorted(list(missing_subjects))[:5]}). "
+                    "Failed jobs cannot become an apparently complete benchmark through merge."
+                )
+
+            # Check per-worker assignment coverage
+            for i, shard in enumerate(expected_shards):
+                worker_expected = {item["fake_file"] for item in expected_items if item.get("worker_id") == i}
+                if worker_expected:
+                    shard_df = dfs[i]
+                    shard_subjects = set(shard_df["Subject"]) if ("Subject" in shard_df.columns and not shard_df.empty) else set()
+                    missing_from_worker = worker_expected - shard_subjects
+                    if missing_from_worker:
+                        raise ValueError(
+                            f"Worker {i} shard {shard.name} is missing {len(missing_from_worker)} assigned cases: "
+                            f"{sorted(list(missing_from_worker))[:5]}..."
+                        )
+
+    # Check for conflicting duplicate subjects across shards
+    if "Subject" in merged_df.columns and not merged_df.empty:
+        dup_mask = merged_df.duplicated(subset=["Subject"], keep=False)
+        if dup_mask.any():
+            dup_subjects = merged_df[dup_mask]["Subject"].unique()
+            for subj in dup_subjects:
+                group = merged_df[merged_df["Subject"] == subj]
+                # Check hash consistency
+                for hash_col in ["fake_sha256", "real_sha256"]:
+                    if hash_col in group.columns and group[hash_col].nunique() > 1:
+                        raise ValueError(
+                            f"Conflicting {hash_col} found for duplicate subject '{subj}' across shards "
+                            f"({group[hash_col].tolist()}). Shards originate from conflicting/stale runs and cannot be merged."
+                        )
+                # Check metric consistency
+                for m_col in METRIC_COLUMNS:
+                    if m_col in group.columns and group[m_col].nunique() > 1:
+                        unique_vals = group[m_col].dropna().unique()
+                        if len(unique_vals) > 1 and not np.allclose(unique_vals, unique_vals[0], atol=1e-5):
+                            raise ValueError(
+                                f"Conflicting duplicate evaluation for subject '{subj}': differing {m_col} scores "
+                                f"{unique_vals.tolist()} across worker shards. Merging conflicting evaluations is prohibited."
+                            )
+
     if merged_df.empty:
         logger.info(f"All worker shards were empty; empty output CSV written to {output_csv}.")
         merged_df.to_csv(output_csv, index=False)
@@ -471,43 +555,8 @@ def merge_worker_csvs(
             "Evaluation shards originate from an outdated run manifest; re-evaluation is required."
         )
 
-    # Enforce complete manifest cohort coverage unless partial merge is explicitly authorized
-    if manifest is not None and not allow_partial:
-        expected_items = manifest.get("items", [])
-        if expected_items:
-            expected_subjects = {item["fake_file"] for item in expected_items}
-            merged_subjects = set(merged_df["Subject"]) if "Subject" in merged_df.columns else set()
-            missing_subjects = expected_subjects - merged_subjects
-            if missing_subjects:
-                raise ValueError(
-                    f"Incomplete cohort: merged dataset contains {len(merged_subjects)} of {len(expected_subjects)} "
-                    f"expected subjects from manifest (missing {len(missing_subjects)} cases: {sorted(list(missing_subjects))[:5]}). "
-                    "Failed jobs cannot become an apparently complete benchmark through merge."
-                )
-
-            # Check per-worker assignment coverage
-            for i, shard in enumerate(expected_shards):
-                worker_expected = {item["fake_file"] for item in expected_items if item.get("worker_id") == i}
-                if worker_expected:
-                    shard_df = dfs[i]
-                    shard_subjects = set(shard_df["Subject"]) if "Subject" in shard_df.columns else set()
-                    missing_from_worker = worker_expected - shard_subjects
-                    if missing_from_worker:
-                        raise ValueError(
-                            f"Worker {i} shard {shard.name} is missing {len(missing_from_worker)} assigned cases: "
-                            f"{sorted(list(missing_from_worker))[:5]}..."
-                        )
-
     # Revalidate merged rows against current inputs on disk
-    if fake_dir is not None or real_dir is not None:
-        if fake_dir is None or not Path(fake_dir).is_dir():
-            raise FileNotFoundError(
-                f"Input verification failed: fake directory '{fake_dir}' does not exist or is not a directory."
-            )
-        if real_dir is None or not Path(real_dir).is_dir():
-            raise FileNotFoundError(
-                f"Input verification failed: real directory '{real_dir}' does not exist or is not a directory."
-            )
+    if fake_dir is not None and real_dir is not None:
         f_dir = Path(fake_dir)
         r_dir = Path(real_dir)
         for _, row in merged_df.iterrows():
@@ -536,34 +585,6 @@ def merge_worker_csvs(
                         f"Row for subject '{subj}' has stale real_sha256 ({row['real_sha256']} != current {curr_r_sha}). "
                         "Input reference file contents have changed; re-evaluation is required."
                     )
-
-    # Check for conflicting duplicate subjects across shards
-    if "Subject" in merged_df.columns:
-        dup_mask = merged_df.duplicated(subset=["Subject"], keep=False)
-        if dup_mask.any():
-            dup_subjects = merged_df[dup_mask]["Subject"].unique()
-            for subj in dup_subjects:
-                group = merged_df[merged_df["Subject"] == subj]
-                # Check hash consistency
-                for hash_col in ["fake_sha256", "real_sha256"]:
-                    if hash_col in group.columns and group[hash_col].nunique() > 1:
-                        raise ValueError(
-                            f"Conflicting {hash_col} found for duplicate subject '{subj}' across shards "
-                            f"({group[hash_col].tolist()}). Shards originate from conflicting/stale runs and cannot be merged."
-                        )
-                # Check metric consistency
-                for col in METRIC_COLUMNS:
-                    if col in group.columns:
-                        vals = group[col].dropna()
-                        if len(vals) > 1 and not np.allclose(vals, vals.iloc[0], atol=1e-4, equal_nan=True):
-                            raise ValueError(
-                                f"Conflicting '{col}' values ({vals.tolist()}) found for duplicate subject '{subj}' across shards. "
-                                f"Shards originate from conflicting/stale runs and cannot be merged."
-                            )
-            logger.warning(
-                f"Found {len(dup_subjects)} identical duplicate subject(s) across shards; deduplicating identical entries."
-            )
-            merged_df = merged_df.drop_duplicates(subset=["Subject"])
 
     merged_df = merged_df.sort_values("Subject")
     merged_df.to_csv(output_csv, index=False)

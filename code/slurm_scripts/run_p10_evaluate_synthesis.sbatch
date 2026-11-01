@@ -8,6 +8,8 @@
 #SBATCH --time=04:00:00
 #SBATCH --array=0-7
 
+set -euo pipefail
+
 module load CBI
 module load miniforge3/26.3.2-3
 eval "$(mamba shell hook --shell bash)"
@@ -29,12 +31,20 @@ echo "  Date:   $(date)"
 echo "  Output: ${REPORT_DIR}"
 echo "====================================================================="
 
+STATUS=0
 python -u "${BASE_DIR}/code/project10/evaluation/evaluate_synthesis.py" \
     --fake_dir "${BASE_DIR}/results/project10/synthetic_volumes" \
     --real_dir "${BASE_DIR}/results/project10/registered_volumes" \
     --output_csv "${REPORT_DIR}/synthesis_metrics.csv" \
     --array_id "${SLURM_ARRAY_TASK_ID}" \
-    --total_workers 8
+    --total_workers 8 || STATUS=$?
+
+if [ ${STATUS} -ne 0 ]; then
+    echo "====================================================================="
+    echo "  [ERROR] Worker ${SLURM_ARRAY_TASK_ID} failed evaluation with status ${STATUS} at $(date)"
+    echo "====================================================================="
+    exit ${STATUS}
+fi
 
 echo "====================================================================="
 echo "  Worker ${SLURM_ARRAY_TASK_ID} completed evaluation at $(date)"
