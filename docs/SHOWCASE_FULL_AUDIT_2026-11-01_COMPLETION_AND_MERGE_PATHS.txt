@@ -1,0 +1,126 @@
+FULL SHOWCASE AUDIT: COMPLETION ENFORCEMENT AND MERGE INPUT PATHS
+November 1, 2026
+
+Audited source: 39d5a32d6505932dac541737b0231fd12430a569 (main).
+Verdict: all 111 local tests pass. The preceding snapshot-ID, row-provenance
+and clinical score-masking fixes work in direct probes. Two confirmed merge
+contract defects still permit incomplete or stale consolidated results.
+
+SCOPE AND FRESH CHECKS
+
+Reviewed the three-file remediation since audit commit 6ec9456 and supporting
+P10 input manifests, worker assignment/completion, hashes, resume/merge CLI,
+clinical resampling/inference/scoring, tests and unchanged training/P9 evidence.
+Graphify query preceded source searches. Independent read-only identity and
+clinical reviews supplied actual-function probes, reconciled with source and
+fresh validation. No application source, figures, cluster jobs or production
+data were changed. No trained MedNeXt inference or production cohort rerun
+was performed. Only this report is committed.
+
+- Full pytest: python -m pytest --continue-on-collection-errors -q
+  111 passed in 11.20 seconds.
+- project_wide_sanity_check.py: 31 checks; 10 passed, 17 warnings, 3 failures,
+  one INFO. Failures remain missing local ensemble_phase3_audit_summary.csv,
+  missing multiphase_pairs.csv, and unavailable nnunet_mednext in the
+  standalone empty-mask smoke import. This is an inventory/dependency result.
+- AST syntax: 87 Python files pass. bash -n: 75 shell/SLURM files pass.
+- Pyflakes: no undefined names. git diff --check: clean.
+- All 18 embedded PNGs decode; ten local output links remain unavailable.
+  SHOWCASE.md and all 20 associated figure files are unchanged from the
+  preceding complete document/visual audits. No regenerated images are claimed.
+- Source working tree was clean at audit start.
+- External CodeRabbit review was not rerun; the prior sign-in requirement is
+  unresolved. No external clean-review result is claimed.
+
+CONFIRMED FINDINGS
+
+1. [P2] Failed partial evaluation runs can publish an incomplete cohort.
+   code/project10/evaluation/evaluate_synthesis.py:789-805 writes worker
+   metadata with status='completed' even when error_count is positive, before
+   the worker raises its failure. Merge at 354-376 checks metadata run ID but
+   ignores status/error_count/assigned-versus-scored counts. It also never
+   checks that merged subjects cover the manifest's expected input/assignment
+   set. Presence of every shard is not proof that every assigned case succeeded.
+   Actual unmocked three-case/two-worker probe: B's reference was missing;
+   worker 0 raised RuntimeError after writing A, and worker 1 scored C.
+   merge_worker_csvs then succeeded and published only A and C, two of three
+   assigned cases, despite the recorded error and incomplete manifest coverage.
+   Use truthful completion states, reject failed/incomplete worker metadata,
+   validate worker identity/counts and expected subject sets, and require
+   explicit partial-result handling if a reduced cohort is intentionally wanted.
+   Failed jobs must not become an apparently complete benchmark through merge.
+
+2. [P2] Merge-only CLI can silently bypass available input verification.
+   main() at evaluate_synthesis.py:594-604 always supplies fake_dir/real_dir
+   from argument defaults. Manifest-path recovery at 338-344 only replaces
+   None, so nonexistent default directories suppress the valid custom input
+   paths stored in the manifest. At 457-461, inaccessible directories simply
+   bypass current-file hash revalidation rather than producing an error.
+   Actual CLI probe used an explicit run ID and custom inputs/output. After
+   initial two-worker scores of L1=1, reference B changed from 101 to 103 HU
+   and only worker 0 reran. Running --merge_only with the custom output and
+   worker count, without repeating the input-directory flags, accepted B's
+   stale score of 1 instead of the current expected 3. The manifest remained
+   accessible. Supplying the true input directories correctly raised ValueError.
+   Resolve merge inputs from the recorded manifest when overrides are omitted;
+   distinguish omitted options from explicit invalid paths. Fail clearly when
+   required input verification cannot run, rather than silently dropping that
+   guarantee. Explicit run names must not override content verification.
+
+VERIFIED REPAIRS
+
+- Default cohort manifests now include input content hashes and worker
+  assignments. An actual input-content change produces a different generated
+  run ID, repairing filename-only snapshot identity.
+- Blank data-row run IDs are rejected with ValueError. A valid ID on another
+  row no longer hides an unidentified record.
+- Clinical comparison now requests the physical reference support mask and
+  records coverage. Actual compute_clinical_organ_metrics on the original
+  half-coverage counterexample returns supported Dice 1.0 instead of the raw
+  full-array 2/3. Eligibility and organ Dice are restricted to observed support.
+- Current-file revalidation rejects changed reference hashes when the real
+  input directories are actually resolved. Finding 2 concerns the CLI path
+  resolution that can skip this check.
+- Default snapshot identity prevents mixing old/new default-run shards after
+  an input change. Finding 1 concerns completeness, while finding 2 demonstrates
+  stale-content acceptance with an explicitly reused run name.
+- Earlier full-support training rejection, supported SSIM windows/NaN handling,
+  metric version v3, idle-worker output, duplicate-conflict checks and P9
+  geometry/discovery fixes remain present; no new regression was identified
+  in those unchanged source repairs.
+
+CLINICAL INFERENCE LIMITATION
+
+Masking final predictions corrects the demonstrated score-domain error, but
+partial-reference inference still contains fill air outside observed support.
+Convolutions/normalization can use that context when predicting inside support.
+A controlled context-model probe through the real inference wrapper shows why
+score masking alone cannot generally establish context-invariant predictions.
+The production nnunet_mednext package/checkpoint was unavailable locally, so
+this is recorded as an unverified production limitation, not an additional
+confirmed MedNeXt defect or clinical-quality measurement. Full-reference cases
+or a validated inference-context policy should support any clinical claim.
+
+UNCHANGED EVIDENCE LIMITS
+
+The PNGs and publication tables remain historical: three qualified legacy
+JHU comparisons and visibly saturated P10 synthesis/tumor examples have not
+been regenerated. Passing software tests and temporary synthetic probes do
+not establish corrected image fidelity or current cohort performance.
+The claimed 50 pooled JHU evaluations, 400 clinical cases, 1,067 synthetic
+volumes and 1,990 lesions were not reproduced locally. Remote data/checkpoint/
+result availability and freshness were not checked. Missing local artifacts
+are not evidence of remote absence, and availability prose is not measured
+verification of remote outputs.
+
+NEXT VERIFICATION
+
+1. Reject failed/incomplete worker outputs and require exact manifest subject
+   and assignment coverage before publishing a consolidated cohort.
+2. Make merge-only resolve recorded input paths correctly and fail if required
+   hash checks cannot run; test explicit reused run IDs and custom directories.
+3. Add both actual counterexamples to regression coverage, validate production
+   dependencies/inference context, then regenerate versioned cohort evidence.
+
+Audit complete. Local tests pass; the two confirmed merge defects remain
+unfixed by this report, and production cohort validation remains unverified.
