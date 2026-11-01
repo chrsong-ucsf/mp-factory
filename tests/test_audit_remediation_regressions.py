@@ -1511,3 +1511,100 @@ def test_production_run_p10_evaluate_synthesis_sbatch_propagates_evaluator_exit_
         )
         assert proc.returncode == 0
         assert "completed evaluation" in proc.stdout
+
+
+def test_production_evaluate_synthesis_repartition_named_run_preserves_case_uniqueness():
+    """Finding 1 (271849c): Worker repartition of a named run preserves case uniqueness and does not double-count cases in cohort means."""
+    import unittest.mock as mock
+    from code.project10.evaluation.evaluate_synthesis import main as eval_main, merge_worker_csvs
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        fake_dir = str(tmp_path / "fake")
+        real_dir = str(tmp_path / "real")
+        out_csv = tmp_path / "report.csv"
+        os.makedirs(fake_dir, exist_ok=True)
+        os.makedirs(real_dir, exist_ok=True)
+
+        case_a_fake = Path(fake_dir) / "CASE_A.nii.gz"
+        case_a_real = Path(real_dir) / "CASE_A_reg.nii.gz"
+        case_b_fake = Path(fake_dir) / "CASE_B.nii.gz"
+        case_b_real = Path(real_dir) / "CASE_B_reg.nii.gz"
+        case_c_fake = Path(fake_dir) / "CASE_C.nii.gz"
+        case_c_real = Path(real_dir) / "CASE_C_reg.nii.gz"
+
+        arr_zero = np.zeros((8, 8, 8), dtype=np.float32)
+        arr_one = np.ones((8, 8, 8), dtype=np.float32) * 1.0
+        arr_three = np.ones((8, 8, 8), dtype=np.float32) * 3.0
+        arr_five = np.ones((8, 8, 8), dtype=np.float32) * 5.0
+
+        nib.save(nib.Nifti1Image(arr_zero, np.eye(4)), str(case_a_fake))
+        nib.save(nib.Nifti1Image(arr_one, np.eye(4)), str(case_a_real))
+        nib.save(nib.Nifti1Image(arr_zero, np.eye(4)), str(case_b_fake))
+        nib.save(nib.Nifti1Image(arr_three, np.eye(4)), str(case_b_real))
+        nib.save(nib.Nifti1Image(arr_zero, np.eye(4)), str(case_c_fake))
+        nib.save(nib.Nifti1Image(arr_five, np.eye(4)), str(case_c_real))
+
+        run_id = "repartition_run"
+
+        # Step 1: Evaluate with 2 workers using explicit --run_id
+        for wid in [0, 1]:
+            args = [
+                "evaluate_synthesis.py",
+                "--fake_dir", fake_dir,
+                "--real_dir", real_dir,
+                "--output_csv", str(out_csv),
+                "--total_workers", "2",
+                "--array_id", str(wid),
+                "--run_id", run_id,
+                "--device", "cpu",
+            ]
+            with mock.patch("sys.argv", args):
+                eval_main()
+
+        # Step 2: Rerun with 3 workers using the same --run_id without --overwrite
+        for wid in [0, 1, 2]:
+            args = [
+                "evaluate_synthesis.py",
+                "--fake_dir", fake_dir,
+                "--real_dir", real_dir,
+                "--output_csv", str(out_csv),
+                "--total_workers", "3",
+                "--array_id", str(wid),
+                "--run_id", run_id,
+                "--device", "cpu",
+            ]
+            with mock.patch("sys.argv", args):
+                eval_main()
+
+        # Step 3: Perform verified merge
+        merge_worker_csvs(out_csv, total_workers=3, fake_dir=fake_dir, real_dir=real_dir)
+
+        # Step 4: Verify merged CSV
+        assert out_csv.exists()
+        merged_df = pd.read_csv(out_csv)
+        assert len(merged_df) == 3
+        assert set(merged_df["Subject"]) == {"CASE_A.nii.gz", "CASE_B.nii.gz", "CASE_C.nii.gz"}
+        assert merged_df["Subject"].is_unique
+
+        # Mean L1 error must be exactly 3.0: (1.0 + 3.0 + 5.0) / 3 = 3.0
+        assert merged_df["L1_Error"].mean() == pytest.approx(3.0, abs=1e-4)
+
+        # Check individual row scores
+        scores = dict(zip(merged_df["Subject"], merged_df["L1_Error"]))
+        assert scores["CASE_A.nii.gz"] == pytest.approx(1.0, abs=1e-4)
+        assert scores["CASE_B.nii.gz"] == pytest.approx(3.0, abs=1e-4)
+        assert scores["CASE_C.nii.gz"] == pytest.approx(5.0, abs=1e-4)
+
+        # Step 5: Verify merge rejects total_workers mismatch with manifest
+        with pytest.raises(ValueError, match="Merge total_workers .* does not match manifest total_workers"):
+            merge_worker_csvs(out_csv, total_workers=2, fake_dir=fake_dir, real_dir=real_dir)
+
+        # Step 6: Verify merge rejects unexpected case / duplicate injection
+        worker1_csv = tmp_path / "report_worker_1.csv"
+        df1 = pd.read_csv(worker1_csv)
+        row_a = merged_df[merged_df["Subject"] == "CASE_A.nii.gz"].copy()
+        df1_injected = pd.concat([df1, row_a], ignore_index=True)
+        df1_injected.to_csv(worker1_csv, index=False)
+        with pytest.raises(ValueError, match="unexpected cases not assigned|Duplicate subject"):
+            merge_worker_csvs(out_csv, total_workers=3, fake_dir=fake_dir, real_dir=real_dir)

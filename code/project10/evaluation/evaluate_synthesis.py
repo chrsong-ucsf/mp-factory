@@ -431,6 +431,11 @@ def merge_worker_csvs(
                 f"Cannot perform verified merge: missing required cohort manifest '{manifest_path.name}'. "
                 "Verified default merging requires manifest proof of the complete cohort; specify allow_partial=True to allow unverified/partial export."
             )
+        if manifest.get("total_workers") is not None and manifest["total_workers"] != total_workers:
+            raise ValueError(
+                f"Merge total_workers ({total_workers}) does not match manifest total_workers ({manifest['total_workers']}). "
+                f"The run was partitioned for {manifest['total_workers']} workers; re-partition or merge with total_workers={manifest['total_workers']}."
+            )
         for i, shard in enumerate(expected_shards):
             meta = shard_metas[i]
             if meta is None:
@@ -441,6 +446,11 @@ def merge_worker_csvs(
                 )
             meta_status = meta.get("status", "")
             meta_errors = int(meta.get("error_count", 0))
+            meta_total = meta.get("total_workers")
+            if meta_total is not None and meta_total != total_workers:
+                raise ValueError(
+                    f"Shard {shard.name} metadata total_workers ({meta_total}) does not match merge total_workers ({total_workers})."
+                )
             num_assigned = meta.get("num_assigned")
             num_scored = meta.get("num_scored")
             if meta_status != "completed":
@@ -456,10 +466,18 @@ def merge_worker_csvs(
                 raise ValueError(
                     f"Shard {shard.name} evaluated only {num_scored} of {num_assigned} assigned cases; cannot publish partial cohort."
                 )
+            if num_assigned is not None and num_scored is not None and num_scored > num_assigned:
+                raise ValueError(
+                    f"Shard {shard.name} scored {num_scored} cases but was assigned only {num_assigned}; unpartitioned/stale records detected."
+                )
             worker_expected_items = [it for it in manifest.get("items", []) if it.get("worker_id") == i]
             if num_assigned is not None and num_assigned != len(worker_expected_items):
                 raise ValueError(
                     f"Worker {i} metadata num_assigned ({num_assigned}) contradicts manifest assignment count ({len(worker_expected_items)})."
+                )
+            if num_scored is not None and num_scored != len(worker_expected_items):
+                raise ValueError(
+                    f"Worker {i} metadata num_scored ({num_scored}) contradicts manifest assignment count ({len(worker_expected_items)})."
                 )
 
     # Revalidate input directories
@@ -490,15 +508,20 @@ def merge_worker_csvs(
             # Check per-worker assignment coverage
             for i, shard in enumerate(expected_shards):
                 worker_expected = {item["fake_file"] for item in expected_items if item.get("worker_id") == i}
-                if worker_expected:
-                    shard_df = dfs[i]
-                    shard_subjects = set(shard_df["Subject"]) if ("Subject" in shard_df.columns and not shard_df.empty) else set()
-                    missing_from_worker = worker_expected - shard_subjects
-                    if missing_from_worker:
-                        raise ValueError(
-                            f"Worker {i} shard {shard.name} is missing {len(missing_from_worker)} assigned cases: "
-                            f"{sorted(list(missing_from_worker))[:5]}..."
-                        )
+                shard_df = dfs[i]
+                shard_subjects = set(shard_df["Subject"]) if ("Subject" in shard_df.columns and not shard_df.empty) else set()
+                missing_from_worker = worker_expected - shard_subjects
+                if missing_from_worker:
+                    raise ValueError(
+                        f"Worker {i} shard {shard.name} is missing {len(missing_from_worker)} assigned cases: "
+                        f"{sorted(list(missing_from_worker))[:5]}..."
+                    )
+                unexpected_in_worker = shard_subjects - worker_expected
+                if unexpected_in_worker:
+                    raise ValueError(
+                        f"Worker {i} shard {shard.name} contains {len(unexpected_in_worker)} unexpected cases not assigned to worker {i}: "
+                        f"{sorted(list(unexpected_in_worker))[:5]}..."
+                    )
 
     # Check for conflicting duplicate subjects across shards
     if "Subject" in merged_df.columns and not merged_df.empty:
@@ -523,6 +546,15 @@ def merge_worker_csvs(
                                 f"Conflicting duplicate evaluation for subject '{subj}': differing {m_col} scores "
                                 f"{unique_vals.tolist()} across worker shards. Merging conflicting evaluations is prohibited."
                             )
+            if not allow_partial:
+                raise ValueError(
+                    f"Duplicate subject(s) found across shards: {sorted(list(dup_subjects))[:5]}. "
+                    "Each subject must appear in exactly one worker shard."
+                )
+            logger.warning(
+                f"Found {len(dup_subjects)} duplicate subject(s) across shards; deduplicating identical entries."
+            )
+            merged_df = merged_df.drop_duplicates(subset=["Subject"])
 
     if merged_df.empty:
         logger.info(f"All worker shards were empty; empty output CSV written to {output_csv}.")
@@ -780,8 +812,11 @@ def main():
         try:
             prev_df = pd.read_csv(worker_csv)
             if "Subject" in prev_df.columns:
+                assigned_names = {f.name for f in my_files}
                 for rec in prev_df.to_dict(orient="records"):
                     subj = str(rec.get("Subject", ""))
+                    if subj not in assigned_names:
+                        continue
                     # Invalidate stale rows: must have matching metric_version, valid Reference_Coverage, and matching run_id
                     rec_run = str(rec.get("run_id", "")).strip()
                     if (
