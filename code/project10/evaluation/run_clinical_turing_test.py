@@ -40,6 +40,8 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+from code.project10.evaluation.evaluate_synthesis import resample_real_to_target
+
 try:
     from nnunet_mednext import create_mednext_v1
     from monai.inferers import sliding_window_inference
@@ -79,21 +81,6 @@ def compute_binary_dice(m1: np.ndarray, m2: np.ndarray) -> float:
     inter = (b1 & b2).sum()
     return float(2.0 * inter / (s1 + s2))
 
-
-def resample_real_to_target(
-    real_path: str,
-    target_shape: tuple = (128, 128, 128),
-    spacing_mm: float = 1.5,
-) -> np.ndarray:
-    """Resample ground-truth registered CT volume using unified common_spatial preprocessing."""
-    from code.project10.common_spatial import preprocess_single_volume
-    vol, _ = preprocess_single_volume(
-        str(real_path),
-        target_shape=target_shape,
-        spacing=(spacing_mm, spacing_mm, spacing_mm),
-        is_mask=False,
-    )
-    return vol
 
 
 def run_model_inference(ct_vol: np.ndarray, model: torch.nn.Module, device: torch.device) -> np.ndarray:
@@ -189,8 +176,8 @@ def main():
             s_nii = nib.load(s_path)
             s_arr = np.asanyarray(s_nii.dataobj).astype(np.float32)
 
-            # Resample real registered CT to matching target shape and spacing
-            r_arr = resample_real_to_target(real_path, target_shape=s_arr.shape)
+            # Resample real registered CT to matching synthetic reference physical grid and spacing
+            r_arr = resample_real_to_target(real_path, target_ref=s_path)
 
             # Run MedNeXt segmentation on both real and synthetic contrast CTs
             pred_real = run_model_inference(r_arr, model, device)

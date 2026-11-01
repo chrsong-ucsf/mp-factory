@@ -132,7 +132,7 @@ Direct 4-panel comparison against expert JHU radiologist ground truth (Legacy Pi
 # PART II: Project 10 — Multi-Phase Contrast CT Synthesis & 4D Tumor Kinetics
 
 ### 1. Generative Multi-Phase Contrast CT & Anatomical Invariance Audit
-Project 10 synthesizes 3D contrast-enhanced CT volumes from non-contrast scans (NCCT) using an anatomy-conditioned **Latent Diffusion Model** operating on a continuous 3D AutoencoderKL latent space (continuous latent space with diagonal Gaussian posterior, as trained in Phase 1 and enforced by production load_stage1_autoencoder), sampled via fast deterministic DDIM reverse diffusion.
+Project 10 synthesizes 3D contrast-enhanced CT volumes from non-contrast scans (NCCT) using an anatomy-conditioned **Latent Diffusion Model** operating on a deterministic continuous 3D autoencoder (`LightweightAutoEncoder3D`, as trained in Phase 1 and enforced by production `load_stage1_autoencoder` with `use_vq=False`), sampled via fast deterministic DDIM reverse diffusion.
 
 To audit whether synthetic contrast scans preserve visceral anatomical boundaries, the frozen MedNeXt-B backbone was evaluated on paired real vs. synthetic volumes across $N = 400$ patient cases.
 

@@ -38,6 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger("evaluate_synthesis")
 
 METRIC_COLUMNS = ["SSIM", "PSNR", "L1_Error", "Body_L1_Error", "RMSE", "Pearson_R"]
+METRIC_VERSION = "v2_canonical_spatial"
 
 
 def compute_file_sha256(filepath: str | Path) -> str:
@@ -194,14 +195,51 @@ def find_matching_real_file(fake_path: Path, real_dir: Path) -> Optional[Path]:
 
 def merge_worker_csvs(output_csv: Path, total_workers: int):
     """Combine individual worker CSV files into a unified report."""
-    csv_pattern = f"{output_csv.parent}/{output_csv.stem}_worker_*{output_csv.suffix}"
-    worker_csvs = sorted(glob.glob(csv_pattern))
-    if not worker_csvs:
-        logger.warning(f"No worker CSVs found matching pattern: {csv_pattern}")
-        return
+    output_csv = Path(output_csv)
+    if total_workers < 1:
+        raise ValueError(f"total_workers must be >= 1 (got {total_workers})")
 
-    logger.info(f"Merging {len(worker_csvs)} worker CSVs into {output_csv}...")
-    dfs = [pd.read_csv(p) for p in worker_csvs]
+    # Build expected worker shard paths
+    expected_shards = []
+    for i in range(total_workers):
+        shard_path = output_csv.parent / f"{output_csv.stem}_worker_{i}{output_csv.suffix}"
+        if not shard_path.exists() and total_workers == 1 and output_csv.exists():
+            shard_path = output_csv
+        expected_shards.append(shard_path)
+
+    # Check for missing expected shards
+    missing = [p for p in expected_shards if not p.exists()]
+    if missing:
+        raise RuntimeError(
+            f"Cannot merge worker CSVs: missing {len(missing)} of {total_workers} expected shard(s): "
+            f"{[p.name for p in missing]}"
+        )
+
+    # Check for unmanifested / obsolete shards
+    all_found = sorted(output_csv.parent.glob(f"{output_csv.stem}_worker_*{output_csv.suffix}"))
+    extra = [p for p in all_found if p not in expected_shards]
+    if extra:
+        logger.warning(
+            f"Ignoring {len(extra)} unmanifested / obsolete shard(s) outside expected workers [0..{total_workers-1}]: "
+            f"{[p.name for p in extra]}"
+        )
+
+    logger.info(f"Merging {len(expected_shards)} worker CSVs into {output_csv}...")
+    dfs = []
+    for shard in expected_shards:
+        df = pd.read_csv(shard)
+        if "metric_version" not in df.columns:
+            raise ValueError(
+                f"Shard {shard.name} is missing 'metric_version'. Stale/unversioned shards cannot be merged."
+            )
+        bad_versions = df[df["metric_version"] != METRIC_VERSION]
+        if not bad_versions.empty:
+            raise ValueError(
+                f"Shard {shard.name} contains invalid/stale metric_version entries "
+                f"(expected '{METRIC_VERSION}', found {bad_versions['metric_version'].unique().tolist()})."
+            )
+        dfs.append(df)
+
     merged_df = pd.concat(dfs, ignore_index=True)
     merged_df = merged_df.drop_duplicates(subset=["Subject"]).sort_values("Subject")
     merged_df.to_csv(output_csv, index=False)
@@ -324,7 +362,6 @@ def main():
     else:
         worker_csv = output_csv
 
-    METRIC_VERSION = "v2_canonical_spatial"
 
     # Check for existing valid progress
     results = []

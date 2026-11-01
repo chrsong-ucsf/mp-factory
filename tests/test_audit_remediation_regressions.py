@@ -476,3 +476,145 @@ def test_production_evaluate_synthesis_mixed_batch_failure_raises():
         with mock.patch("sys.argv", test_args):
             with pytest.raises(RuntimeError, match="assigned cases failed evaluation"):
                 eval_main()
+
+
+def test_production_compare_models_cli_fallback_layouts():
+    """Finding 1: compare_models CLI supports root gi_mask.nii.gz and root organ masks without segmentations/ directory."""
+    from code.utilities.compare_models import main as compare_main
+    import unittest.mock as mock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        data_dir = os.path.join(tmpdir, "CancerVerse")
+        swin_dir = os.path.join(tmpdir, "swin_preds")
+        mednext_dir = os.path.join(tmpdir, "mednext_preds")
+        out_csv = os.path.join(tmpdir, "model_comparison.csv")
+        os.makedirs(swin_dir, exist_ok=True)
+        os.makedirs(mednext_dir, exist_ok=True)
+
+        shape = (16, 16, 16)
+        affine = np.diag([1.5, 1.5, 1.5, 1.0])
+
+        # Case 1: SUBJ_01 has root gi_mask.nii.gz, no segmentations/ dir
+        subj1_dir = os.path.join(data_dir, "SUBJ_01")
+        os.makedirs(subj1_dir, exist_ok=True)
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), affine), os.path.join(subj1_dir, "ct.nii.gz"))
+        comb_mask = np.zeros(shape, dtype=np.uint8)
+        comb_mask[4:12, 4:12, 4:12] = 1  # Stomach
+        nib.save(nib.Nifti1Image(comb_mask, affine), os.path.join(subj1_dir, "gi_mask.nii.gz"))
+        nib.save(nib.Nifti1Image(comb_mask, affine), os.path.join(swin_dir, "SUBJ_01_gi_seg.nii.gz"))
+        nib.save(nib.Nifti1Image(comb_mask, affine), os.path.join(mednext_dir, "SUBJ_01_gi_seg.nii.gz"))
+
+        # Case 2: SUBJ_02 has root stomach.nii.gz, no segmentations/ dir
+        subj2_dir = os.path.join(data_dir, "SUBJ_02")
+        os.makedirs(subj2_dir, exist_ok=True)
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), affine), os.path.join(subj2_dir, "ct.nii.gz"))
+        stomach_mask = np.zeros(shape, dtype=np.uint8)
+        stomach_mask[2:10, 2:10, 2:10] = 1
+        nib.save(nib.Nifti1Image(stomach_mask, affine), os.path.join(subj2_dir, "stomach.nii.gz"))
+        nib.save(nib.Nifti1Image(stomach_mask, affine), os.path.join(swin_dir, "SUBJ_02_gi_seg.nii.gz"))
+        nib.save(nib.Nifti1Image(stomach_mask, affine), os.path.join(mednext_dir, "SUBJ_02_gi_seg.nii.gz"))
+
+        test_args = [
+            "compare_models.py",
+            "--data_dir", data_dir,
+            "--swin_pred_dir", swin_dir,
+            "--mednext_pred_dir", mednext_dir,
+            "--out_csv", out_csv,
+        ]
+        with mock.patch("sys.argv", test_args):
+            compare_main()
+
+        assert os.path.exists(out_csv), "Comparison CSV must be written"
+        df = pd.read_csv(out_csv)
+        assert len(df) == 2, "Both fallback layout subjects must be evaluated without crashing"
+        assert set(df["subject_id"]) == {"SUBJ_01", "SUBJ_02"}
+        assert (df["swin_stomach_dice"] == 1.0).all()
+        assert (df["mednext_stomach_dice"] == 1.0).all()
+
+
+def test_production_clinical_turing_test_physical_grid_alignment_and_disjoint_rejection():
+    """Finding 2: run_clinical_turing_test uses exact reference physical grid and rejects disjoint real CT."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        shape = (16, 16, 16)
+        synth_affine = np.diag([1.5, 1.5, 1.5, 1.0])
+        synth_path = os.path.join(tmpdir, "CV_001_synthetic_contrast.nii.gz")
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), synth_affine), synth_path)
+
+        # 1. Physically disjoint real CT (shifted 1000mm in X)
+        disjoint_affine = synth_affine.copy()
+        disjoint_affine[0, 3] = 1000.0
+        disjoint_path = os.path.join(tmpdir, "CV_001_disjoint_reg.nii.gz")
+        nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), disjoint_affine), disjoint_path)
+
+        with pytest.raises(ValueError, match="Insufficient physical overlap"):
+            resample_real_to_target(disjoint_path, target_ref=synth_path)
+
+        # 2. Aligned real CT resamples onto exact synthetic coordinate grid
+        aligned_path = os.path.join(tmpdir, "CV_001_aligned_reg.nii.gz")
+        nib.save(nib.Nifti1Image(np.ones(shape, dtype=np.float32) * 50.0, synth_affine), aligned_path)
+        resampled = resample_real_to_target(aligned_path, target_ref=synth_path)
+        assert resampled.shape == shape
+        assert np.isclose(resampled.mean(), 50.0)
+
+
+def test_production_evaluate_synthesis_merge_worker_manifest_and_version_enforcement():
+    """Finding 4: merge_worker_csvs enforces complete manifest, checks metric_version, and rejects stale extras."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_csv = Path(tmpdir) / "merged_report.csv"
+        worker0 = Path(tmpdir) / "merged_report_worker_0.csv"
+        worker1 = Path(tmpdir) / "merged_report_worker_1.csv"
+        worker_stale = Path(tmpdir) / "merged_report_worker_7.csv"
+
+        df0 = pd.DataFrame([{
+            "Subject": "CASE_01.nii.gz",
+            "SSIM": 0.85,
+            "PSNR": 28.5,
+            "L1_Error": 1.0,
+            "metric_version": "v2_canonical_spatial",
+        }])
+        df0.to_csv(worker0, index=False)
+
+        # 1. Missing expected shard -> RuntimeError
+        with pytest.raises(RuntimeError, match="missing 1 of 2 expected shard"):
+            merge_worker_csvs(out_csv, total_workers=2)
+
+        # 2. Stale / unversioned shard -> ValueError
+        df_unversioned = pd.DataFrame([{
+            "Subject": "CASE_02.nii.gz",
+            "SSIM": 0.80,
+            "PSNR": 27.0,
+            "L1_Error": 999.0,
+        }])
+        df_unversioned.to_csv(worker1, index=False)
+        with pytest.raises(ValueError, match="missing 'metric_version'"):
+            merge_worker_csvs(out_csv, total_workers=2)
+
+        # 3. Valid worker_1 added, but an obsolete worker_7 exists on disk
+        df1 = pd.DataFrame([{
+            "Subject": "CASE_02.nii.gz",
+            "SSIM": 0.90,
+            "PSNR": 30.0,
+            "L1_Error": 3.0,
+            "metric_version": "v2_canonical_spatial",
+        }])
+        df1.to_csv(worker1, index=False)
+        df_unversioned.to_csv(worker_stale, index=False)
+
+        # Merging with total_workers=2 must merge ONLY worker_0 and worker_1 (L1=(1+3)/2=2.0)
+        # and ignore obsolete worker_7 (L1=999)
+        merge_worker_csvs(out_csv, total_workers=2)
+        assert out_csv.exists()
+        merged = pd.read_csv(out_csv)
+        assert len(merged) == 2
+        assert set(merged["Subject"]) == {"CASE_01.nii.gz", "CASE_02.nii.gz"}
+        assert merged["L1_Error"].mean() == pytest.approx(2.0, abs=1e-5)
+
+
+def test_production_showcase_compressor_architecture_label():
+    """Finding 5: SHOWCASE.md accurately labels the 3D autoencoder without AutoencoderKL or Gaussian posterior."""
+    showcase_path = Path(BASE_DIR) / "docs" / "SHOWCASE.md"
+    content = showcase_path.read_text(encoding="utf-8")
+    assert "AutoencoderKL" not in content, "SHOWCASE.md must not label compressor as AutoencoderKL"
+    assert "Gaussian posterior" not in content, "SHOWCASE.md must not claim Gaussian posterior"
+    assert "LightweightAutoEncoder3D" in content, "SHOWCASE.md must reference production LightweightAutoEncoder3D"
+    assert "deterministic continuous 3D autoencoder" in content

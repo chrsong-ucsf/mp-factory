@@ -135,3 +135,24 @@ def test_physically_disjoint_target_is_rejected(tmp_path):
     nib.save(nib.Nifti1Image(np.ones((4, 4, 4), dtype=np.float32), shifted_affine), tmp_path / "registered.nii.gz")
     with pytest.raises(ValueError, match="insufficient physical overlap"):
         dataset[0]
+
+
+def test_insufficient_patch_target_support_is_rejected(tmp_path):
+    """Finding 3: Target with global overlap but zero overlap in the cropped patch must be rejected."""
+    base = tmp_path
+    ncct_path = base / "CancerVerse" / "CancerVerse" / "CASE" / "ct.nii.gz"
+    _volume(ncct_path, np.ones((64, 64, 64)))
+
+    target_path = base / "registered.nii.gz"
+    _volume(target_path, np.ones((16, 64, 64)))
+
+    mask = np.zeros((64, 64, 64), dtype=np.uint8)
+    mask[28:36, 28:36, 28:36] = 1
+    _volume(base / "masks" / "CASE_gi_mask.nii.gz", mask)
+
+    with (base / "registration.csv").open("w", newline="") as f:
+        csv.writer(f).writerow(["pair", "patient", "CASE", "TARGET", "VENOUS", "OK", "1", "", "registered.nii.gz"])
+
+    dataset = MultiphasePairedDataset("registration.csv", str(base), "masks", target_shape=(8, 8, 8), spacing_mm=1.0, totalseg_task="gi")
+    with pytest.raises(ValueError, match="insufficient physical target support"):
+        dataset[0]

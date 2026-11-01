@@ -130,7 +130,7 @@ def main():
 
         # Check ground truth has at least one organ label or combined mask
         seg_dir    = os.path.join(sub_dir, "segmentations")
-        search_dir = seg_dir if os.path.exists(seg_dir) else subject_dir
+        search_dir = seg_dir if os.path.exists(seg_dir) else sub_dir
         has_gt = any(
             any(os.path.exists(os.path.join(search_dir, f"{alias}.nii.gz")) for alias in aliases)
             for aliases in ORGAN_ALIASES.values()

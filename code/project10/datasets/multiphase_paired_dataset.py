@@ -109,20 +109,20 @@ class MultiphasePairedDataset(Dataset):
         # MONAI spatial transform pipeline
         self.spatial_transform = Compose([
             Spacingd(
-                keys=["ncct", "target", "mask"], 
-                pixdim=(spacing_mm, spacing_mm, spacing_mm), 
-                mode=("bilinear", "bilinear", "nearest"), 
+                keys=["ncct", "target", "mask", "target_support"],
+                pixdim=(spacing_mm, spacing_mm, spacing_mm),
+                mode=("bilinear", "bilinear", "nearest", "nearest"),
                 allow_missing_keys=True
             ),
             ResizeWithPadOrCropd(
-                keys=["ncct", "target"], 
+                keys=["ncct", "target"],
                 spatial_size=target_shape,
                 mode="constant",
                 value=-1000.0,
                 allow_missing_keys=True
             ),
             ResizeWithPadOrCropd(
-                keys=["mask"], 
+                keys=["mask", "target_support"],
                 spatial_size=target_shape,
                 mode="constant",
                 value=0.0,
@@ -296,18 +296,22 @@ class MultiphasePairedDataset(Dataset):
             raise ValueError(f"No usable GI organs found in mask for subject {subject_p0}")
 
         # Squeeze leading singleton if 4D
+        target_supp_arr = sitk.GetArrayFromImage(res_target_supp).transpose(2, 1, 0).astype(np.float32)
         if ncct_arr.ndim == 4 and ncct_arr.shape[0] == 1:
             ncct_arr = ncct_arr[0]
         if target_arr.ndim == 4 and target_arr.shape[0] == 1:
             target_arr = target_arr[0]
         if mapped_mask.ndim == 4 and mapped_mask.shape[0] == 1:
             mapped_mask = mapped_mask[0]
+        if target_supp_arr.ndim == 4 and target_supp_arr.shape[0] == 1:
+            target_supp_arr = target_supp_arr[0]
 
         # 8. Apply MONAI spatial transforms on shared NCCT reference grid
         data_dict = {
             "ncct": MetaTensor(torch.from_numpy(ncct_arr[None, ...]), affine=torch.from_numpy(ncct_nii.affine)),
             "target": MetaTensor(torch.from_numpy(target_arr[None, ...]), affine=torch.from_numpy(ncct_nii.affine)),
             "mask": MetaTensor(torch.from_numpy(mapped_mask[None, ...].astype(np.float32)), affine=torch.from_numpy(ncct_nii.affine)),
+            "target_support": MetaTensor(torch.from_numpy(target_supp_arr[None, ...]), affine=torch.from_numpy(ncct_nii.affine)),
         }
 
         try:
@@ -315,14 +319,29 @@ class MultiphasePairedDataset(Dataset):
             ncct_tensor = torch.as_tensor(transformed["ncct"])
             target_tensor = torch.as_tensor(transformed["target"])
             mask_tensor = torch.as_tensor(transformed["mask"]).round().to(torch.long)
+            target_supp_tensor = torch.as_tensor(transformed["target_support"])
+
+            # Verify target support in the actual cropped patch
+            patch_total = target_supp_tensor.numel()
+            patch_overlap_vox = int(torch.count_nonzero(target_supp_tensor > 0.5).item())
+            patch_overlap_frac = patch_overlap_vox / float(patch_total) if patch_total > 0 else 0.0
+
+            if patch_overlap_vox == 0 or patch_overlap_frac < 0.10:
+                raise ValueError(
+                    f"Cropped target patch for subject {subject_p0} has insufficient physical target support "
+                    f"({patch_overlap_frac:.2%} patch coverage, threshold: 10.00%)"
+                )
 
             return {
                 "ncct": ncct_tensor,
                 "target": target_tensor,
                 "mask": mask_tensor,
+                "target_support": (target_supp_tensor > 0.5),
                 "phase": phase_target,
                 "subject_id": subject_p0,
             }
+        except ValueError:
+            raise
         except Exception as e:
             raise RuntimeError(f"Failed to transform sample for subject {subject_p0}: {e}")
 
