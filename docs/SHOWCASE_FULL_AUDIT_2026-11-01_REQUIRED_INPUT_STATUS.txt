@@ -1,0 +1,97 @@
+FULL SHOWCASE AUDIT: REQUIRED INPUT FAILURE STATUS
+November 1, 2026
+
+Audited source: d68d34ba409795b444f2088f3a3731ed639d1d72 (main).
+Verdict: 117 tests pass and the worker-repartition regression is fixed.
+One separate, pre-existing failure-status defect remains: missing required
+input directories produce a successful CLI exit without an evaluation report.
+
+SCOPE AND FRESH VALIDATION
+
+Reviewed the two-file remediation since audit commit 271849c, evaluator
+assignment/resume/merge and CLI paths, worker proof/count/uniqueness checks,
+launcher status behavior, tests and unchanged P9/training/clinical/showcase
+contracts. Graphify query preceded source searches. Independent read-only
+merge and workflow audits used actual temporary NIfTI evaluations. The
+primary reviewer independently reproduced the missing-input CLI exit.
+No application source, figures, production data or cluster jobs were changed.
+Only this report is committed; no trained inference or cohort rerun occurred.
+
+- Full pytest: python -m pytest --continue-on-collection-errors -q
+  117 passed in 10.91 seconds.
+- project_wide_sanity_check.py: 31 checks; 10 passed, 17 warnings, 3 failures,
+  one INFO. Failures remain missing local ensemble_phase3_audit_summary.csv,
+  missing multiphase_pairs.csv, and unavailable nnunet_mednext for standalone
+  empty-mask smoke import. The inventory/dependency check is not fully clean.
+- AST syntax: 87 Python files pass. bash -n: 75 shell/SLURM files pass.
+- Pyflakes: no undefined names. git diff --check: clean.
+- All 18 embedded PNGs decode. Ten local output links remain unavailable.
+  SHOWCASE.md and all 20 associated figure files are unchanged from preceding
+  complete document/visual reviews; no regenerated evidence is claimed.
+- Source working tree was clean at audit start. External CodeRabbit review
+  was not rerun; its prior sign-in requirement remains unresolved.
+
+CONFIRMED FINDING
+
+1. [P2] Required input errors still return CLI success without any report.
+   code/project10/evaluation/evaluate_synthesis.py:725-731 logs an error for
+   missing fake_dir or real_dir, then returns normally. This yields exit code
+   zero, even though evaluation cannot proceed and no worker completion/report
+   artifact is created. The corrected SLURM launcher can only propagate the
+   status the evaluator actually returns, so this remains a false-success path.
+
+   Independent and primary-reviewer actual subprocess probes supplied a
+   nonexistent --fake_dir, existing temporary --real_dir and temporary output
+   location. Both observed exit 0, an ERROR log, and no output CSV. No module,
+   metric or shell mocking was used for these evaluator probes.
+
+   Raise an appropriate missing-input exception or return a nonzero CLI status
+   for required directories that cannot be read. Test both missing fake and
+   missing real inputs through the subprocess entry point; require no success
+   or completion claim when no evaluation can run. This defect predates the
+   current commit and is not caused by the repartition repair.
+
+VERIFIED RESOLUTIONS AND SUCCESS PATHS
+
+- Two independent actual, unmocked three-case workflows used L1 scores 1/3/5,
+  first two workers, then three workers with the same explicit run ID/output.
+  Both rounds now merge exactly A/B/C: three rows, mean 3.0. The prior five-row,
+  mean-3.4 result is resolved.
+- Resumed records are limited to the worker's current assignment. Strict merge
+  checks exact shard ownership/counts and rejects unexpected or duplicate cases.
+- Actual identical-duplicate rows raise ValueError under default verified merge.
+  Explicit partial merge deduplicates identical rows and rejects conflicts.
+- Actual default-ID one-case/two-worker workflow, including an idle worker,
+  merges one row. A subsequent unchanged-input resume makes zero metric calls.
+- Actual launcher probes preserve evaluator success 0 as shell 0 and evaluator
+  failure 7 as shell 7, without a false completion message. These probes safely
+  substituted external commands and performed no HPC work. Finding 1 concerns
+  the evaluator returning the wrong status, not shell propagation.
+- Earlier mandatory proof, empty-result coverage, manifest-path/hash checks,
+  input snapshot identity, full-support training, supported SSIM/versioning,
+  P9 geometry and clinical score masking remain present; no new regression
+  was confirmed in those unchanged repairs.
+
+EVIDENCE LIMITS
+
+Temporary probes: /tmp/audit15-repartition.log, /tmp/audit15-merge.py,
+/tmp/audit15-merge.log and /tmp/audit15-crosscheck-repartition.log.
+They establish local software behavior, not trained-model or cohort quality.
+
+Historical figures/publication tables were not regenerated. Three qualified
+legacy JHU panels and saturated P10 synthesis/tumor examples remain unchanged.
+The claimed 50 pooled JHU evaluations, 400 clinical cases, 1,067 synthetic
+volumes and 1,990 lesions were not reproduced locally. Remote data/checkpoint/
+result existence and freshness were not checked. Missing local files do not
+establish remote absence. Production nnunet_mednext inference and the noted
+partial-reference inference-context validation remain unavailable.
+
+NEXT VERIFICATION
+
+Make required-input failures nonzero and test actual CLI/launcher success and
+failure end to end. Then rerun local validation and use complete production
+manifests/checkpoints to regenerate cohort metrics and figures. Passing local
+software tests alone cannot close the production evidence gap.
+
+Audit complete. Local tests pass; the confirmed required-input status defect
+remains unfixed by this report and production results remain unverified.
