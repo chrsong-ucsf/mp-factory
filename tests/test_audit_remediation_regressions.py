@@ -1089,3 +1089,188 @@ def test_production_clinical_turing_dice_masks_uncovered_reference_space():
     assert metrics["eligible_organs_count"] == 1
     assert metrics["mean_turing_dice"] == pytest.approx(1.0, abs=1e-4)
     assert metrics["passed_turing_test"] is True
+
+
+def test_production_evaluate_synthesis_merge_rejects_failed_or_incomplete_worker_shards():
+    """Finding 1 (f7db54e): Merge rejects failed/partial worker shards and enforces complete cohort manifest coverage."""
+    import json
+    import unittest.mock as mock
+    from code.project10.evaluation.evaluate_synthesis import main as eval_main
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        fake_dir = str(tmp_path / "fake")
+        real_dir = str(tmp_path / "real")
+        out_csv = tmp_path / "report.csv"
+        os.makedirs(fake_dir, exist_ok=True)
+        os.makedirs(real_dir, exist_ok=True)
+
+        case_a_fake = Path(fake_dir) / "CASE_A.nii.gz"
+        case_a_real = Path(real_dir) / "CASE_A_reg.nii.gz"
+        case_b_fake = Path(fake_dir) / "CASE_B.nii.gz"
+        # CASE_B real is deliberately omitted to trigger worker failure
+        case_c_fake = Path(fake_dir) / "CASE_C.nii.gz"
+        case_c_real = Path(real_dir) / "CASE_C_reg.nii.gz"
+
+        arr = np.ones((8, 8, 8), dtype=np.float32)
+        nib.save(nib.Nifti1Image(arr, np.eye(4)), str(case_a_fake))
+        nib.save(nib.Nifti1Image(arr, np.eye(4)), str(case_a_real))
+        nib.save(nib.Nifti1Image(arr, np.eye(4)), str(case_b_fake))
+        nib.save(nib.Nifti1Image(arr, np.eye(4)), str(case_c_fake))
+        nib.save(nib.Nifti1Image(arr, np.eye(4)), str(case_c_real))
+
+        # 3 cases, 2 workers:
+        # Worker 0 assigned CASE_A, CASE_B (chunk_size = 2)
+        # Worker 1 assigned CASE_C
+        args0 = [
+            "evaluate_synthesis.py",
+            "--fake_dir", fake_dir,
+            "--real_dir", real_dir,
+            "--output_csv", str(out_csv),
+            "--total_workers", "2",
+            "--array_id", "0",
+            "--device", "cpu",
+        ]
+        with mock.patch("sys.argv", args0):
+            with pytest.raises(RuntimeError, match="1/2 assigned cases failed evaluation on worker 0"):
+                eval_main()
+
+        worker0_csv = tmp_path / "report_worker_0.csv"
+        worker0_meta = json.loads(worker0_csv.with_suffix(".meta.json").read_text())
+        assert worker0_meta["status"] == "failed"
+        assert worker0_meta["error_count"] == 1
+        assert worker0_meta["num_assigned"] == 2
+        assert worker0_meta["num_scored"] == 1
+
+        # Run worker 1: CASE_C succeeds -> status='completed'
+        args1 = [
+            "evaluate_synthesis.py",
+            "--fake_dir", fake_dir,
+            "--real_dir", real_dir,
+            "--output_csv", str(out_csv),
+            "--total_workers", "2",
+            "--array_id", "1",
+            "--device", "cpu",
+        ]
+        with mock.patch("sys.argv", args1):
+            eval_main()
+
+        worker1_csv = tmp_path / "report_worker_1.csv"
+        worker1_meta = json.loads(worker1_csv.with_suffix(".meta.json").read_text())
+        assert worker1_meta["status"] == "completed"
+        assert worker1_meta["error_count"] == 0
+
+        # Attempting merge must FAIL because worker 0 failed
+        with pytest.raises(ValueError, match="non-completed status 'failed'|evaluation error"):
+            merge_worker_csvs(out_csv, total_workers=2)
+
+        # Even if worker 0 metadata was forged to status='completed' and error_count=0:
+        worker0_meta["status"] = "completed"
+        worker0_meta["error_count"] = 0
+        worker0_csv.with_suffix(".meta.json").write_text(json.dumps(worker0_meta))
+
+        # Merging fails because worker 0 scored only 1 of 2 assigned cases
+        with pytest.raises(ValueError, match="evaluated only 1 of 2 assigned cases"):
+            merge_worker_csvs(out_csv, total_workers=2)
+
+        # Even if num_scored was also doctored to 2 in metadata sidecar:
+        worker0_meta["num_scored"] = 2
+        worker0_csv.with_suffix(".meta.json").write_text(json.dumps(worker0_meta))
+
+        # Merging must STILL fail because cohort is incomplete (missing CASE_B.nii.gz from manifest)
+        with pytest.raises(ValueError, match="Incomplete cohort: merged dataset contains 2 of 3 expected subjects"):
+            merge_worker_csvs(out_csv, total_workers=2)
+
+        # Merge succeeds only when allow_partial=True is explicitly authorized
+        merge_worker_csvs(out_csv, total_workers=2, allow_partial=True)
+        assert out_csv.exists()
+        merged = pd.read_csv(out_csv)
+        assert set(merged["Subject"]) == {"CASE_A.nii.gz", "CASE_C.nii.gz"}
+
+
+def test_production_evaluate_synthesis_merge_only_resolves_manifest_paths_and_fails_on_missing_dir():
+    """Finding 2 (f7db54e): --merge_only resolves custom paths from manifest and fails clearly when inputs are missing/stale."""
+    import unittest.mock as mock
+    from code.project10.evaluation.evaluate_synthesis import main as eval_main
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        fake_dir = str(tmp_path / "custom_synthetic")
+        real_dir = str(tmp_path / "custom_registered")
+        out_csv = tmp_path / "custom_eval" / "metrics.csv"
+        os.makedirs(fake_dir, exist_ok=True)
+        os.makedirs(real_dir, exist_ok=True)
+
+        case_a_fake = Path(fake_dir) / "CASE_A.nii.gz"
+        case_a_real = Path(real_dir) / "CASE_A_reg.nii.gz"
+        case_b_fake = Path(fake_dir) / "CASE_B.nii.gz"
+        case_b_real = Path(real_dir) / "CASE_B_reg.nii.gz"
+
+        arr_zero = np.zeros((8, 8, 8), dtype=np.float32)
+        arr_one = np.ones((8, 8, 8), dtype=np.float32) * 101.0
+        arr_three = np.ones((8, 8, 8), dtype=np.float32) * 103.0
+
+        nib.save(nib.Nifti1Image(arr_zero, np.eye(4)), str(case_a_fake))
+        nib.save(nib.Nifti1Image(arr_one, np.eye(4)), str(case_a_real))
+        nib.save(nib.Nifti1Image(arr_zero, np.eye(4)), str(case_b_fake))
+        nib.save(nib.Nifti1Image(arr_one, np.eye(4)), str(case_b_real))
+
+        explicit_run_id = "test_run_reused"
+
+        # Evaluate both workers with explicit run_id
+        for wid in [0, 1]:
+            args = [
+                "evaluate_synthesis.py",
+                "--fake_dir", fake_dir,
+                "--real_dir", real_dir,
+                "--output_csv", str(out_csv),
+                "--total_workers", "2",
+                "--array_id", str(wid),
+                "--run_id", explicit_run_id,
+                "--device", "cpu",
+            ]
+            with mock.patch("sys.argv", args):
+                eval_main()
+
+        # Modify CASE_B reference on disk from 101 to 103 HU
+        nib.save(nib.Nifti1Image(arr_three, np.eye(4)), str(case_b_real))
+
+        # Re-evaluate worker 0 ONLY with explicit_run_id
+        args0 = [
+            "evaluate_synthesis.py",
+            "--fake_dir", fake_dir,
+            "--real_dir", real_dir,
+            "--output_csv", str(out_csv),
+            "--total_workers", "2",
+            "--array_id", "0",
+            "--run_id", explicit_run_id,
+            "--overwrite",
+            "--device", "cpu",
+        ]
+        with mock.patch("sys.argv", args0):
+            eval_main()
+
+        # Now execute --merge_only WITHOUT passing --fake_dir or --real_dir!
+        # The CLI must recover fake_dir and real_dir from manifest JSON and catch the stale reference hash on CASE_B
+        merge_args = [
+            "evaluate_synthesis.py",
+            "--merge_only",
+            "--output_csv", str(out_csv),
+            "--total_workers", "2",
+            "--run_id", explicit_run_id,
+        ]
+        with mock.patch("sys.argv", merge_args):
+            with pytest.raises(ValueError, match="stale real_sha256"):
+                eval_main()
+
+        # Next, test that passing an explicit nonexistent directory raises FileNotFoundError
+        missing_merge_args = [
+            "evaluate_synthesis.py",
+            "--merge_only",
+            "--output_csv", str(out_csv),
+            "--total_workers", "2",
+            "--fake_dir", str(tmp_path / "nonexistent_dir"),
+        ]
+        with mock.patch("sys.argv", missing_merge_args):
+            with pytest.raises(FileNotFoundError, match="Input verification failed: fake directory"):
+                eval_main()

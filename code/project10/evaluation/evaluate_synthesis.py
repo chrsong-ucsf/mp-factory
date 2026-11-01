@@ -297,6 +297,7 @@ def merge_worker_csvs(
     expected_run_id: Optional[str] = None,
     fake_dir: Optional[Union[str, Path]] = None,
     real_dir: Optional[Union[str, Path]] = None,
+    allow_partial: bool = False,
 ):
     """Combine individual worker CSV files into a unified report."""
     output_csv = Path(output_csv)
@@ -335,13 +336,9 @@ def merge_worker_csvs(
         try:
             manifest = json.loads(manifest_path.read_text())
             if fake_dir is None and "fake_dir" in manifest:
-                cand_f = Path(manifest["fake_dir"])
-                if cand_f.is_dir():
-                    fake_dir = cand_f
+                fake_dir = Path(manifest["fake_dir"])
             if real_dir is None and "real_dir" in manifest:
-                cand_r = Path(manifest["real_dir"])
-                if cand_r.is_dir():
-                    real_dir = cand_r
+                real_dir = Path(manifest["real_dir"])
         except Exception as e:
             logger.warning(f"Could not load manifest {manifest_path}: {e}")
 
@@ -370,6 +367,26 @@ def merge_worker_csvs(
                         f"Shard {shard.name} metadata run_id '{meta_run}' does not match expected run_id '{expected_run_id}'."
                     )
                 shard_runs.append(meta_run)
+
+                # Validate completion status and counts unless allow_partial is requested
+                if not allow_partial:
+                    meta_status = meta.get("status", "")
+                    meta_errors = int(meta.get("error_count", 0))
+                    num_assigned = meta.get("num_assigned")
+                    num_scored = meta.get("num_scored")
+                    if meta_status != "completed":
+                        raise ValueError(
+                            f"Shard {shard.name} has non-completed status '{meta_status}' (recorded {meta_errors} error(s)). "
+                            "Worker run failed or is incomplete; cannot publish partial cohort without allow_partial=True."
+                        )
+                    if meta_errors > 0:
+                        raise ValueError(
+                            f"Shard {shard.name} recorded {meta_errors} evaluation error(s); cannot publish partial cohort."
+                        )
+                    if num_assigned is not None and num_scored is not None and num_scored < num_assigned:
+                        raise ValueError(
+                            f"Shard {shard.name} evaluated only {num_scored} of {num_assigned} assigned cases; cannot publish partial cohort."
+                        )
             except Exception as e:
                 if isinstance(e, ValueError):
                     raise
@@ -454,37 +471,71 @@ def merge_worker_csvs(
             "Evaluation shards originate from an outdated run manifest; re-evaluation is required."
         )
 
-    # Revalidate merged rows against current inputs on disk if input directories are accessible
-    if fake_dir is not None and real_dir is not None:
+    # Enforce complete manifest cohort coverage unless partial merge is explicitly authorized
+    if manifest is not None and not allow_partial:
+        expected_items = manifest.get("items", [])
+        if expected_items:
+            expected_subjects = {item["fake_file"] for item in expected_items}
+            merged_subjects = set(merged_df["Subject"]) if "Subject" in merged_df.columns else set()
+            missing_subjects = expected_subjects - merged_subjects
+            if missing_subjects:
+                raise ValueError(
+                    f"Incomplete cohort: merged dataset contains {len(merged_subjects)} of {len(expected_subjects)} "
+                    f"expected subjects from manifest (missing {len(missing_subjects)} cases: {sorted(list(missing_subjects))[:5]}). "
+                    "Failed jobs cannot become an apparently complete benchmark through merge."
+                )
+
+            # Check per-worker assignment coverage
+            for i, shard in enumerate(expected_shards):
+                worker_expected = {item["fake_file"] for item in expected_items if item.get("worker_id") == i}
+                if worker_expected:
+                    shard_df = dfs[i]
+                    shard_subjects = set(shard_df["Subject"]) if "Subject" in shard_df.columns else set()
+                    missing_from_worker = worker_expected - shard_subjects
+                    if missing_from_worker:
+                        raise ValueError(
+                            f"Worker {i} shard {shard.name} is missing {len(missing_from_worker)} assigned cases: "
+                            f"{sorted(list(missing_from_worker))[:5]}..."
+                        )
+
+    # Revalidate merged rows against current inputs on disk
+    if fake_dir is not None or real_dir is not None:
+        if fake_dir is None or not Path(fake_dir).is_dir():
+            raise FileNotFoundError(
+                f"Input verification failed: fake directory '{fake_dir}' does not exist or is not a directory."
+            )
+        if real_dir is None or not Path(real_dir).is_dir():
+            raise FileNotFoundError(
+                f"Input verification failed: real directory '{real_dir}' does not exist or is not a directory."
+            )
         f_dir = Path(fake_dir)
         r_dir = Path(real_dir)
-        if f_dir.is_dir() and r_dir.is_dir():
-            for _, row in merged_df.iterrows():
-                subj = str(row["Subject"])
-                f_cand = f_dir / subj
-                r_cand = find_matching_real_file(f_cand, r_dir)
-                if not f_cand.exists():
+        for _, row in merged_df.iterrows():
+            subj = str(row["Subject"])
+            f_cand = f_dir / subj
+            r_cand = find_matching_real_file(f_cand, r_dir)
+            if not f_cand.exists():
+                raise ValueError(
+                    f"Input synthetic volume '{f_cand}' no longer exists on disk; cannot merge stale row for '{subj}'."
+                )
+            if r_cand is None or not r_cand.exists():
+                raise ValueError(
+                    f"Input real reference volume for '{subj}' no longer exists in {r_dir}; cannot merge stale row."
+                )
+            if "fake_sha256" in row and pd.notna(row["fake_sha256"]):
+                curr_f_sha = compute_file_sha256(f_cand)
+                if str(row["fake_sha256"]) != curr_f_sha:
                     raise ValueError(
-                        f"Input synthetic volume '{f_cand}' no longer exists on disk; cannot merge stale row for '{subj}'."
+                        f"Row for subject '{subj}' has stale fake_sha256 ({row['fake_sha256']} != current {curr_f_sha}). "
+                        "Input synthetic file contents have changed; re-evaluation is required."
                     )
-                if r_cand is None or not r_cand.exists():
+            if "real_sha256" in row and pd.notna(row["real_sha256"]):
+                curr_r_sha = compute_file_sha256(r_cand)
+                if str(row["real_sha256"]) != curr_r_sha:
                     raise ValueError(
-                        f"Input real reference volume for '{subj}' no longer exists in {r_dir}; cannot merge stale row."
+                        f"Row for subject '{subj}' has stale real_sha256 ({row['real_sha256']} != current {curr_r_sha}). "
+                        "Input reference file contents have changed; re-evaluation is required."
                     )
-                if "fake_sha256" in row and pd.notna(row["fake_sha256"]):
-                    curr_f_sha = compute_file_sha256(f_cand)
-                    if str(row["fake_sha256"]) != curr_f_sha:
-                        raise ValueError(
-                            f"Row for subject '{subj}' has stale fake_sha256 ({row['fake_sha256']} != current {curr_f_sha}). "
-                            "Input synthetic file contents have changed; re-evaluation is required."
-                        )
-                if "real_sha256" in row and pd.notna(row["real_sha256"]):
-                    curr_r_sha = compute_file_sha256(r_cand)
-                    if str(row["real_sha256"]) != curr_r_sha:
-                        raise ValueError(
-                            f"Row for subject '{subj}' has stale real_sha256 ({row['real_sha256']} != current {curr_r_sha}). "
-                            "Input reference file contents have changed; re-evaluation is required."
-                        )
 
     # Check for conflicting duplicate subjects across shards
     if "Subject" in merged_df.columns:
@@ -536,14 +587,14 @@ def main():
     parser.add_argument(
         "--fake_dir",
         type=str,
-        default="results/project10/synthetic_volumes",
-        help="Directory containing synthesized (fake) CT NIfTI files.",
+        default=None,
+        help="Directory containing synthesized (fake) CT NIfTI files. Defaults to results/project10/synthetic_volumes during evaluation.",
     )
     parser.add_argument(
         "--real_dir",
         type=str,
-        default="results/project10/registered_volumes",
-        help="Directory containing ground truth (real) CT NIfTI files.",
+        default=None,
+        help="Directory containing ground truth (real) CT NIfTI files. Defaults to results/project10/registered_volumes during evaluation.",
     )
     parser.add_argument(
         "--output_csv",
@@ -575,6 +626,11 @@ def main():
         help="Merge existing worker CSVs and exit.",
     )
     parser.add_argument(
+        "--allow_partial",
+        action="store_true",
+        help="Allow merging worker CSVs even if some workers failed or cohort coverage is incomplete.",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Force recomputation of all metrics, invalidating cached CSV records.",
@@ -588,8 +644,6 @@ def main():
 
     args = parser.parse_args()
 
-    fake_dir = Path(args.fake_dir)
-    real_dir = Path(args.real_dir)
     output_csv = Path(args.output_csv)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
 
@@ -598,10 +652,14 @@ def main():
             output_csv,
             args.total_workers,
             expected_run_id=args.run_id,
-            fake_dir=fake_dir,
-            real_dir=real_dir,
+            fake_dir=args.fake_dir,
+            real_dir=args.real_dir,
+            allow_partial=args.allow_partial,
         )
         return
+
+    fake_dir = Path(args.fake_dir) if args.fake_dir is not None else Path("results/project10/synthetic_volumes")
+    real_dir = Path(args.real_dir) if args.real_dir is not None else Path("results/project10/registered_volumes")
 
     if args.device is not None:
         device = torch.device(args.device)
@@ -799,7 +857,7 @@ def main():
             "num_assigned": len(my_files),
             "num_scored": len(df),
             "error_count": error_count,
-            "status": "completed",
+            "status": "completed" if error_count == 0 else "failed",
         }
         meta_path.write_text(json.dumps(meta_data, indent=2))
     except Exception as e:
