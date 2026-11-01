@@ -1,0 +1,171 @@
+FULL SHOWCASE AUDIT AFTER TEST REMEDIATION
+October 31, 2026
+
+Audited source: 91ebe78 (main), remediation following report c57c9a8.
+Verdict: the complete local pytest suite is green, but independent behavior
+probes still demonstrate invalid metric correspondence, incomplete resume
+contracts, and a new evaluator summary crash. Nine actionable findings follow.
+
+SCOPE AND FRESH VALIDATION
+
+Reviewed complete SHOWCASE.md, latest nine-file remediation, supporting P9/P10
+training/evaluation/sampling/table/visualization paths, tests, and launchers.
+Graphify query oriented the review; specialized read-only P9 and P10 reviews
+were reconciled with source and actual-function probes. All 18 embedded PNGs
+exist and decode. All 20 associated figures were visually re-reviewed using
+contact sheets; their files are unchanged from the preceding audit. Ten local
+output links remain unavailable (one directory, nine downloads). No production
+checkpoint inference, cohort rerun, or live cluster verification was performed.
+Only this audit report is added; source, figures, cluster jobs and data are
+unchanged.
+
+- Full pytest: python -m pytest --continue-on-collection-errors -q
+  88 passed in 15.25 seconds. No failures or collection errors.
+- Built-in project_wide_sanity_check.py: 31 checks; 10 passes, 17 warnings,
+  3 failures, one INFO. Failures remain missing ensemble_phase3_audit_summary.csv,
+  missing multiphase_pairs.csv, and nnunet_mednext unavailable to the standalone
+  empty-mask smoke import. An empty local log inventory does not validate jobs.
+- AST syntax: 87 Python files pass; bash -n: 75 shell/SLURM files pass.
+- Pyflakes: no undefined names. git diff --check: clean.
+- CodeRabbit CLI did not complete a review: browser authentication was required.
+  Its waiting process was stopped; no CodeRabbit findings or clean result are
+  claimed. The local source review and independent checks completed separately.
+
+CONFIRMED FINDINGS
+
+1. [P1] Table 1's comparison pipeline still ignores same-shape GT geometry.
+   code/utilities/compare_models.py:68-75 resamples individual organ masks only
+   when array shapes differ, ignoring affine differences at equal shapes.
+   Combined gi_mask.nii.gz at 58-60 also discards its physical transform.
+   Actual main() probe: an 8-cubed stomach GT translated +1000 mm still scored
+   both models Dice 1.0; physical overlap was zero. Predictions themselves
+   are resampled correctly, which does not repair the GT reference error.
+   run_compare_models.sbatch:24 routes this CSV into model_comparison_phase3.csv
+   used by Table 1. Check full geometry and physically resample every GT source
+   to the CT reference; cover equal-shape displaced and reoriented GT cases.
+
+2. [P1] Synthesis evaluation can report perfect scores for disjoint CTs.
+   code/project10/evaluation/evaluate_synthesis.py:40-62,305-307 discards image
+   transforms and independently preprocesses the real target using fake array
+   shape. Actual unmocked function probe: identical 8-cubed, 1.5-mm HU ramp
+   arrays with the real image translated +1000 mm yielded L1=0, SSIM=1 and
+   Pearson R=1, despite no physical correspondence. Sharing a resampling
+   algorithm is insufficient when inputs have different references. Resample
+   the real CT onto the generated NIfTI's actual physical grid and reject
+   insufficient overlap; retain transforms through comparison.
+
+3. [P1] Successful evaluation and merge now crash during summary generation.
+   evaluate_synthesis.py:358 averages all columns except Subject, including
+   newly added text metric_version='v2_canonical_spatial'. Actual main() probe
+   computed metrics and saved the CSV, then raised TypeError: Could not convert
+   ['v2_canonical_spatial'] to numeric. Actual merge_worker_csvs() similarly
+   writes the merged file and raises at 164-165. Both independent agent and
+   primary reviewer merge probes reproduced this. Explicitly aggregate metric
+   columns and exclude provenance metadata (including fake_mtime). Add actual
+   successful CLI and merge smoke coverage: the 88 passing tests miss this path.
+
+4. [P1/P2] Training accepts a disjoint target as all-air supervision.
+   code/project10/datasets/multiphase_paired_dataset.py:200-214 now physically
+   resamples the target into NCCT space, but never checks target coverage.
+   Actual dataset probe: target translated +1000 mm returned entirely -0.5
+   after normalization (the -1000 HU outside-image fill), while NCCT and
+   conditioning were valid. This is invalid paired supervision, not a valid
+   background-only patch. Check physical target support/coverage before crop
+   and normalization; reject insufficiently overlapping pairs. The new mask
+   rejection is correct but does not validate the target.
+
+5. [P2] Sampler resume still excludes conditioning mask identity.
+   code/project10/evaluation/sample_multiphase_diffusion.py:522-542,590-610
+   now checks NCCT/checkpoint hashes, task, steps and code version, but skips
+   before resolving or hashing the selected mask. Actual main() control-flow
+   probe enforced strict anatomy-conditioned checkpoint metadata yet skipped
+   an existing volume with empty mask directories and zero mask-loader calls.
+   Model objects were mocked; real file/provenance/skip logic ran, without
+   trained inference. Changed or deleted masks therefore cannot invalidate
+   old outputs. Resolve a valid candidate first and compare its identity/content
+   along with the rest of the generation contract.
+
+6. [P2] Evaluation cache ignores the reference target and robust fake identity.
+   evaluate_synthesis.py:278-298 verifies only metric version and fake mtime;
+   it skips before checking the real target. Actual main() probe deleted the
+   real target after caching: rerun made zero metric calls and retained the old
+   metric row (then separately hit finding 3). Changed targets also do not
+   invalidate cached results. The <= mtime comparison accepts replacement files
+   carrying older timestamps. Record and compare real/fake content and geometry
+   identity, plus metric version; invalidate missing or changed inputs.
+
+7. [P2] Publication LaTeX drops the literature-baseline qualification.
+   code/manuscript/compile_manuscript_tables.py:116 emits hardcoded
+   TotalSegmentator values as ordinary benchmark numbers. Only Markdown at
+   121 marks them unverified external literature references. Actual
+   build_table_1() probe confirmed LaTeX contains 0.412 but no reference,
+   unverified notice or citation. Carry provenance/qualification into every
+   export, or omit values whose exact source/aggregation is not established.
+   The corrected DOI alone does not establish these specific organ values.
+
+8. [P2] Showcase architecture differs from the production checkpoint contract.
+   docs/SHOWCASE.md:135,144 calls the frozen compressor a VQ-VAE. Production
+   load_stage1_autoencoder() in training/train_stage2_synthesis.py:105-117
+   requires the continuous autoencoder and rejects use_vq=True checkpoints.
+   Describe the current continuous 3D compressor, or explicitly identify a
+   separately proven historical checkpoint/run instead of conflating them.
+
+9. [P2] Partial multi-worker evaluation failures still return success.
+   evaluate_synthesis.py:353-354 raises only when error_count equals all assigned
+   cases. A mixture of valid and failed/missing targets therefore writes a
+   partial CSV without a failing final status. Actual main() mixed-batch probe
+   assigned two cases, scored one and logged one missing target, then returned
+   successfully; only resampling was stubbed for this control-flow check.
+   Single-worker runs currently fail separately through finding 3. Make partial failure visible to the job
+   exit status and record assigned/scored/failed counts; test a mixed batch.
+   Generation's corresponding partial-failure behavior is now corrected.
+
+VERIFIED REPAIRS
+
+- All prior import/fixture failures are repaired: the production regression
+  module collects, temporary table CSV injection works, and end-to-end fixture
+  columns/output directories match the APIs. The full suite now passes.
+- The table compiler no longer creates cluster directories during import.
+- Training now resamples masks onto NCCT space and rejects a +1000-mm disjoint
+  mask with ValueError. This resolves the previous mask finding, subject to
+  the separate target-coverage defect above.
+- Strict inference now searches past an unsuitable first GI candidate to a
+  valid later full-body mask; actual loader probe found 216 duodenum voxels.
+- Sampler provenance now includes NCCT content hash, sampling steps and a
+  preprocessing/code tag, invalidating older sidecars. Mask identity remains
+  absent as described above.
+- Sampler now raises on any assigned generation failure, including missing
+  NCCT cases, rather than allowing a partially successful run to exit cleanly.
+- Evaluation adds version/fake-mtime invalidation and --overwrite; these improve
+  on filename-only resume but do not establish complete input identity.
+- Legacy notices now sit directly beside Cases 1-3. Publication-scale local
+  data limitations and raw synthesis saturation are explicitly acknowledged.
+  These changes are documentation repairs, not evidence of regenerated outputs.
+
+EVIDENCE AND DOCUMENTATION LIMITS
+
+The PNGs remain historical. Three legacy JHU panels retain old mapping/scores;
+SHOWCASE.md:55 still calls green foreground agreement 'exact spatial agreement',
+and line 68 calls a legacy single-case visualization validation of phase
+invariance. Tighten those local descriptions despite the new surrounding notices.
+The P10 synthesis panel is still saturated (R=0.191, SSIM=0.062); the new warning
+correctly acknowledges that it does not demonstrate corrected image fidelity.
+The assertion that structure is successfully learned is not independently proven
+by the local panels or the passing software tests.
+
+Production manifests/results for the claimed 50-case JHU cohort, 1,067 synthetic
+volumes and 1,990 lesions remain unavailable locally. Their presence and state
+on remote storage were not checked. The new availability section is a useful
+qualification; it does not itself verify those remote artifacts. Correct code,
+local tests and saved figures do not reproduce cohort measurements.
+
+PRIORITY NEXT STEPS
+
+1. Repair GT/fake/real physical correspondence and target-coverage gating.
+2. Fix numeric summaries and add real CLI/merge smoke cases.
+3. Complete mask/reference provenance and make partial evaluation failures fail.
+4. Carry source qualifications into LaTeX and correct the compressor terminology.
+5. After those checks pass, regenerate versioned production outputs, metrics and
+   figures with complete manifests and explicit cohort accounting.
+
+Audit complete. Local tests pass; the broader validation is not clean.
