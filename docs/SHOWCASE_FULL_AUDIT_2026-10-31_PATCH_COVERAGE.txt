@@ -1,0 +1,152 @@
+FULL SHOWCASE AUDIT: PATCH COVERAGE AND REMAINING EVALUATION PATHS
+October 31, 2026
+
+Audited source: 285fc6ee938b56da26028bcf6f805c8eee1cf037 (main).
+Verdict: all 95 local tests pass, and most preceding repairs are verified.
+Five actionable defects remain, including a new CLI regression and spatial
+validation paths not covered by the current tests. This is an audit report,
+not a source remediation or a production cohort validation.
+
+SCOPE AND FRESH CHECKS
+
+Reviewed complete SHOWCASE.md, its eight-file remediation since 275121e,
+P9 comparison/GT loading and table exports, P10 dataset/reference transforms,
+clinical and voxel evaluation, sampling/resume, worker merge, tests and
+launchers. Graphify query preceded source searches. Independent read-only P9
+and P10 reviews supplied actual-function probes, reconciled with source and
+primary-reviewer checks. No model training, production checkpoint inference,
+cluster jobs, remote data changes or production output regeneration occurred.
+
+- python -m pytest --continue-on-collection-errors -q:
+  95 passed, 1 warning in 10.89 seconds. The warning is infinite PSNR for an
+  exact-match synthetic fixture, not a failed test.
+- project_wide_sanity_check.py: 31 checks; 10 passed, 17 warnings, 3 failures,
+  one INFO; checker fails. Failures remain missing local
+  ensemble_phase3_audit_summary.csv, missing multiphase_pairs.csv, and missing
+  nnunet_mednext in the standalone empty-mask smoke import.
+- AST syntax: 87 Python files pass. bash -n: 75 shell/SLURM files pass.
+- Pyflakes finds undefined subject_dir in compare_models.py:133. This is now
+  an actual reachable NameError, not merely a static observation.
+- All 18 embedded PNGs exist and decode. Ten local output links remain
+  unavailable: one directory and nine downloads. No docs/figures file changed
+  from the preceding audit; its visual review of all 20 associated images
+  therefore concerns the same image content. Images were not regenerated.
+- git diff --check is clean. Source working tree was clean at audit start.
+- CodeRabbit was not rerun; its prior authentication requirement is unresolved.
+  The audit does not claim an external CodeRabbit review.
+
+CONFIRMED FINDINGS
+
+1. [P1] Comparison CLI crashes for its newly supported fallback layout.
+   code/utilities/compare_models.py:133 uses undefined subject_dir instead of
+   the loop variable sub_dir when segmentations/ is absent. An actual main()
+   fixture with CT, both predictions and a combined gi_mask.nii.gz, but no
+   segmentations directory, raises NameError before checking that combined
+   mask. Root-level individual organ masks encounter the same fallback.
+   Use sub_dir and cover both fallback layouts through the CLI. The helper's
+   corrected physical resampling does not exercise or fix this discovery bug.
+
+2. [P1] Clinical anatomical evaluation still ignores the synthetic reference.
+   code/project10/evaluation/run_clinical_turing_test.py:83-96,189-197
+   independently preprocesses the real CT using only synthetic array shape.
+   The synthetic NIfTI affine is not used to establish correspondence.
+   Actual function probe: an 8-cubed, 1.5-mm HU ramp with real image translated
+   +1000 mm returned the identical array as the unshifted synthetic ramp;
+   maximum difference was 0. A simple threshold-mask Dice was 1.0 despite
+   disjoint physical support. That Dice is a synthetic geometry probe, not
+   a trained-model or clinical measurement. The same correspondence problem
+   remains before downstream organ comparison. Reuse the repaired synthesis
+   evaluator's exact reference-grid resampling and overlap rejection here.
+   Matching preprocessing recipes alone do not establish physical alignment.
+
+3. [P1/P2] Whole-volume overlap does not validate the actual training patch.
+   code/project10/datasets/multiphase_paired_dataset.py:205-217 checks target
+   support over the complete NCCT. Lines 314-317 then center-crop without
+   carrying that support into the returned patch. Actual dataset probe:
+   a 64-cubed NCCT and edge-aligned 16x64x64 target pass with 25% global
+   coverage, but the 8-cubed center patch is entirely -0.5 (normalized
+   outside-image air fill), alongside valid NCCT and conditioning.
+   Thus the previous disjoint-target bug is fixed, but unusable supervision
+   can still reach training. Transform a target-support mask through the
+   same spacing/crop, then reject insufficient patch coverage or exclude
+   unsupported voxels from the loss. Do not infer coverage from HU values:
+   real air and outside-image fill may have identical intensity.
+
+4. [P2] Worker merge silently includes obsolete or unverified shard files.
+   code/project10/evaluation/evaluate_synthesis.py:193-205 globs every matching
+   worker CSV and ignores total_workers when selecting inputs. It neither
+   checks expected shard membership/completeness nor verifies a common run
+   identity or metric version before merging. Actual merge_worker_csvs probe
+   with total_workers=1 and current worker_0 plus an obsolete, unversioned
+   worker_7 file merged both subjects. Current L1=1 and obsolete L1=999 became
+   a reported mean of 500. Stale extra shards can therefore contaminate a
+   corrected cohort even though individual evaluation cache hashes improved.
+   Merge only expected shards from one explicit run/manifest; require their
+   completion and compatible metric/input provenance, and reject old extras
+   or incomplete sets rather than silently publishing a combined cohort.
+
+5. [P2] New compressor description still disagrees with production architecture.
+   docs/SHOWCASE.md:135 now claims AutoencoderKL with a diagonal Gaussian
+   posterior. Production use_vq=False returns LightweightAutoEncoder3D from
+   code/project10/models/autoencoder_3d.py:261-266. Its encode() directly
+   returns encoder features; forward() supplies zero auxiliary loss in this
+   mode. There is no posterior mean/log-variance, latent posterior sampling
+   or KL regularization on this path. Describe the current model as a
+   deterministic continuous 3D autoencoder; do not replace VQ-VAE with another
+   unsupported architecture label. This finding follows the current source
+   contract, not a claim about an unavailable historical checkpoint.
+
+VERIFIED REPAIRS FROM THE PREVIOUS AUDIT
+
+- Actual load_ground_truth() probes with same-shape individual and combined
+  masks translated +1000 mm now return zero foreground in CT space. The prior
+  false perfect-overlap result is repaired in the loader. The CLI discovery
+  regression in finding 1 is separate.
+- Actual synthesis resample_real_to_target(real, target_ref=fake) now rejects
+  physically disjoint inputs with ValueError. Its main route passes the
+  generated NIfTI reference rather than only its shape.
+- Actual successful single-worker synthesis evaluation now finishes numeric
+  summary generation. Worker merge also handles text provenance without the
+  former TypeError; the separate stale-shard defect remains.
+- Actual cached-evaluation probe modifies the real target and recomputes L1
+  from 1.0 to 2.0. Real and fake content hashes are now checked on resume.
+- Sampler resolves and hashes the conditioning mask before its resume check.
+  Actual main() control-flow probe now rejects missing required masks before
+  accepting an existing output and raises RuntimeError for the failed case.
+  Only model objects were mocked; loader and resume logic actually ran.
+- Dataset now rejects a wholly disjoint target. Finding 3 concerns coverage
+  after cropping a partially overlapping target, rather than the resolved
+  wholly disjoint case.
+- Partial synthesis-evaluation failures now raise instead of silently passing;
+  the new mixed-batch regression test exercises this behavior.
+- LaTeX from actual build_table_1(csv_file=temp) includes the TotalSegmentator
+  reference designation, unverified qualification and corrected DOI.
+- Legacy foreground-map and single-case phase-invariance language is narrowed.
+  The original VQ-VAE label is gone, although its replacement is still wrong.
+
+EVIDENCE LIMITS
+
+Production source datasets, trained checkpoints and complete cohort results
+were not available for this local audit. The claimed 50 pooled JHU evaluations,
+400 clinical cases, 1,067 synthesis volumes and 1,990 lesions were not rerun.
+Remote artifact existence and freshness remain unverified. Documentation's
+availability notices do not constitute verification of those remote artifacts.
+
+The three legacy JHU comparison figures still contain their original mapping
+and scores and are now locally qualified as historical. The P10 clinical and
+tumor images retain the visible saturation from preceding audits. Their bytes
+are unchanged; source fixes and 95 passing tests do not update those images
+or independently demonstrate corrected clinical image quality. The published
+metric tables still need a versioned, reproducible production rerun after the
+remaining geometry, patch-support and merge defects are repaired.
+
+NEXT CHECKS
+
+1. Repair comparison discovery and test actual CLI fallback layouts.
+2. Put clinical evaluation on the generated physical reference grid.
+3. Validate target support after the precise training crop, or mask its loss.
+4. Require a complete, single-run worker manifest for merged results.
+5. Correct the compressor description, then regenerate production evidence
+   with explicit input/checkpoint/code identities and cohort accounting.
+
+Audit complete. Tests are green; the full validation is not clean.
