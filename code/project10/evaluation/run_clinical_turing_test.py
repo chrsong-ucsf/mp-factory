@@ -28,6 +28,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import nibabel as nib
 import numpy as np
@@ -89,6 +90,70 @@ def compute_binary_dice(m1: np.ndarray, m2: np.ndarray) -> float:
 
 
 
+def compute_clinical_organ_metrics(
+    pred_real: np.ndarray,
+    pred_synth: np.ndarray,
+    support_mask: Optional[np.ndarray] = None,
+    pair_id: str = "",
+    shape: Optional[Tuple[int, ...]] = None,
+    ref_coverage: Optional[float] = None,
+    min_organ_voxels: int = 50,
+) -> Tuple[Dict[str, Any], List[float], int]:
+    """
+    Computes organ-specific Turing Dice agreement between segmentation predictions
+    from real and synthetic volumes, strictly confined to observed physical reference support.
+
+    If support_mask is provided, unobserved/missing reference space is masked out
+    so fill air (-1000 HU) is never treated as observed anatomical background.
+    """
+    if shape is None:
+        shape = pred_real.shape
+    if ref_coverage is None:
+        ref_coverage = float(np.mean(support_mask > 0.5)) if support_mask is not None else 1.0
+
+    case_metrics = {
+        "pair_id": pair_id,
+        "shape_x": shape[0],
+        "shape_y": shape[1],
+        "shape_z": shape[2],
+        "reference_coverage": round(ref_coverage, 4),
+    }
+
+    organ_dices = []
+    eligible_count = 0
+    supp_bool = (support_mask > 0.5) if support_mask is not None else None
+
+    for org_id, org_name in ORGAN_MAP.items():
+        m_real = (pred_real == org_id)
+        m_synth = (pred_synth == org_id)
+        if supp_bool is not None:
+            m_real = m_real & supp_bool
+            m_synth = m_synth & supp_bool
+
+        r_sum = int(m_real.sum())
+        s_sum = int(m_synth.sum())
+        is_detected_real = bool(r_sum >= min_organ_voxels)
+        is_detected_synth = bool(s_sum >= min_organ_voxels)
+        case_metrics[f"detected_real_{org_name}"] = is_detected_real
+        case_metrics[f"detected_synth_{org_name}"] = is_detected_synth
+
+        # Require minimum eligible support (>= min_organ_voxels in observed reference CT)
+        if is_detected_real:
+            d = compute_binary_dice(m_real, m_synth)
+            case_metrics[f"turing_dice_{org_name}"] = round(d, 4) if not np.isnan(d) else np.nan
+            if not np.isnan(d):
+                organ_dices.append(d)
+                eligible_count += 1
+        else:
+            case_metrics[f"turing_dice_{org_name}"] = np.nan
+
+    case_metrics["eligible_organs_count"] = eligible_count
+    case_metrics["mean_turing_dice"] = round(float(np.mean(organ_dices)), 4) if organ_dices else np.nan
+    case_metrics["passed_turing_test"] = bool(eligible_count > 0 and case_metrics["mean_turing_dice"] >= 0.70)
+
+    return case_metrics, organ_dices, eligible_count
+
+
 def run_model_inference(ct_vol: np.ndarray, model: torch.nn.Module, device: torch.device) -> np.ndarray:
     """Runs sliding window inference on CT volume (HU normalized to [0, 1])."""
     # Soft tissue abdominal window: [-175, 250] HU -> [0, 1]
@@ -132,6 +197,8 @@ def main():
                         help="Worker array index for sharding")
     parser.add_argument("--total_workers", type=int, default=1,
                         help="Total parallel workers")
+    parser.add_argument("--min_reference_coverage", type=float, default=0.10,
+                        help="Minimum required reference coverage fraction (default: 0.10)")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -182,50 +249,36 @@ def main():
             s_nii = nib.load(s_path)
             s_arr = np.asanyarray(s_nii.dataobj).astype(np.float32)
 
-            # Resample real registered CT to matching synthetic reference physical grid and spacing
-            r_arr = resample_real_to_target(real_path, target_ref=s_path)
+            # Resample real registered CT to matching synthetic reference physical grid and spacing with support mask
+            r_arr, r_support = resample_real_to_target(real_path, target_ref=s_path, return_support=True)
+            r_support_mask = (r_support > 0.5)
+            ref_coverage = float(np.mean(r_support_mask))
+
+            if args.min_reference_coverage > 0.0 and ref_coverage < args.min_reference_coverage:
+                log.warning(
+                    f"Skipping {stem}: reference coverage {ref_coverage:.2%} is below threshold {args.min_reference_coverage:.2%}"
+                )
+                continue
 
             # Run MedNeXt segmentation on both real and synthetic contrast CTs
             pred_real = run_model_inference(r_arr, model, device)
             pred_synth = run_model_inference(s_arr, model, device)
 
-            # Compute organ preservation metrics
-            case_metrics = {
-                "pair_id": stem,
-                "shape_x": s_arr.shape[0],
-                "shape_y": s_arr.shape[1],
-                "shape_z": s_arr.shape[2],
-            }
-
-            organ_dices = []
-            eligible_count = 0
-            for org_id, org_name in ORGAN_MAP.items():
-                m_real = (pred_real == org_id)
-                m_synth = (pred_synth == org_id)
-                r_sum = int(m_real.sum())
-                s_sum = int(m_synth.sum())
-                is_detected_real = bool(r_sum >= 50)
-                is_detected_synth = bool(s_sum >= 50)
-                case_metrics[f"detected_real_{org_name}"] = is_detected_real
-                case_metrics[f"detected_synth_{org_name}"] = is_detected_synth
-
-                # Require minimum eligible support (>= 50 voxels in reference real CT)
-                if is_detected_real:
-                    d = compute_binary_dice(m_real, m_synth)
-                    case_metrics[f"turing_dice_{org_name}"] = round(d, 4) if not np.isnan(d) else np.nan
-                    if not np.isnan(d):
-                        organ_dices.append(d)
-                        eligible_count += 1
-                else:
-                    case_metrics[f"turing_dice_{org_name}"] = np.nan
-
-            case_metrics["eligible_organs_count"] = eligible_count
-            case_metrics["mean_turing_dice"] = round(float(np.mean(organ_dices)), 4) if organ_dices else np.nan
-            case_metrics["passed_turing_test"] = bool(eligible_count > 0 and case_metrics["mean_turing_dice"] >= 0.70)
+            # Compute organ preservation metrics strictly within observed physical reference support
+            case_metrics, organ_dices, eligible_count = compute_clinical_organ_metrics(
+                pred_real=pred_real,
+                pred_synth=pred_synth,
+                support_mask=r_support_mask,
+                pair_id=stem,
+                shape=s_arr.shape,
+                ref_coverage=ref_coverage,
+            )
 
             records.append(case_metrics)
             processed += 1
-            log.info(f"[{processed}/{args.num_cases}] {stem} | Mean Turing Dice: {case_metrics['mean_turing_dice']:.4f}")
+            log.info(
+                f"[{processed}/{args.num_cases}] {stem} | Coverage: {ref_coverage:.2%} | Mean Turing Dice: {case_metrics['mean_turing_dice']:.4f}"
+            )
 
             if processed >= args.num_cases:
                 break

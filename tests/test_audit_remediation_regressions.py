@@ -879,3 +879,213 @@ def test_production_evaluate_synthesis_merge_requires_run_id_consistency():
         merged = pd.read_csv(out_csv)
         assert len(merged) == 2
         assert merged["run_id"].unique().tolist() == ["run_alpha"]
+
+
+def test_production_evaluate_synthesis_changing_input_contents_updates_run_id_and_rejects_stale_merge():
+    """Finding 1 (6ec9456): Run IDs capture input contents; modifying input files updates run ID and rejects stale shards."""
+    import unittest.mock as mock
+    from code.project10.evaluation.evaluate_synthesis import main as eval_main
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        fake_dir = str(tmp_path / "fake")
+        real_dir = str(tmp_path / "real")
+        out_csv = tmp_path / "report.csv"
+        os.makedirs(fake_dir, exist_ok=True)
+        os.makedirs(real_dir, exist_ok=True)
+
+        case_a_fake = Path(fake_dir) / "CASE_A.nii.gz"
+        case_a_real = Path(real_dir) / "CASE_A_reg.nii.gz"
+        case_b_fake = Path(fake_dir) / "CASE_B.nii.gz"
+        case_b_real = Path(real_dir) / "CASE_B_reg.nii.gz"
+
+        arr_zero = np.zeros((16, 16, 16), dtype=np.float32)
+        arr_one = np.ones((16, 16, 16), dtype=np.float32)
+        arr_three = np.ones((16, 16, 16), dtype=np.float32) * 3.0
+
+        nib.save(nib.Nifti1Image(arr_zero, np.eye(4)), str(case_a_fake))
+        nib.save(nib.Nifti1Image(arr_one, np.eye(4)), str(case_a_real))
+        nib.save(nib.Nifti1Image(arr_zero, np.eye(4)), str(case_b_fake))
+        nib.save(nib.Nifti1Image(arr_one, np.eye(4)), str(case_b_real))
+
+        # Initial run: worker 0 (CASE_A) and worker 1 (CASE_B)
+        for wid in [0, 1]:
+            args = [
+                "evaluate_synthesis.py",
+                "--fake_dir", fake_dir,
+                "--real_dir", real_dir,
+                "--output_csv", str(out_csv),
+                "--total_workers", "2",
+                "--array_id", str(wid),
+                "--device", "cpu",
+            ]
+            with mock.patch("sys.argv", args):
+                eval_main()
+
+        worker0_csv = tmp_path / "report_worker_0.csv"
+        worker1_csv = tmp_path / "report_worker_1.csv"
+        df0 = pd.read_csv(worker0_csv)
+        df1 = pd.read_csv(worker1_csv)
+        initial_run_id = df0.iloc[0]["run_id"]
+        assert df1.iloc[0]["run_id"] == initial_run_id
+        assert df1.iloc[0]["L1_Error"] == pytest.approx(1.0, abs=1e-4)
+
+        # Now change CASE_B's real reference file on disk from 1.0 to 3.0 HU
+        nib.save(nib.Nifti1Image(arr_three, np.eye(4)), str(case_b_real))
+
+        # Rerun ONLY worker 0
+        args0 = [
+            "evaluate_synthesis.py",
+            "--fake_dir", fake_dir,
+            "--real_dir", real_dir,
+            "--output_csv", str(out_csv),
+            "--total_workers", "2",
+            "--array_id", "0",
+            "--overwrite",
+            "--device", "cpu",
+        ]
+        with mock.patch("sys.argv", args0):
+            eval_main()
+
+        df0_new = pd.read_csv(worker0_csv)
+        new_run_id = df0_new.iloc[0]["run_id"]
+        # Generated run_id must change because CASE_B input content changed!
+        assert new_run_id != initial_run_id
+
+        # Merge must reject because worker 1's shard has the old run_id!
+        with pytest.raises(ValueError, match="Worker shards originate from conflicting runs"):
+            merge_worker_csvs(out_csv, total_workers=2)
+
+        # Even if someone attempts to pass the old run_id, worker 0 is rejected
+        with pytest.raises(ValueError, match="does not match expected run_id"):
+            merge_worker_csvs(out_csv, total_workers=2, expected_run_id=initial_run_id)
+
+        # 4. If someone forges the old run_id on worker 0's CSV without metadata, it is caught
+        df0_new["run_id"] = initial_run_id
+        df0_new.to_csv(worker0_csv, index=False)
+        with pytest.raises(ValueError, match="does not match worker metadata run_id"):
+            merge_worker_csvs(out_csv, total_workers=2)
+
+        # 5. Even if worker metadata is also altered, manifest check catches the outdated run ID
+        import json
+        meta0 = json.loads(worker0_csv.with_suffix(".meta.json").read_text())
+        meta0["run_id"] = initial_run_id
+        worker0_csv.with_suffix(".meta.json").write_text(json.dumps(meta0))
+        with pytest.raises(ValueError, match="does not match input manifest run_id"):
+            merge_worker_csvs(out_csv, total_workers=2, fake_dir=fake_dir, real_dir=real_dir)
+
+        # 6. If manifest is removed, direct file revalidation catches worker 1's stale real_sha256
+        (tmp_path / "report_manifest.json").unlink()
+        with pytest.raises(ValueError, match="stale real_sha256"):
+            merge_worker_csvs(out_csv, total_workers=2, fake_dir=fake_dir, real_dir=real_dir)
+
+
+def test_production_evaluate_synthesis_merge_rejects_blank_run_ids_on_rows():
+    """Finding 2 (6ec9456): Required run provenance rejects individual data records with missing or blank run_id."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_csv = Path(tmpdir) / "merged_report.csv"
+        worker0 = Path(tmpdir) / "merged_report_worker_0.csv"
+        worker1 = Path(tmpdir) / "merged_report_worker_1.csv"
+
+        df0 = pd.DataFrame([{
+            "Subject": "CASE_A.nii.gz",
+            "SSIM": 0.85,
+            "PSNR": 28.5,
+            "L1_Error": 1.0,
+            "Reference_Coverage": 1.0,
+            "metric_version": METRIC_VERSION,
+            "run_id": "run_known",
+        }])
+
+        # Shard with empty string run_id
+        df1_blank = pd.DataFrame([{
+            "Subject": "CASE_B.nii.gz",
+            "SSIM": 0.90,
+            "PSNR": 30.0,
+            "L1_Error": 2.0,
+            "Reference_Coverage": 1.0,
+            "metric_version": METRIC_VERSION,
+            "run_id": "",
+        }])
+
+        df0.to_csv(worker0, index=False)
+        df1_blank.to_csv(worker1, index=False)
+
+        # Must reject blank run_id even when expected_run_id is passed!
+        with pytest.raises(ValueError, match="blank/missing 'run_id' provenance"):
+            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known")
+
+        # Shard with NaN run_id
+        df1_nan = pd.DataFrame([{
+            "Subject": "CASE_B.nii.gz",
+            "SSIM": 0.90,
+            "PSNR": 30.0,
+            "L1_Error": 2.0,
+            "Reference_Coverage": 1.0,
+            "metric_version": METRIC_VERSION,
+            "run_id": np.nan,
+        }])
+        df1_nan.to_csv(worker1, index=False)
+        with pytest.raises(ValueError, match="blank/missing 'run_id' provenance"):
+            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known")
+
+        # Shard with whitespace-only run_id
+        df1_ws = pd.DataFrame([{
+            "Subject": "CASE_B.nii.gz",
+            "SSIM": 0.90,
+            "PSNR": 30.0,
+            "L1_Error": 2.0,
+            "Reference_Coverage": 1.0,
+            "metric_version": METRIC_VERSION,
+            "run_id": "   ",
+        }])
+        df1_ws.to_csv(worker1, index=False)
+        with pytest.raises(ValueError, match="blank/missing 'run_id' provenance"):
+            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known")
+
+        # Mixed valid and blank in the same shard
+        df_mixed = pd.concat([df0, df1_blank], ignore_index=True)
+        df_mixed.to_csv(worker0, index=False)
+        empty_schema = pd.DataFrame(columns=df0.columns)
+        empty_schema.to_csv(worker1, index=False)
+        with pytest.raises(ValueError, match="blank/missing 'run_id' provenance"):
+            merge_worker_csvs(out_csv, total_workers=2, expected_run_id="run_known")
+
+
+def test_production_clinical_turing_dice_masks_uncovered_reference_space():
+    """Finding 3 (6ec9456): Clinical Dice excludes unobserved reference support so fill air does not score as background."""
+    from code.project10.evaluation.run_clinical_turing_test import (
+        compute_binary_dice,
+        compute_clinical_organ_metrics,
+    )
+
+    # Synthetic volume has stomach (label 1) in 1000 voxels
+    # Real reference has only 50% physical coverage; within observed 50%, stomach is identical (500 voxels)
+    # Outside observed 50%, real CT had -1000 HU fill air (predicting background 0)
+    shape = (10, 10, 10)
+    pred_synth = np.ones(shape, dtype=np.uint8)  # 1000 voxels of stomach (label 1)
+    pred_real = np.zeros(shape, dtype=np.uint8)
+    pred_real[:5, :, :] = 1  # 500 voxels of stomach, 500 voxels of background (fill air)
+
+    support_mask = np.zeros(shape, dtype=bool)
+    support_mask[:5, :, :] = True  # exactly 50% physical coverage
+
+    # 1. Raw unmasked Dice treats uncovered region as background, resulting in 2*500/(500+1000) = 0.6667 (failing 0.70 threshold)
+    unmasked_dice = compute_binary_dice(pred_real == 1, pred_synth == 1)
+    assert np.isclose(unmasked_dice, 2.0 * 500 / 1500, atol=1e-4)
+    assert unmasked_dice < 0.70
+
+    # 2. Support-masked evaluation restricts comparison to valid physical reference support
+    metrics, organ_dices, eligible = compute_clinical_organ_metrics(
+        pred_real=pred_real,
+        pred_synth=pred_synth,
+        support_mask=support_mask,
+        pair_id="PAIR_01",
+        shape=shape,
+    )
+
+    # Within observed reference space, real and synthetic have 100% perfect agreement!
+    assert metrics["turing_dice_stomach"] == pytest.approx(1.0, abs=1e-4)
+    assert metrics["reference_coverage"] == 0.50
+    assert metrics["eligible_organs_count"] == 1
+    assert metrics["mean_turing_dice"] == pytest.approx(1.0, abs=1e-4)
+    assert metrics["passed_turing_test"] is True

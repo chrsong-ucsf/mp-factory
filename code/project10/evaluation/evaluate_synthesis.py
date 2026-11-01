@@ -11,11 +11,12 @@ against ground-truth registered CT volumes resampled to the 1.5mm / 128^3 latent
 import argparse
 import glob
 import hashlib
+import json
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import nibabel as nib
 import numpy as np
@@ -218,14 +219,18 @@ def find_matching_real_file(fake_path: Path, real_dir: Path) -> Optional[Path]:
     if cand.exists():
         return cand
 
-    # Map *_synthetic_contrast.nii.gz to *_reg.nii.gz
-    stem = filename.replace("_synthetic_contrast.nii.gz", "").replace("_synthetic_contrast.nii", "")
+    # Map *_synthetic_contrast.nii.gz to *_reg.nii.gz, or general {stem}_reg.nii.gz
+    stem = filename
+    for sfx in ["_synthetic_contrast.nii.gz", "_synthetic_contrast.nii", "_reg.nii.gz", "_reg.nii", ".nii.gz", ".nii"]:
+        if stem.endswith(sfx):
+            stem = stem[:-len(sfx)]
+            break
+
     for ext in [".nii.gz", ".nii"]:
         cand = real_dir / f"{stem}_reg{ext}"
         if cand.exists():
             return cand
 
-    # Map *_reg.nii.gz directly
     for ext in [".nii.gz", ".nii"]:
         cand = real_dir / f"{stem}{ext}"
         if cand.exists():
@@ -234,7 +239,65 @@ def find_matching_real_file(fake_path: Path, real_dir: Path) -> Optional[Path]:
     return None
 
 
-def merge_worker_csvs(output_csv: Path, total_workers: int, expected_run_id: Optional[str] = None):
+def build_evaluation_cohort_manifest(
+    fake_dir: Path,
+    real_dir: Path,
+    fake_files: List[Path],
+    total_workers: int,
+    metric_version: str = METRIC_VERSION,
+) -> Dict[str, Any]:
+    """
+    Builds an immutable manifest of all input pairs and worker assignments,
+    capturing file content SHA-256 hashes so any change to input volumes
+    produces a distinct cohort snapshot identity.
+    """
+    total_discovered = len(fake_files)
+    chunk_size = (total_discovered + total_workers - 1) // total_workers if total_workers > 0 else total_discovered
+
+    items = []
+    sig_builder = hashlib.sha256()
+    sig_builder.update(f"{metric_version}:{total_discovered}:{total_workers}:".encode("utf-8"))
+
+    for idx, f in enumerate(sorted(fake_files)):
+        fake_sha = compute_file_sha256(f)
+        real_cand = find_matching_real_file(f, real_dir)
+        real_sha = compute_file_sha256(real_cand) if (real_cand and real_cand.exists()) else None
+        worker_id = idx // chunk_size if chunk_size > 0 else 0
+
+        item = {
+            "fake_file": f.name,
+            "fake_sha256": fake_sha,
+            "real_file": real_cand.name if real_cand else None,
+            "real_sha256": real_sha,
+            "worker_id": worker_id,
+        }
+        items.append(item)
+        sig_builder.update(
+            f"{f.name}:{fake_sha}:{item['real_file']}:{real_sha}:{worker_id};".encode("utf-8")
+        )
+
+    snapshot_hash = sig_builder.hexdigest()
+    run_id = f"run_{snapshot_hash[:16]}"
+
+    manifest = {
+        "run_id": run_id,
+        "metric_version": metric_version,
+        "fake_dir": str(fake_dir.resolve()),
+        "real_dir": str(real_dir.resolve()),
+        "total_files": total_discovered,
+        "total_workers": total_workers,
+        "items": items,
+    }
+    return manifest
+
+
+def merge_worker_csvs(
+    output_csv: Path,
+    total_workers: int,
+    expected_run_id: Optional[str] = None,
+    fake_dir: Optional[Union[str, Path]] = None,
+    real_dir: Optional[Union[str, Path]] = None,
+):
     """Combine individual worker CSV files into a unified report."""
     output_csv = Path(output_csv)
     if total_workers < 1:
@@ -265,10 +328,53 @@ def merge_worker_csvs(output_csv: Path, total_workers: int, expected_run_id: Opt
             f"{[p.name for p in extra]}"
         )
 
+    # Attempt to load cohort manifest if present
+    manifest_path = output_csv.parent / f"{output_csv.stem}_manifest.json"
+    manifest = None
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+            if fake_dir is None and "fake_dir" in manifest:
+                cand_f = Path(manifest["fake_dir"])
+                if cand_f.is_dir():
+                    fake_dir = cand_f
+            if real_dir is None and "real_dir" in manifest:
+                cand_r = Path(manifest["real_dir"])
+                if cand_r.is_dir():
+                    real_dir = cand_r
+        except Exception as e:
+            logger.warning(f"Could not load manifest {manifest_path}: {e}")
+
     logger.info(f"Merging {len(expected_shards)} worker CSVs into {output_csv}...")
     dfs = []
+    shard_runs = []
     for shard in expected_shards:
         df = pd.read_csv(shard)
+
+        # Check worker completion metadata JSON if present
+        meta_file = shard.with_suffix(".meta.json")
+        if not meta_file.exists():
+            alt_meta = shard.with_suffix(".json")
+            if alt_meta.exists():
+                meta_file = alt_meta
+
+        meta = None
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text())
+                meta_run = str(meta.get("run_id", "")).strip()
+                if not meta_run:
+                    raise ValueError(f"Shard {shard.name} metadata contains empty or blank 'run_id'.")
+                if expected_run_id is not None and meta_run != expected_run_id:
+                    raise ValueError(
+                        f"Shard {shard.name} metadata run_id '{meta_run}' does not match expected run_id '{expected_run_id}'."
+                    )
+                shard_runs.append(meta_run)
+            except Exception as e:
+                if isinstance(e, ValueError):
+                    raise
+                logger.warning(f"Could not load metadata for shard {shard.name}: {e}")
+
         if "metric_version" not in df.columns:
             raise ValueError(
                 f"Shard {shard.name} is missing 'metric_version'. Stale/unversioned shards cannot be merged."
@@ -287,6 +393,32 @@ def merge_worker_csvs(output_csv: Path, total_workers: int, expected_run_id: Opt
             raise ValueError(
                 f"Shard {shard.name} is missing required 'Reference_Coverage' column (version '{METRIC_VERSION}' required)."
             )
+
+        # Strict data row provenance check: every row must have a non-empty, non-whitespace run_id
+        if not df.empty:
+            blank_mask = df["run_id"].isna() | (df["run_id"].astype(str).str.strip() == "")
+            if blank_mask.any():
+                bad_count = int(blank_mask.sum())
+                raise ValueError(
+                    f"Shard {shard.name} contains {bad_count} row(s) with blank/missing 'run_id' provenance. "
+                    "Every data record must have a valid non-empty run identity."
+                )
+            row_runs = df["run_id"].astype(str).str.strip().unique()
+            if len(row_runs) != 1:
+                raise ValueError(
+                    f"Shard {shard.name} contains conflicting run IDs within shard: {row_runs.tolist()}."
+                )
+            shard_run = row_runs[0]
+            if expected_run_id is not None and shard_run != expected_run_id:
+                raise ValueError(
+                    f"Shard {shard.name} run_id '{shard_run}' does not match expected run_id '{expected_run_id}'."
+                )
+            if meta is not None and meta.get("run_id") and str(meta["run_id"]).strip() != shard_run:
+                raise ValueError(
+                    f"Shard {shard.name} data run_id '{shard_run}' does not match worker metadata run_id '{meta['run_id']}'."
+                )
+            shard_runs.append(shard_run)
+
         dfs.append(df)
 
     merged_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
@@ -296,17 +428,63 @@ def merge_worker_csvs(output_csv: Path, total_workers: int, expected_run_id: Opt
         merged_df.to_csv(output_csv, index=False)
         return
 
-    # Verify single consistent run_id across all shards
-    run_ids = merged_df["run_id"].dropna().unique()
-    if len(run_ids) != 1:
+    # Enforce non-blank run_id across all merged rows
+    blank_merged = merged_df["run_id"].isna() | (merged_df["run_id"].astype(str).str.strip() == "")
+    if blank_merged.any():
+        bad_count = int(blank_merged.sum())
         raise ValueError(
-            f"Worker shards originate from conflicting runs: found multiple or zero run_ids {run_ids.tolist()}. "
+            f"Merged dataset contains {bad_count} row(s) with blank/missing 'run_id' provenance."
+        )
+
+    # Verify single consistent run_id across all shards
+    all_run_ids = merged_df["run_id"].astype(str).str.strip().unique()
+    if len(all_run_ids) != 1:
+        raise ValueError(
+            f"Worker shards originate from conflicting runs: found multiple or zero run_ids {all_run_ids.tolist()}. "
             f"All shards must share a single verified run identity to be merged."
         )
-    if expected_run_id is not None and run_ids[0] != expected_run_id:
+    merged_run = all_run_ids[0]
+    if expected_run_id is not None and merged_run != expected_run_id:
         raise ValueError(
-            f"Merged run_id '{run_ids[0]}' does not match expected run_id '{expected_run_id}'."
+            f"Merged run_id '{merged_run}' does not match expected run_id '{expected_run_id}'."
         )
+    if manifest is not None and manifest.get("run_id") and manifest["run_id"] != merged_run:
+        raise ValueError(
+            f"Merged run_id '{merged_run}' does not match input manifest run_id '{manifest['run_id']}'. "
+            "Evaluation shards originate from an outdated run manifest; re-evaluation is required."
+        )
+
+    # Revalidate merged rows against current inputs on disk if input directories are accessible
+    if fake_dir is not None and real_dir is not None:
+        f_dir = Path(fake_dir)
+        r_dir = Path(real_dir)
+        if f_dir.is_dir() and r_dir.is_dir():
+            for _, row in merged_df.iterrows():
+                subj = str(row["Subject"])
+                f_cand = f_dir / subj
+                r_cand = find_matching_real_file(f_cand, r_dir)
+                if not f_cand.exists():
+                    raise ValueError(
+                        f"Input synthetic volume '{f_cand}' no longer exists on disk; cannot merge stale row for '{subj}'."
+                    )
+                if r_cand is None or not r_cand.exists():
+                    raise ValueError(
+                        f"Input real reference volume for '{subj}' no longer exists in {r_dir}; cannot merge stale row."
+                    )
+                if "fake_sha256" in row and pd.notna(row["fake_sha256"]):
+                    curr_f_sha = compute_file_sha256(f_cand)
+                    if str(row["fake_sha256"]) != curr_f_sha:
+                        raise ValueError(
+                            f"Row for subject '{subj}' has stale fake_sha256 ({row['fake_sha256']} != current {curr_f_sha}). "
+                            "Input synthetic file contents have changed; re-evaluation is required."
+                        )
+                if "real_sha256" in row and pd.notna(row["real_sha256"]):
+                    curr_r_sha = compute_file_sha256(r_cand)
+                    if str(row["real_sha256"]) != curr_r_sha:
+                        raise ValueError(
+                            f"Row for subject '{subj}' has stale real_sha256 ({row['real_sha256']} != current {curr_r_sha}). "
+                            "Input reference file contents have changed; re-evaluation is required."
+                        )
 
     # Check for conflicting duplicate subjects across shards
     if "Subject" in merged_df.columns:
@@ -416,7 +594,13 @@ def main():
     output_csv.parent.mkdir(parents=True, exist_ok=True)
 
     if args.merge_only:
-        merge_worker_csvs(output_csv, args.total_workers, expected_run_id=args.run_id)
+        merge_worker_csvs(
+            output_csv,
+            args.total_workers,
+            expected_run_id=args.run_id,
+            fake_dir=fake_dir,
+            real_dir=real_dir,
+        )
         return
 
     if args.device is not None:
@@ -448,11 +632,24 @@ def main():
         return
 
     total_discovered = len(fake_files)
+    manifest = build_evaluation_cohort_manifest(
+        fake_dir=fake_dir,
+        real_dir=real_dir,
+        fake_files=fake_files,
+        total_workers=args.total_workers,
+        metric_version=METRIC_VERSION,
+    )
     if args.run_id:
         run_id = str(args.run_id).strip()
+        manifest["run_id"] = run_id
     else:
-        cohort_sig = f"{fake_dir.resolve()}:{real_dir.resolve()}:{METRIC_VERSION}:{total_discovered}:{','.join(f.name for f in fake_files)}"
-        run_id = f"run_{hashlib.sha256(cohort_sig.encode()).hexdigest()[:16]}"
+        run_id = manifest["run_id"]
+
+    manifest_path = output_csv.parent / f"{output_csv.stem}_manifest.json"
+    try:
+        manifest_path.write_text(json.dumps(manifest, indent=2))
+    except Exception as e:
+        logger.warning(f"Could not write manifest JSON to {manifest_path}: {e}")
 
     chunk_size = (total_discovered + args.total_workers - 1) // args.total_workers
     start_idx = args.array_id * chunk_size
@@ -479,6 +676,21 @@ def main():
         ] + METRIC_COLUMNS
         empty_df = pd.DataFrame(columns=schema_cols)
         empty_df.to_csv(worker_csv, index=False)
+        meta_path = worker_csv.with_suffix(".meta.json")
+        try:
+            meta_data = {
+                "worker_id": args.array_id,
+                "total_workers": args.total_workers,
+                "run_id": run_id,
+                "metric_version": METRIC_VERSION,
+                "num_assigned": 0,
+                "num_scored": 0,
+                "error_count": 0,
+                "status": "completed",
+            }
+            meta_path.write_text(json.dumps(meta_data, indent=2))
+        except Exception as e:
+            logger.warning(f"Could not write idle worker metadata: {e}")
         return
 
 
@@ -492,11 +704,12 @@ def main():
                 for rec in prev_df.to_dict(orient="records"):
                     subj = str(rec.get("Subject", ""))
                     # Invalidate stale rows: must have matching metric_version, valid Reference_Coverage, and matching run_id
+                    rec_run = str(rec.get("run_id", "")).strip()
                     if (
                         rec.get("metric_version") == METRIC_VERSION
                         and "Reference_Coverage" in rec
                         and not pd.isna(rec.get("Reference_Coverage"))
-                        and ("run_id" not in rec or rec.get("run_id") == run_id)
+                        and rec_run == run_id
                     ):
                         f_cand = fake_dir / subj
                         real_cand = find_matching_real_file(f_cand, real_dir)
@@ -576,6 +789,21 @@ def main():
     df = pd.DataFrame(results)
     cols = ["Subject"] + [c for c in df.columns if c != "Subject"]
     df[cols].to_csv(worker_csv, index=False)
+    meta_path = worker_csv.with_suffix(".meta.json")
+    try:
+        meta_data = {
+            "worker_id": args.array_id,
+            "total_workers": args.total_workers,
+            "run_id": run_id,
+            "metric_version": METRIC_VERSION,
+            "num_assigned": len(my_files),
+            "num_scored": len(df),
+            "error_count": error_count,
+            "status": "completed",
+        }
+        meta_path.write_text(json.dumps(meta_data, indent=2))
+    except Exception as e:
+        logger.warning(f"Could not write worker metadata: {e}")
     logger.info(
         f"Worker {args.array_id} complete. Assigned: {len(my_files)}, "
         f"Scored: {len(df)}, Errors: {error_count}. Saved to {worker_csv}"
