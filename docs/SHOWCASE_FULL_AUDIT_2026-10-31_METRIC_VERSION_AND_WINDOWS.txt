@@ -1,0 +1,144 @@
+FULL SHOWCASE AUDIT: METRIC VERSIONING, VALID WINDOWS AND LATENT SUPPORT
+October 31, 2026
+
+Audited source: 867a79f616abdc294875d9276abe8b2b48ecddad (main).
+Verdict: all 104 local tests pass. Four confirmed defects remain: old-score
+reuse after changed metric semantics, incomplete SSIM support handling,
+encoder-dependent latent supervision, and optional-only run identity.
+
+SCOPE AND FRESH CHECKS
+
+Reviewed the five-file remediation since audit commit f9e5ad2, supporting P10
+training/dataset/autoencoder and evaluator/cache/merge paths, clinical imports,
+tests, launchers and unchanged showcase/evidence. Graphify query preceded raw
+source searches. Independent read-only training and evaluator/merge audits
+were reconciled with source and actual-function probes, including a primary-
+reviewer reproduction of the oblique-reference SSIM counterexample. No source,
+figures, production data or cluster jobs were changed. No trained-model
+inference, production cohort rerun or remote artifact verification occurred.
+
+- Full pytest: python -m pytest --continue-on-collection-errors -q
+  104 passed in 11.22 seconds, with no warnings in this run.
+- project_wide_sanity_check.py: 31 checks; 10 passed, 17 warnings, 3 failures,
+  one INFO. Failures: absent local ensemble_phase3_audit_summary.csv; absent
+  multiphase_pairs.csv; standalone empty-mask smoke import now fails with
+  "No module named 'code.project10'; 'code' is not a package". This is the
+  actual current import failure, not the preceding nnunet_mednext diagnostic.
+- AST syntax: 87 Python files pass. bash -n: 75 shell/SLURM files pass.
+- Pyflakes reports no undefined names. git diff --check is clean.
+- All 18 embedded PNGs decode. Ten local output links remain unavailable.
+  SHOWCASE.md and all 20 associated figure files are unchanged by this commit;
+  the preceding complete document/visual reviews concern the same content.
+- Working tree was clean at audit start. Only this report is committed.
+- No external CodeRabbit review was rerun; its prior sign-in requirement is
+  unresolved. This audit makes no CodeRabbit clean-result claim.
+
+CONFIRMED FINDINGS
+
+1. [P1/P2] New support-aware metrics still accept old unmasked cached scores.
+   code/project10/evaluation/evaluate_synthesis.py:39 keeps metric version
+   v2_canonical_spatial while this commit changes what L1, PSNR, correlation
+   and SSIM measure. Resume at 475-492 accepts prior rows with matching file
+   hashes and that unchanged version, without requiring Reference_Coverage.
+   Actual main() probe supplied a correctly hash-matched prior row from the
+   old unmasked metric contract. It retained L1=550, made zero metric calls,
+   and kept the row without Reference_Coverage. Fresh supported-region L1 for
+   those inputs is 0. Thus unchanged image hashes do not establish compatible
+   measurement semantics. Bump the metric version, validate cached schema,
+   and reject incompatible merge inputs. --overwrite forces recomputation
+   as an immediate workaround, but default resume remains wrong.
+
+2. [P2] SSIM bounding rectangles still include unsupported reference pixels.
+   evaluate_synthesis.py:186-204 takes the support's bounding rectangle and
+   computes ordinary SSIM over it. An oblique source can have unsupported
+   corners inside that rectangle; it does not consist entirely of valid
+   SSIM windows. The function therefore contradicts its support-only contract.
+   Actual NIfTI reproduction: a rotated 16x16x8 reference resampled onto a
+   32x32x8 grid yielded 21.484375% reference support. Changing only unsupported
+   pixels changed SSIM from 1.0 to 0.5195749931, while supported L1 remained
+   0 in both cases. Independent and primary-reviewer probes agreed.
+   Additionally, line 215 returns SSIM=0 when no valid slices/windows are
+   collected (for example a perfectly matching narrow supported strip),
+   conflating unavailable measurement with a measured poor score.
+   Compute an SSIM map and average only fully supported windows, using the
+   complete window footprint; report NaN and valid-window counts when none
+   qualify. Do not substitute the bounding box or zero for missing evidence.
+
+3. [P2] Area-pooled latent support misses actual encoder dependencies.
+   training/train_stage2_synthesis.py:480-489 and the validation counterpart
+   now mask latent MSE using area-downsampled target_support >0.99. This is
+   an improvement over ignoring support, but not encoder receptive-field
+   validity: autoencoder_3d.py:98-122 contains convolutions and spatial
+   GroupNorm, so unsupported input can influence retained latent positions.
+   Actual dataset/encoder probe: a 64-cubed patch with 62x64x64 target extent
+   passed the new 95% threshold (96.875% support). The area mask retained
+   87.5% of latent slots. Changing only the unsupported input slices changed
+   retained latent values by maximum 0.970737 and mean 0.138880.
+   This used the actual production autoencoder class with reduced channels
+   and random weights, not a trained checkpoint or measured model-quality
+   result. It demonstrates dependency leakage that local pooling misses.
+   Require full observed target support, or implement support-safe encoding
+   and loss rules accounting for convolution footprints and global spatial
+   normalization. Simple latent-mask erosion alone cannot undo GroupNorm's
+   dependence on unsupported values elsewhere in the patch.
+
+4. [P2] Worker merge still permits different runs with distinct subjects.
+   evaluate_synthesis.py:320-326 checks run_id only when that optional column
+   is present, while main() writes no run_id or assignment/completion manifest.
+   Duplicate-hash/metric checks only help when runs share a subject name.
+   Actual merge_worker_csvs probe supplied two expected, current-version worker
+   files with disjoint subjects and no run IDs, representing old/current L1
+   999/1. Both were accepted and reported mean L1=500. File naming and a common
+   metric implementation version do not prove a common cohort/run.
+   Generate and require shared run/assignment identity for every shard,
+   including empty-worker completion records. Validate expected subject sets,
+   completion and compatible inputs before consolidating a cohort. Reject
+   absent/unknown run provenance instead of making that check optional.
+
+VERIFIED REPAIRS AND IMPROVEMENTS
+
+- The production dataset now rejects the earlier 50%-supported patch under
+  its default 95% minimum. Training and validation actually consume returned
+  target_support, so the preceding entirely ignored-mask finding is resolved.
+  Finding 3 concerns the remaining encoder dependency of accepted patches.
+- Freshly computed L1/Body L1/RMSE/correlation/PSNR now use supported reference
+  voxels. Reference_Coverage is emitted. The old partial-reference L1 example
+  is corrected when recomputed; finding 1 concerns retained old rows and
+  finding 2 concerns structural windows.
+- Conflicting duplicate subject hashes or metrics now raise instead of
+  silently keeping the first row. Distinct-subject run mixing remains.
+- An actual one-case/two-worker run now writes a schema-bearing idle-worker
+  CSV and successfully merges. The idle-worker regression is resolved.
+- The current 104 tests include new support/merge regression cases. Those
+  passes do not exercise all four counterexamples above.
+- Previously corrected comparison discovery, physical-reference resampling,
+  literature qualifications and deterministic autoencoder description are
+  unchanged; no new regression in those source changes was identified.
+
+UNCHANGED EVIDENCE LIMITS
+
+The same historical PNGs remain: three legacy JHU comparison panels with
+qualified historical mapping/scores and visibly saturated P10 synthesis/tumor
+examples. Neither those images nor publication tables were regenerated.
+Passing tests and temporary synthetic probes establish specific software
+properties; they do not establish diagnostic image fidelity or corrected
+cohort performance.
+
+The claimed 50 pooled JHU evaluations, 400 clinical cases, 1,067 synthetic
+volumes and 1,990 lesions were not independently reproduced locally. Remote
+input/checkpoint/output availability and freshness were not checked. Local
+missing links and absent manifests do not establish remote absence, and the
+availability prose does not establish a verified remote run.
+
+PRIORITY NEXT CHECKS
+
+1. Version the new metric contract and invalidate old scores and shards.
+2. Test oblique support and unavailable SSIM windows through actual metrics.
+3. Validate latent dependencies, not just pooled support counts; reject or
+   safely handle any unobserved supervision in accepted training patches.
+4. Require generated run/assignment/completion identity before merging.
+5. Repair the standalone sanity-check import and rerun production evidence
+   with complete manifests after local behavior checks pass.
+
+Audit complete. The full local test suite passes; broader validation remains
+incomplete and the four confirmed defects are not fixed by this report.
