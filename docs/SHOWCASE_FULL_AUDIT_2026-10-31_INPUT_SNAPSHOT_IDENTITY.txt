@@ -1,0 +1,132 @@
+FULL SHOWCASE AUDIT: INPUT SNAPSHOT IDENTITY AND CLINICAL COVERAGE
+October 31, 2026
+
+Audited source: ae2821aa972ebb6708c8bf83cad0c58f5ce81f48 (main).
+Verdict: all 108 local tests pass. The preceding metric, structural-window and
+training-support repairs are verified. Three actionable defects remain in
+merge identity enforcement and clinical comparison of partial references.
+
+SCOPE AND FRESH VALIDATION
+
+Reviewed the seven-file remediation since audit commit 81137d6 and supporting
+P10 dataset/training/autoencoder, voxel and clinical evaluation, cache, worker
+merge, tests and launchers. The unchanged SHOWCASE/evidence remains subject
+to preceding complete document/figure reviews. Graphify query preceded raw
+source searches. Independent read-only metrics and training/evidence reviews
+were reconciled with source and actual-function probes. The primary reviewer
+also reproduced the blank-run-ID merge with expected_run_id explicitly set.
+No application source, figures, cluster jobs or production data were changed;
+no trained-model inference or production cohort rerun was performed.
+
+- Full pytest: python -m pytest --continue-on-collection-errors -q
+  108 passed in 11.95 seconds.
+- Built-in project_wide_sanity_check.py: 31 checks; 10 passed, 17 warnings,
+  3 failures, one INFO. Failures: missing local ensemble_phase3_audit_summary.csv,
+  missing multiphase_pairs.csv, unavailable nnunet_mednext in the standalone
+  empty-mask smoke import. The prior code.project10 package import error is
+  repaired; the current diagnostic is specifically the missing dependency.
+- AST syntax: 87 Python files pass. bash -n: 75 shell/SLURM files pass.
+- Pyflakes: no undefined names. git diff --check: clean.
+- All 18 embedded PNGs decode. Ten local output links remain unavailable.
+  SHOWCASE.md and all 20 associated figure files are unchanged in this commit;
+  no regenerated image evidence is established by the source remediation.
+- Source working tree was clean at audit start. Only this report is committed.
+- External CodeRabbit review was not rerun; its earlier sign-in requirement
+  remains unresolved. No external clean-review result is claimed.
+
+CONFIRMED FINDINGS
+
+1. [P2] Generated run ID does not identify the input snapshot.
+   code/project10/evaluation/evaluate_synthesis.py:454-455 hashes directory
+   paths, metric version, file names and count. It omits actual input contents
+   and worker assignment. The merge route trusts the resulting ID without
+   rechecking every row against a frozen input manifest or current files.
+   Actual two-worker probe: both cases initially scored L1=1. Changing case B's
+   real reference from 101 to 103 HU and rerunning only worker 0 retained the
+   same generated run ID. Merge accepted worker 1's old B score of 1, although
+   the current input requires 3. The single-worker resume hash checks do not
+   help a worker that was never rerun.
+   Generate an immutable input/assignment manifest whose identity includes
+   relevant content hashes, and bind every shard/completion record to it;
+   alternatively revalidate all merged rows against current inputs. A stable
+   directory/list identity is not an immutable measurement snapshot.
+
+2. [P2] Required run provenance still permits blank IDs on individual rows.
+   evaluate_synthesis.py:279-285 checks only that the run_id column exists.
+   Line 300 then calls dropna().unique(), allowing unidentified rows to vanish
+   from the consistency check when another row supplies one valid ID.
+   Actual expected-shard probe: case A with run_id='known' and case B with a
+   blank ID merged successfully. Independent and primary-reviewer probes
+   reproduced this; explicitly passing expected_run_id='known' still accepted
+   the blank case B row.
+   Require a nonempty, non-whitespace identity for every data record and
+   validate that all records match the expected run. Validate zero-row worker
+   identity/completion through separate metadata rather than ignoring missing
+   values. A column heading alone does not establish each row's provenance.
+
+3. [P2] Clinical Dice still scores missing reference coverage as background.
+   code/project10/evaluation/run_clinical_turing_test.py:186 requests aligned
+   real CT without return_support. The shared resampler permits partial
+   coverage and fills uncovered regions with -1000 HU. Full-array organ Dice
+   at 203-214 then compares those unobserved regions as if they were measured
+   reference background.
+   Actual clinical main() probe: constant 100-HU inputs with 50% physical
+   reference overlap have perfect agreement over observed voxels. Using a
+   threshold segmenter/model substitute, the real resampling, scoring and
+   pass/fail flow reported stomach Dice 0.6667 and failed its 0.70 threshold,
+   because the missing half became background. This is a synthetic scoring
+   counterexample, not trained-model inference or a clinical result.
+   Require complete reference coverage for this endpoint, or propagate valid
+   support into the clinical comparison while accounting for the segmenter's
+   inference context. Record coverage and exclude unavailable evidence instead
+   of treating fill air as observed anatomy. Voxel metric support fixes do not
+   automatically protect this separate downstream evaluation path.
+
+VERIFIED RESOLUTIONS FROM THE PRECEDING AUDIT
+
+- Metric version is now v3_supported_spatial. Prior v2 cached rows and merge
+  shards are incompatible, and cached rows require Reference_Coverage.
+  This repairs reuse of old unmasked scores under unchanged metric semantics.
+- Actual unsupported-only pixel-change probe now leaves supported SSIM
+  unchanged (1.0 to 1.0). SSIM uses fully supported seven-by-seven footprints,
+  and no valid windows yields NaN rather than a fabricated zero score.
+- The production dataset now rejects the prior 96.875%-supported training
+  patch. A completely supported patch is accepted with target_support=1.0.
+  Both training and validation explicitly reject any partial support, resolving
+  the previous GroupNorm/encoder dependency concern for accepted samples.
+- The independently rerun dataset suite passed all 27 tests in 7.62 seconds;
+  the full 108-test result above includes the broader repository suite.
+- Main evaluation now generates/emits run IDs and merge requires the column
+  and a common non-null identity. This repairs completely absent run columns
+  and differing supplied IDs, subject to findings 1 and 2.
+- Idle-worker schema output and duplicate hash/metric conflict safeguards
+  remain present. Earlier fixed comparison discovery, exact physical reference
+  alignment, literature qualifications and deterministic compressor terminology
+  are unchanged; no new regression in those source fixes was identified.
+- Standalone sanity-check root-path setup now permits the clinical import to
+  reach its actual nnunet_mednext dependency check.
+
+UNCHANGED EVIDENCE LIMITS
+
+The same historical figure bytes and publication tables remain. Three JHU
+panels are qualified legacy evidence, and the P10 synthesis/tumor examples
+retain their visible saturation. Passing source tests does not regenerate
+these images or establish corrected diagnostic image fidelity.
+
+The claimed 50 pooled JHU evaluations, 400 clinical cases, 1,067 synthetic
+volumes and 1,990 lesions were not reproduced locally. Remote dataset,
+checkpoint and result existence/freshness were not checked. Missing local
+artifacts do not establish remote absence; documentation availability notices
+do not independently establish a verified remote cohort run.
+
+NEXT VERIFICATION
+
+1. Bind run and worker assignments to a complete immutable input snapshot.
+2. Reject blank provenance on every merged record; validate worker completion.
+3. Define clinical reference coverage and support-aware inference/comparison.
+4. Add the three actual counterexamples above to regression coverage, then
+   regenerate production metrics/figures with auditable manifests once local
+   behavior and dependency checks pass.
+
+Audit complete. Local tests pass; the three confirmed defects remain unfixed
+by this report, and production cohort validation remains unverified.
