@@ -1,0 +1,105 @@
+FULL SHOWCASE AUDIT: WORKER REPARTITION AND COHORT UNIQUENESS
+November 1, 2026
+
+Audited source: 9a12982e6b2f54972b8ce368c1d13f1a96016542 (main).
+Verdict: 116 tests pass. Both preceding completion-proof and launcher defects
+are repaired. One new confirmed regression double-counts cases when a named
+run is resumed with a different number of workers.
+
+SCOPE AND FRESH VALIDATION
+
+Reviewed the three-file remediation since audit commit 9083497, evaluator
+resume/assignment/merge and proof handling, the actual SLURM launcher, tests,
+and unchanged P9/training/clinical/showcase evidence. Graphify query preceded
+source searches. Independent read-only merge and workflow reviews reproduced
+normal evaluation/merge scenarios with temporary NIfTIs. No application source,
+figures, production data or cluster jobs were changed. Only this report is
+committed; no trained-model inference or production cohort rerun occurred.
+
+- Full pytest: python -m pytest --continue-on-collection-errors -q
+  116 passed in 11.45 seconds.
+- project_wide_sanity_check.py: 31 checks; 10 passed, 17 warnings, 3 failures,
+  one INFO. Failures remain missing local ensemble_phase3_audit_summary.csv,
+  missing multiphase_pairs.csv, and unavailable nnunet_mednext for standalone
+  empty-mask smoke import. This inventory/dependency check is still not clean.
+- AST syntax: 87 Python files pass. bash -n: 75 shell/SLURM files pass.
+- Pyflakes: no undefined names. git diff --check: clean.
+- All 18 embedded PNGs decode. Ten local output links remain unavailable.
+  SHOWCASE.md and all 20 associated figure files are unchanged from preceding
+  complete document/visual audits; no regenerated images are claimed.
+- Source working tree was clean at audit start. External CodeRabbit review
+  was not rerun; its prior sign-in requirement remains unresolved.
+
+CONFIRMED FINDING
+
+1. [P2] Worker repartition of a named run double-counts cases in cohort means.
+   code/project10/evaluation/evaluate_synthesis.py:776-804 resumes hash-valid
+   cached rows without limiting them to the worker's current assignment.
+   Reusing an explicit run ID while changing total_workers can therefore leave
+   a previously assigned case in one worker's CSV while its newly assigned
+   worker also evaluates it. Manifest checks require expected cases to be
+   present but do not reject unexpected cases in a shard; metadata permits
+   num_scored greater than num_assigned.
+
+   The merge rewrite validates conflicting duplicates at 503-525 but removed
+   the former deduplication of identical Subject rows. Final sort/write around
+   589 and summary aggregation retain them, giving those cases extra weight.
+
+   Two independent actual, unmocked workflow probes confirmed the regression:
+   - Create cases A, B and C with L1 scores 1, 3 and 5.
+   - Evaluate with two workers using an explicit --run_id.
+   - Rerun the same inputs/output/run ID with three workers, then perform
+     the normal verified merge. No CSV data or metadata is edited.
+   - Merge publishes five rows for three unique cases: A, B, B, C, C.
+     The reported mean is 3.4 instead of the correct case mean 3.0.
+
+   Restrict resumed records to the current assigned subject set. Require exact
+   shard ownership/counts rather than subset presence and scored>=assigned.
+   Reject unexpected cross-shard duplicates or deduplicate identical records
+   before aggregation, while continuing to reject conflicting evaluations.
+   Alternatively reject reuse of a run ID with a changed immutable assignment
+   manifest. Test a real repartition/resume flow, not only hand-built conflicts.
+
+VERIFIED RESOLUTIONS
+
+- Default merge now requires a cohort manifest and worker completion sidecars.
+  The preceding CSV-only transfer without proof raises FileNotFoundError.
+- Empty results contradicting a nonempty manifest now raise ValueError before
+  writing a verified output. Completion/assignment and input-path checks occur
+  before the all-empty return, repairing the zero-result bypass.
+- A legitimate one-case/two-worker run including an idle worker still completes
+  and merges successfully into one row; the stricter proof requirement does
+  not break this checked success path.
+- Actual unchanged launcher probes with external commands safely substituted:
+  evaluator success 0 produces launcher exit 0; evaluator failure 7 produces
+  launcher exit 7 and no false successful-completion message. No HPC paths
+  were written and no jobs were submitted. Failure propagation is repaired.
+- Earlier content-hash snapshot identity, nonblank row provenance, full-support
+  training, supported SSIM/versioning, physical alignment and clinical score
+  masking remain present; no new regression was identified in those unchanged
+  source repairs.
+
+EVIDENCE AND LIMITS
+
+Temporary probe scripts/logs: /tmp/audit14-merge.py, /tmp/audit14-merge.log,
+/tmp/audit14-repartition.py, /tmp/audit14-repartition.log and
+/tmp/audit14-idle.log. These demonstrate local software behavior, not model
+performance or production cohort validation.
+
+Historical PNGs/publication tables were not regenerated. Three JHU comparisons
+remain qualified legacy evidence, and P10 synthesis/tumor examples retain
+visible saturation. The claimed 50 pooled JHU evaluations, 400 clinical cases,
+1,067 synthetic volumes and 1,990 lesions were not reproduced locally. Remote
+input/checkpoint/result existence and freshness were not checked. Missing
+local artifacts do not establish remote absence. Production nnunet_mednext
+inference and partial-reference inference-context validation remain unavailable.
+
+NEXT VERIFICATION
+
+Repair assignment-safe resume and case uniqueness, then rerun the actual
+three-case two-to-three-worker scenario alongside the complete test suite.
+After local behavior/dependency checks pass, regenerate production metrics
+and figures with exact case accounting and complete manifests.
+
+Audit complete. Local tests pass; the confirmed repartition regression remains
+unfixed by this report, and production cohort validation remains unverified.
