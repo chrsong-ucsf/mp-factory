@@ -1,0 +1,88 @@
+FULL SHOWCASE AUDIT: REQUIRED INPUT STATUS VERIFIED
+November 2, 2026
+
+Audited source: 484825be3fe3a276436a6f9877bc14042043edf4 (main).
+Verdict: 118 local tests pass. The outstanding required-input failure-status
+finding is fixed. No new confirmed code defect was found in this audit.
+This is a local software result, not production or clinical validation.
+
+SCOPE AND FRESH CHECKS
+
+Fetched origin and verified local main matched remote main before the report.
+Reviewed the two-file remediation since 0bce07e, evaluator CLI failure paths,
+actual launcher propagation and successful evaluation/repartition/merge behavior,
+full tests, static/syntax checks and unchanged SHOWCASE/artifacts. Graphify
+query preceded source searches. Applied the project evaluation-audit checklist
+and an independent read-only behavior review. No source, figures, production
+data or cluster jobs were changed. Only this report is committed.
+
+- Full pytest: python -m pytest --continue-on-collection-errors -q
+  118 passed in 17.90 seconds.
+- project_wide_sanity_check.py: 31 checks; 10 passed, 17 warnings, 3 failures,
+  one INFO. Failures remain missing local ensemble_phase3_audit_summary.csv,
+  missing multiphase_pairs.csv, and unavailable nnunet_mednext for standalone
+  empty-mask smoke import. The inventory/dependency check remains incomplete.
+- AST syntax: 87 Python files pass. bash -n: 75 shell/SLURM files pass.
+- Pyflakes: no undefined names. git diff --check: clean.
+- All 18 embedded PNGs decode. Ten local output links remain unavailable.
+  SHOWCASE.md and all 20 associated figure files are unchanged from preceding
+  complete document/visual reviews; no regenerated image evidence is claimed.
+- Working tree was clean at audit start. External CodeRabbit review was not
+  rerun; its prior sign-in requirement remains unresolved.
+
+VERIFIED FIX AND BEHAVIOR MATRIX
+
+Path / contract                         Fresh local result
+Missing synthetic input directory       Exit 1; no report; FileNotFoundError.
+Missing reference input directory        Exit 1; no report; FileNotFoundError.
+Empty synthetic input directory          Exit 1; no report; FileNotFoundError.
+Launcher calling actual missing-input CLI Exit 1; no false completion/report.
+Three cases, two workers                 Three unique rows; mean L1 3.0.
+Same explicit run ID, three workers      Three unique rows; mean L1 3.0.
+
+Independent and primary-reviewer subprocess probes agreed on all three CLI
+failure cases. The launcher probe safely substituted setup commands and routed
+its Python invocation to the real local evaluator with temporary missing input;
+it did not submit a job, activate cluster infrastructure or write HPC paths.
+The successful repartition probe used actual temporary NIfTIs and real metrics,
+with no CSV edits or mocked metric results.
+
+The former required-input false-success finding is therefore resolved in the
+actual entry point and checked wrapper. The earlier assignment-safe resume and
+case-uniqueness repair remains verified. No additional code defect was confirmed
+in the reviewed unchanged proof, hash, support, metric and evaluation contracts.
+
+OPEN LOCAL SOFTWARE FINDINGS
+
+None newly confirmed in this audit. This does not establish the absence of
+all possible repository defects; it records the reviewed paths and checks above.
+
+REMAINING VERIFICATION BLOCKERS AND CLAIM LIMITS
+
+1. Local sanity inventory cannot establish cohort completion without the
+   ensemble audit CSV and multiphase manifest. Those missing local files are
+   not evidence that remote files are absent.
+2. Production nnunet_mednext and trained checkpoints were not available for
+   local trained-model inference or partial-reference inference-context
+   validation. The new tests do not establish diagnostic model quality.
+3. The historical PNGs/publication tables have not been regenerated. Three
+   JHU panels remain qualified legacy evidence, and P10 synthesis/tumor examples
+   retain visible saturation. Passing software checks do not update their
+   provenance or establish corrected image fidelity.
+4. The claimed 50 pooled JHU evaluations, 400 clinical cases, 1,067 synthetic
+   volumes and 1,990 lesions were not reproduced. Remote data/checkpoint/result
+   availability and freshness were not checked.
+5. Same-segmenter real/synthetic agreement is a downstream consistency endpoint;
+   by itself it does not establish a human-reader clinical Turing test or
+   clinical interchangeability. Appropriate independent evaluation remains
+   necessary before making those broader claims.
+
+NEXT VERIFICATION
+
+Restore or mount the required manifests, data and trained dependencies, verify
+checkpoint/input identities, and regenerate versioned production metrics and
+figures with exact cohort accounting. Additional unchanged-source local test
+runs cannot substitute for those missing measurements.
+
+Audit complete. The previously open CLI defect is fixed; no new code defect
+was confirmed. Production and clinical claims remain unverified.
