@@ -1,0 +1,83 @@
+FULL SHOWCASE AUDIT: FRESH REVALIDATION OF UNCHANGED SOURCE
+November 2, 2026
+
+Audited checkout: ff90ea9598a19d45fb9ef307f551ab43438058dc (main).
+Application source remains d68d34ba409795b444f2088f3a3731ed639d1d72.
+Verdict: 117 tests pass. No additional defect confirmed; the previously
+reported required-input failure-status defect remains reproducible.
+
+SCOPE AND FRESH CHECKS
+
+Fetched origin and verified that local main matched remote main before this
+report. Since the preceding audit, the only commit is that audit's report;
+there are no new source changes. Revalidated the complete local test suite,
+project sanity inventory, Python/shell syntax, static diagnostics, embedded
+image availability, required-input CLI paths, SLURM wrapper status propagation
+and successful repartition behavior. Graphify query preceded source searches.
+Independent read-only checks reproduced the key outcomes. No application
+source, figures, production data or cluster jobs were changed. Only this new
+report is committed.
+
+- Full pytest: python -m pytest --continue-on-collection-errors -q
+  117 passed in 13.27 seconds.
+- project_wide_sanity_check.py: 31 checks; 10 passed, 17 warnings, 3 failures,
+  one INFO. The three failures remain missing local ensemble audit CSV,
+  missing multiphase registration manifest and unavailable nnunet_mednext
+  for the standalone empty-mask smoke import. This check remains incomplete.
+- AST syntax: 87 Python files pass. bash -n: 75 shell/SLURM files pass.
+- Pyflakes: no undefined names. git diff --check: clean.
+- All 18 embedded PNGs decode. Ten local output links remain unavailable.
+  SHOWCASE.md and all 20 associated figure files are unchanged from preceding
+  complete document/visual reviews; none has been regenerated.
+- Working tree was clean at audit start. External CodeRabbit review was not
+  rerun; its prior sign-in requirement remains unresolved.
+
+OUTSTANDING CONFIRMED FINDING
+
+[P2] Missing required input directories still yield a successful CLI exit.
+code/project10/evaluation/evaluate_synthesis.py:725-731 logs an error and
+returns normally when fake_dir or real_dir is missing. Fresh independent and
+primary-reviewer subprocess probes tested each branch:
+- Missing fake directory: exit 0, ERROR logged, no report created.
+- Missing real directory: exit 0, ERROR logged, no report created.
+
+The launcher correctly propagates Python's status but cannot recognize an
+error that Python reports as success. Raise an appropriate missing-input
+exception or return a nonzero CLI status, and test both subprocess paths.
+This is the same finding recorded in the preceding audit, not a new defect
+introduced since then. No source fix was present to verify in this pass.
+
+FRESHLY VERIFIED SUCCESS PATHS
+
+- Actual three-case L1=1/3/5 evaluation, two workers followed by three with
+  the same explicit run ID/output, preserves three unique cases and mean 3.0.
+  The former double-counting regression remains repaired.
+- Actual launcher tests with external commands safely substituted preserve
+  evaluator success 0 as shell 0 and evaluator failure 7 as shell 7, without
+  a false successful-completion message on failure. No HPC work occurred.
+- No new confirmed regression was identified in the reviewed unchanged
+  assignment, proof, physical alignment, support and metric-version contracts.
+
+EVIDENCE AND LIMITS
+
+Fresh independent probe: /tmp/audit16-independent.py and
+/tmp/audit16-independent.log. These and the test results establish local
+software behavior, not trained-model or production cohort quality.
+
+Historical figures and publication tables are unchanged. Three qualified
+legacy JHU panels and saturated P10 synthesis/tumor examples have not been
+regenerated. The claimed 50 pooled JHU evaluations, 400 clinical cases,
+1,067 synthetic volumes and 1,990 lesions were not reproduced locally.
+Remote data/checkpoint/result availability and freshness were not checked.
+Missing local artifacts do not establish remote absence. Production model
+inference and partial-reference inference-context validation remain unavailable.
+
+NEXT VERIFICATION
+
+Correct required-input exit status, verify actual CLI and launcher failure
+behavior, then rerun local checks. Closing the separate production evidence
+gap requires complete manifests/checkpoints and measured cohort regeneration;
+repeating unchanged-source local tests does not establish those results.
+
+Audit complete. No additional defect confirmed. The known required-input
+status defect and production-validation limits remain unresolved.
