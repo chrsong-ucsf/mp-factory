@@ -1,0 +1,149 @@
+FULL SHOWCASE AUDIT: PRODUCTION CLAIMS AND EMPTY-CONSENSUS ELIGIBILITY
+November 2, 2026
+
+Audited source: 32d85746ca1f9eddcd920693c9800a244027f0c8 (main).
+Verdict: all 120 tests pass and the local inventory checker now has zero
+critical failures. Three confirmed findings prevent accepting the new report
+as complete production validation, including an empty-mask triage/training
+path exposed by the newly archived ensemble data.
+
+SCOPE AND FRESH CHECKS
+
+Fetched origin and confirmed checkout/remote agreement. Reviewed the complete
+seven-file remediation since 68649ca: new production verifier, production
+report, both archived manifests, checker fallback, lazy model import and tests.
+Traced ensemble eligibility and downstream training discovery in supporting
+code. Graphify query preceded source searches. Independent read-only evidence
+and checker reviews were reconciled with actual local probes; the primary
+reviewer reproduced empty consensus triage and the verifier false-success path.
+No source, production report, figures, cluster jobs or production data were
+changed. Only this audit report is committed. No SSH/remote verification,
+production model inference or cohort regeneration was performed in this audit.
+
+- Full pytest: python -m pytest --continue-on-collection-errors -q
+  120 passed in 26.55 seconds.
+- project_wide_sanity_check.py: 31 checks; 13 passed, 17 warnings, 0 critical
+  failures, one INFO. This is now a passing local inventory/helper check.
+  It finds archived CSVs and can import the pure Dice helpers; it does not
+  validate the corresponding current production volumes or cohort metrics.
+- AST syntax: 88 Python files pass. bash -n: 75 shell/SLURM files pass.
+- Pyflakes: no undefined names. git diff --check: clean.
+- All 18 embedded PNGs decode; ten local output links remain unavailable.
+  SHOWCASE.md and all 20 associated figure files are unchanged from preceding
+  complete document/visual reviews. The new production report is text evidence,
+  not regenerated images or raw evaluation artifacts.
+- Source working tree was clean at audit start. External CodeRabbit review
+  was not rerun; the prior sign-in requirement remains unresolved.
+
+CONFIRMED FINDINGS
+
+1. [P1] Empty consensus masks are classified clean and accepted for training.
+   code/evaluation/evaluate_multi_model_ensemble.py:535-540 gives empty/empty
+   organ Dice and IoU 1.0; inter-model agreement at 570-578 does the same.
+   Aggregation/triage at 602-623 imposes no foreground eligibility gate.
+   Two independent actual evaluate_subject() probes with two all-background
+   8-cubed masks returned SUCCESS, CLEAN_HIGH_CONFIDENCE, consensus Dice 1,
+   inter-model Dice 1, entropy 0 and zero foreground components.
+
+   The new docs/manifests/ensemble_phase3_audit_summary.csv reports all four
+   consensus Betti counts zero in 903 of 1,632 rows, including 405 of the 408
+   CLEAN_HIGH_CONFIDENCE rows. These are archived measurements, not a fresh
+   assertion that the current remote masks are empty; their contents require
+   investigation before treating this archive as evidence of a usable pool.
+   The actual current function independently reproduces the underlying failure.
+
+   A downstream actual discover_phase2_dataset() probe with a valid 16-cubed
+   CT, empty 16-cubed consensus label and CLEAN row returned one usable pair.
+   code/training/train_mednext_phase2.py:184-205 checks readability/dimensions
+   but does not reject all-background GI supervision. Thus the defect is not
+   confined to a displayed score: empty labels can be admitted to training.
+
+   Reject zero/unusable foreground before triage, export and training, and
+   exclude absent organs from agreement aggregation. Quarantine/recompute
+   eligibility for archived affected cases before describing the CLEAN+WEAK
+   total of 873 as a verified usable pool. Do not require every organ in every
+   crop; distinguish absent organs from an entirely unusable segmentation.
+
+2. [P1/P2] Production verification declares success despite failed checks.
+   code/evaluation/verify_production_results.py:337-349 ignores checkpoint
+   validity, dataset/segmentation completeness flags and tables_ok. It calls
+   report generation and prints ALL GATES PASSED unconditionally whenever
+   execution reaches the end. Report-generation text at 268-274,294,313 and
+   321-323 hardcodes complete verification, 100% completion, 1,990 verified
+   lesions/zero bleed and a fully reproduced conclusion.
+
+   Primary-reviewer controlled local probe used temporary empty results and
+   the actual archived CSVs. The real file scanners reported 26 missing
+   checkpoints and no CT/segmentation/synthesis outputs; only the compiler
+   function was substituted to return an explicit failed-table result.
+   Actual main() returned normally, printed ALL GATES PASSED and wrote the
+   success assertions into a temporary report. An independent failure-injection
+   probe also reproduced the unconditional success. No tracked report was
+   overwritten and no production results were simulated as genuine evidence.
+
+   Make explicit required gates control process status and report conclusions.
+   Distinguish missing, failed, skipped, inventory-only and verified checks.
+   Propagate compilation failure; validate output booleans rather than ignoring
+   them. A generated Markdown file must not itself constitute a passing gate.
+
+3. [P2] The production report claims checks the verifier does not perform.
+   docs/PRODUCTION_VERIFICATION_REPORT_2026-11-02.md:57,80,89-90,160-162
+   claims physical geometry verification, strict NIfTI eligibility, zero tumor
+   bleed and fully reproduced production benchmarks. But verifier routines
+   at 125-159 count filenames, and 196-233 count outputs/read an existing
+   metrics CSV. They do not inspect the claimed NRRD orientation/spacing,
+   validate label/probability content and subject correspondence, run JHU
+   reevaluation, test lesion containment, or validate v3 run/input/checkpoint
+   manifests and regenerate metric results.
+
+   Checkpoint hashing/loadability provides an inventory fingerprint, not proof
+   that these particular weights generated the reported outputs. The report
+   publishes abbreviated hashes and no measured linkage from weights to each
+   inference/evaluation run. The P10 verifier reads existing Pearson_R values;
+   labeling them masked soft-tissue correlations is not established by this
+   check or the current evaluator, whose correlation covers reference-supported
+   voxels rather than a soft-tissue-only mask.
+
+   The report also hardcodes the lesion count/zero bleed without reading a
+   lesion manifest. Recompiling tables from existing CSVs is not recomputing
+   their measurements under corrected spatial/support rules. These scope gaps
+   remain even if every expected file exists and all Boolean gates are fixed.
+   Implement the advertised checks with saved raw results/manifests and complete
+   identities, or narrow the report to timestamped inventory/loadability and
+   existing-report aggregation. Do not call that complete cohort reproduction.
+
+VERIFIED IMPROVEMENTS AND ARCHIVE CONTENT
+
+- New archived ensemble data contains 1,632 unique subject rows, all recorded
+  SUCCESS, with triage counts 759 NOISE_REJECT / 465 WEAK_COARSE / 408 CLEAN.
+  The totals match the report; finding 1 concerns eligibility and empty masks.
+- New pair archive contains 1,545 unique targets across 438 patients, no
+  duplicate/self-target rows, and one NCCT source per patient. Exam dates are
+  missing, so temporal pairing cannot be independently verified from it.
+- Checker fallback correctly discovers the archived CSVs. This resolves their
+  local availability blocker; it does not make historical rows current output
+  verification. Pass messages should identify archived-source scope clearly.
+- Pure NumPy Dice helpers now import without nnunet_mednext. Actual model
+  execution still explicitly requires the model dependency. The empty-mask
+  helper smoke test genuinely passes, separately from the ensemble defect.
+- Earlier evaluator required-input status, supported metrics, assignment-safe
+  resume, strict merge proof and launcher propagation repairs are unchanged;
+  no new regression was identified in those source changes.
+
+EVIDENCE LIMITS AND NEXT VERIFICATION
+
+This audit does not assert that the new report's inventory counts were invented
+or that remote files are absent. It establishes that the supplied verifier and
+archived data do not substantiate the report's broader quality/reproduction
+claims and can produce false success. Remote data/checkpoint/result freshness
+and any independent execution record behind the report were not checked.
+
+Priorities: first reject empty consensus/training pairs and re-audit pool
+eligibility; then make verifier gates fail correctly; then measure and retain
+actual geometry/content/provenance and corrected cohort evaluation results.
+Regenerate figures/tables from that versioned run. The current historical PNGs
+and the 120-test pass do not establish clinical image fidelity, human-reader
+Turing-test performance or clinical interchangeability.
+
+Audit complete. The local checker is green, but three confirmed code/evidence
+findings remain unfixed by this report and production validation is not closed.
