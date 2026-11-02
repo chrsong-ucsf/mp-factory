@@ -1608,3 +1608,76 @@ def test_production_evaluate_synthesis_repartition_named_run_preserves_case_uniq
         df1_injected.to_csv(worker1_csv, index=False)
         with pytest.raises(ValueError, match="unexpected cases not assigned|Duplicate subject"):
             merge_worker_csvs(out_csv, total_workers=3, fake_dir=fake_dir, real_dir=real_dir)
+
+
+def test_production_evaluate_synthesis_missing_required_inputs_exits_nonzero_subprocess():
+    """Finding 1 (0bce07e): Missing required input directories exit with non-zero status and create no report."""
+    import subprocess
+    script_path = Path(BASE_DIR) / "code" / "project10" / "evaluation" / "evaluate_synthesis.py"
+    assert script_path.exists()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        existing_dir = tmp_path / "existing"
+        existing_dir.mkdir()
+        empty_dir = tmp_path / "empty_fake"
+        empty_dir.mkdir()
+        nonexistent_dir = tmp_path / "does_not_exist"
+        out_csv = tmp_path / "out.csv"
+
+        # 1. Missing fake_dir via subprocess
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(script_path),
+                "--fake_dir", str(nonexistent_dir),
+                "--real_dir", str(existing_dir),
+                "--output_csv", str(out_csv),
+                "--total_workers", "1",
+                "--array_id", "0",
+                "--device", "cpu",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode != 0
+        assert "Input verification failed: fake directory" in (proc.stderr + proc.stdout)
+        assert not out_csv.exists()
+
+        # 2. Missing real_dir via subprocess
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(script_path),
+                "--fake_dir", str(existing_dir),
+                "--real_dir", str(nonexistent_dir),
+                "--output_csv", str(out_csv),
+                "--total_workers", "1",
+                "--array_id", "0",
+                "--device", "cpu",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode != 0
+        assert "Input verification failed: real directory" in (proc.stderr + proc.stdout)
+        assert not out_csv.exists()
+
+        # 3. Empty fake_dir (no NIfTIs found) via subprocess
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(script_path),
+                "--fake_dir", str(empty_dir),
+                "--real_dir", str(existing_dir),
+                "--output_csv", str(out_csv),
+                "--total_workers", "1",
+                "--array_id", "0",
+                "--device", "cpu",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode != 0
+        assert "no NIfTI files found in fake directory" in (proc.stderr + proc.stdout)
+        assert not out_csv.exists()

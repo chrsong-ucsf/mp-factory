@@ -724,11 +724,15 @@ def main():
 
     if not fake_dir.is_dir():
         logger.error(f"Fake directory does not exist: {fake_dir}")
-        return
+        raise FileNotFoundError(
+            f"Input verification failed: fake directory '{fake_dir}' does not exist or is not a directory."
+        )
 
     if not real_dir.is_dir():
         logger.error(f"Real directory does not exist: {real_dir}")
-        return
+        raise FileNotFoundError(
+            f"Input verification failed: real directory '{real_dir}' does not exist or is not a directory."
+        )
 
     # Discover fake files
     fake_files = sorted(
@@ -739,8 +743,10 @@ def main():
     fake_files = sorted(list(set(fake_files)))
 
     if not fake_files:
-        logger.warning(f"No NIfTI files found in {fake_dir}")
-        return
+        logger.error(f"No NIfTI files found in {fake_dir}")
+        raise FileNotFoundError(
+            f"Input verification failed: no NIfTI files found in fake directory '{fake_dir}'."
+        )
 
     total_discovered = len(fake_files)
     manifest = build_evaluation_cohort_manifest(
