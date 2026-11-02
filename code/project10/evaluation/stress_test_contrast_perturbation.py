@@ -44,8 +44,12 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from monai.inferers import sliding_window_inference
-from nnunet_mednext import create_mednext_v1
+try:
+    from nnunet_mednext import create_mednext_v1
+    from monai.inferers import sliding_window_inference
+except (ImportError, ModuleNotFoundError):
+    create_mednext_v1 = None
+    sliding_window_inference = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -93,6 +97,8 @@ def compute_binary_dice(m1: np.ndarray, m2: np.ndarray) -> float:
 
 def run_model_inference(ct_vol: np.ndarray, model: torch.nn.Module, device: torch.device) -> np.ndarray:
     """Runs sliding window inference on CT volume (HU normalized to [0, 1])."""
+    if sliding_window_inference is None:
+        raise ImportError("monai.inferers.sliding_window_inference is required for model inference.")
     # Soft tissue abdominal window: [-175, 250] HU -> [0, 1]
     norm_vol = np.clip(ct_vol, -175.0, 250.0)
     norm_vol = (norm_vol - (-175.0)) / (250.0 - (-175.0))
@@ -266,6 +272,9 @@ def main():
     if not os.path.exists(args.model_path):
         log.error(f"Checkpoint not found: {args.model_path}")
         sys.exit(1)
+
+    if create_mednext_v1 is None:
+        raise ImportError("nnunet_mednext is required to load model backbone.")
 
     log.info("Loading MedNeXt-B backbone...")
     model = create_mednext_v1(

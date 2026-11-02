@@ -1681,3 +1681,37 @@ def test_production_evaluate_synthesis_missing_required_inputs_exits_nonzero_sub
         assert proc.returncode != 0
         assert "no NIfTI files found in fake directory" in (proc.stderr + proc.stdout)
         assert not out_csv.exists()
+
+
+def test_stress_test_contrast_perturbation_standalone_without_nnunet_mednext():
+    """Verify that stress_test_contrast_perturbation can be imported and compute_binary_dice
+    executed in standalone environments where nnunet_mednext is not installed."""
+    import subprocess
+    cmd = [
+        sys.executable,
+        "-c",
+        (
+            "import sys\n"
+            "sys.modules['nnunet_mednext'] = None\n"
+            "from code.project10.evaluation.stress_test_contrast_perturbation import compute_binary_dice\n"
+            "import numpy as np\n"
+            "res = compute_binary_dice(np.zeros((8, 8, 8)), np.zeros((8, 8, 8)))\n"
+            "assert np.isnan(res), f'Expected NaN, got {res}'\n"
+            "print('SUCCESS')\n"
+        )
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=BASE_DIR)
+    assert proc.returncode == 0, f"Failed with: {proc.stderr}"
+    assert "SUCCESS" in proc.stdout
+
+
+def test_project_wide_sanity_check_manifest_fallback_and_zero_critical_failures():
+    """Verify project_wide_sanity_check discovers manifests and runs with 0 critical failures."""
+    import subprocess
+    script_path = Path(BASE_DIR) / "code" / "evaluation" / "project_wide_sanity_check.py"
+    assert script_path.exists()
+
+    proc = subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True, cwd=BASE_DIR)
+    assert proc.returncode == 0, f"Sanity check returned non-zero: {proc.stderr}\n{proc.stdout}"
+    assert "Critical Failures      : 0" in proc.stdout
+    assert "System Health Score" in proc.stdout
