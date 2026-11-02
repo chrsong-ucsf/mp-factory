@@ -104,12 +104,16 @@ TRIAGE_ACTIONS = {
 
 
 def triage_case(mean_consensus_dice, mean_inter_model_dice, max_betti_diff,
-                mean_uncertainty):
+                mean_uncertainty, total_foreground_voxels=None, total_foreground_components=None):
     """Strict automated data-cleansing triage for one audited scan.
 
     Pure function (no I/O) so it can be unit-tested and reused by the merge /
     analysis utilities. Rules are evaluated top-down; the first match wins.
 
+      0. EMPTY / ZERO-FOREGROUND REJECTION -- hard foreground eligibility gate:
+         A scan with zero foreground voxels or zero foreground components across
+         all organs contains no GI anatomy supervision and MUST NOT qualify as
+         clean or weak training data. Triaged directly to NOISE_REJECT.
       1. NOISE_REJECT  -- HARD topological / agreement failure gate. Dumped so
          the scan cannot poison the training pool:
              |Δβ0| > NOISE_BETTI_DIFF_MAX        (fragmented / broken topology)
@@ -124,6 +128,11 @@ def triage_case(mean_consensus_dice, mean_inter_model_dice, max_betti_diff,
 
     Returns (triage_category, action).
     """
+    if (total_foreground_voxels is not None and total_foreground_voxels == 0) or \
+       (total_foreground_components is not None and total_foreground_components == 0):
+        category = 'NOISE_REJECT'
+        return category, 'Auto-Exclude (Zero Foreground Components / Empty Consensus)'
+
     if (max_betti_diff > NOISE_BETTI_DIFF_MAX
             or mean_consensus_dice < NOISE_DICE_MIN
             or mean_uncertainty > NOISE_UNCERTAINTY_MAX):
@@ -536,8 +545,12 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                 total = np.sum(cons_o) + np.sum(m_o)
                 union = total - intersection
 
-                d = (2.0 * intersection) / total if total > 0 else 1.0
-                iou = intersection / union if union > 0 else 1.0
+                if total > 0:
+                    d = (2.0 * intersection) / total
+                    iou = intersection / union if union > 0 else 0.0
+                else:
+                    d = np.nan
+                    iou = np.nan
 
                 hd95 = compute_hd95_fast(cons_o, m_o)
                 betti_m = compute_betti_0(m_o)
@@ -547,8 +560,8 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                 asd, nsd = compute_surface_metrics(cons_o, m_o)
                 composite = compute_composite_score(d, hd95)
 
-                res[f'{organ_name}_dice_{name}'] = round(float(d), 4)
-                res[f'{organ_name}_iou_{name}'] = round(float(iou), 4)
+                res[f'{organ_name}_dice_{name}'] = round(float(d), 4) if not np.isnan(d) else np.nan
+                res[f'{organ_name}_iou_{name}'] = round(float(iou), 4) if not np.isnan(iou) else np.nan
                 res[f'{organ_name}_hd95_{name}'] = round(float(hd95), 2) if not np.isnan(hd95) else np.nan
                 res[f'{organ_name}_precision_{name}'] = round(float(prec), 4)
                 res[f'{organ_name}_sensitivity_{name}'] = round(float(sens), 4)
@@ -557,11 +570,13 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                 res[f'{organ_name}_rvd_{name}'] = round(float(rvd), 4) if not np.isnan(rvd) else np.nan
                 res[f'{organ_name}_asd_{name}'] = round(float(asd), 2) if not np.isnan(asd) else np.nan
                 res[f'{organ_name}_nsd_{name}'] = round(float(nsd), 4) if not np.isnan(nsd) else np.nan
-                res[f'{organ_name}_composite_{name}'] = round(float(composite), 4)
+                res[f'{organ_name}_composite_{name}'] = round(float(composite), 4) if not np.isnan(composite) else np.nan
                 res[f'{organ_name}_betti_diff_{name}'] = b_diff
 
-                organ_dices.append(d)
-                organ_ious.append(iou)
+                if not np.isnan(d):
+                    organ_dices.append(d)
+                if not np.isnan(iou):
+                    organ_ious.append(iou)
                 organ_betti_diffs.append(b_diff)
 
             # Pairwise inter-model Dice (eliminates circular model-vs-consensus bias)
@@ -573,22 +588,35 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                         m_j = (model_masks[j] == organ_id)
                         intersection_ij = np.sum(m_i & m_j)
                         total_ij = np.sum(m_i) + np.sum(m_j)
-                        d_ij = (2.0 * intersection_ij) / total_ij if total_ij > 0 else 1.0
-                        organ_inter_model_dices.append(d_ij)
+                        if total_ij > 0:
+                            d_ij = (2.0 * intersection_ij) / total_ij
+                            organ_inter_model_dices.append(d_ij)
             else:
-                organ_inter_model_dices = [1.0]
+                if np.sum(model_masks[0] == organ_id) > 0:
+                    organ_inter_model_dices = [1.0]
 
-            mean_organ_inter_model_dice = float(np.mean(organ_inter_model_dices))
-            res[f'{organ_name}_inter_model_dice'] = round(mean_organ_inter_model_dice, 4)
+            if organ_inter_model_dices:
+                mean_organ_inter_model_dice = float(np.mean(organ_inter_model_dices))
+                res[f'{organ_name}_inter_model_dice'] = round(mean_organ_inter_model_dice, 4)
+                eval_inter_model_dices.append(mean_organ_inter_model_dice)
+            else:
+                res[f'{organ_name}_inter_model_dice'] = np.nan
 
-            mean_org_dice = float(np.mean(organ_dices))
-            res[f'{organ_name}_mean_dice'] = round(mean_org_dice, 4)
-            res[f'{organ_name}_mean_iou'] = round(float(np.mean(organ_ious)), 4)
+            if organ_dices:
+                mean_org_dice = float(np.mean(organ_dices))
+                res[f'{organ_name}_mean_dice'] = round(mean_org_dice, 4)
+                eval_dices.append(mean_org_dice)
+            else:
+                res[f'{organ_name}_mean_dice'] = np.nan
+
+            if organ_ious:
+                mean_org_iou = float(np.mean(organ_ious))
+                res[f'{organ_name}_mean_iou'] = round(mean_org_iou, 4)
+                eval_ious.append(mean_org_iou)
+            else:
+                res[f'{organ_name}_mean_iou'] = np.nan
+
             res[f'{organ_name}_max_betti_diff'] = max(organ_betti_diffs)
-
-            eval_dices.append(mean_org_dice)
-            eval_ious.append(np.mean(organ_ious))
-            eval_inter_model_dices.append(mean_organ_inter_model_dice)
             max_betti_diff = max(max_betti_diff, max(organ_betti_diffs))
 
         # Overall partition clustering metrics and ECE calibration across models vs consensus
@@ -599,26 +627,24 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
             res[f'voi_{name}'] = round(voi, 4)
             res[f'ece_{name}'] = round(ece, 4)
 
-        res['mean_consensus_dice'] = round(float(np.mean(eval_dices)), 4)
-        res['mean_consensus_iou'] = round(float(np.mean(eval_ious)), 4)
-        res['mean_inter_model_dice'] = round(float(np.mean(eval_inter_model_dices)), 4)
+        total_fg_voxels = int(np.sum(consensus_mask > 0))
+        total_fg_components = sum(res.get(f'{organ_name}_betti_consensus', 0) for organ_name in ORGAN_MAP.values())
+        res['total_foreground_voxels'] = total_fg_voxels
+        res['total_foreground_components'] = total_fg_components
+
+        res['mean_consensus_dice'] = round(float(np.mean(eval_dices)), 4) if eval_dices else 0.0
+        res['mean_consensus_iou'] = round(float(np.mean(eval_ious)), 4) if eval_ious else 0.0
+        res['mean_inter_model_dice'] = round(float(np.mean(eval_inter_model_dices)), 4) if eval_inter_model_dices else 0.0
         res['max_betti_diff'] = max_betti_diff
 
         # 5. Categorization / Triage Logic (Automated Data Cleansing)
-        # Strict binning for 3D multi-component GI organ segmentation
-        # (Stomach, Duodenum, Small Bowel, Colon). Rules and thresholds are
-        # centralized in triage_case() / the NOISE_*/CLEAN_* module constants so
-        # the merge + analysis utilities stay in lock-step.
-        #
-        #   NOISE_REJECT          : |Δβ0| > 5  OR  mean Dice < 0.50  OR  entropy > 0.15
-        #   CLEAN_HIGH_CONFIDENCE : consensus Dice >= 0.82 AND inter-model Dice >= 0.85
-        #                           AND |Δβ0| <= 2
-        #   WEAK_COARSE           : otherwise (coarse / partially labeled)
         category, action = triage_case(
             mean_consensus_dice=res['mean_consensus_dice'],
             mean_inter_model_dice=res['mean_inter_model_dice'],
             max_betti_diff=res['max_betti_diff'],
             mean_uncertainty=res['mean_uncertainty'],
+            total_foreground_voxels=res['total_foreground_voxels'],
+            total_foreground_components=res['total_foreground_components'],
         )
         res['triage_category'] = category
         res['action'] = action

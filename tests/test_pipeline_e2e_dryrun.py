@@ -191,11 +191,11 @@ class TestPipelineDryRun(unittest.TestCase):
 
                 os.makedirs(os.path.join(s_data, "SUB_VALID"), exist_ok=True)
                 nib.save(nib.Nifti1Image(np.zeros((32, 32, 32), dtype=np.float32), np.eye(4)), os.path.join(s_data, "SUB_VALID", "ct.nii.gz"))
-                nib.save(nib.Nifti1Image(np.zeros((32, 32, 32), dtype=np.uint8), np.eye(4)), os.path.join(s_ens, "SUB_VALID_consensus.nii.gz"))
+                nib.save(nib.Nifti1Image(np.ones((32, 32, 32), dtype=np.uint8), np.eye(4)), os.path.join(s_ens, "SUB_VALID_consensus.nii.gz"))
 
                 os.makedirs(os.path.join(s_data, "BDMAP_00242583"), exist_ok=True)
                 nib.save(nib.Nifti1Image(np.zeros((32, 32, 1), dtype=np.float32), np.eye(4)), os.path.join(s_data, "BDMAP_00242583", "ct.nii.gz"))
-                nib.save(nib.Nifti1Image(np.zeros((32, 32, 1), dtype=np.uint8), np.eye(4)), os.path.join(s_ens, "BDMAP_00242583_consensus.nii.gz"))
+                nib.save(nib.Nifti1Image(np.ones((32, 32, 1), dtype=np.uint8), np.eye(4)), os.path.join(s_ens, "BDMAP_00242583_consensus.nii.gz"))
 
                 pd.DataFrame({
                     "subject_id": ["SUB_VALID", "BDMAP_00242583"],
@@ -216,6 +216,7 @@ class TestPipelineDryRun(unittest.TestCase):
                 self.assertIn("SUB_VALID", sub_ids, "Valid 3D scan must be retained!")
         else:
             for name, discover_fn in [("MedNeXt", discover_mednext), ("Swin-UNETR", discover_swin)]:
+                # When testing degenerate scan geometry (scouts/2D localizers), disable empty-foreground filter
                 pairs = discover_fn(
                     data_dir=data_dir,
                     audit_csv=audit_csv,
@@ -223,6 +224,7 @@ class TestPipelineDryRun(unittest.TestCase):
                     autolabel_dir=autolabel_dir,
                     use_weak=True,
                     gold_standard_dir=gold_std_dir,
+                    require_foreground=False,
                 )
                 sub_ids = {p["subject_id"] for p in pairs}
                 self.assertNotIn("BDMAP_00242583", sub_ids, f"{name}: 2D scan BDMAP_00242583 was not filtered!")
@@ -247,12 +249,36 @@ class TestPipelineDryRun(unittest.TestCase):
         import nibabel as nib
 
         data_dir = os.path.join(_ROOT, "CancerVerse_dbox")
-        audit_csv = os.path.join(_ROOT, "results", "ensemble_phase2_audit_summary.csv")
-        ensemble_out = os.path.join(_ROOT, "results", "ensemble_phase2_out")
-        autolabel_dir = os.path.join(_ROOT, "results", "autolabel_phase2_out")
+        phase3_csv = os.path.join(_ROOT, "results", "ensemble_phase3_audit_summary.csv")
+        phase2_csv = os.path.join(_ROOT, "results", "ensemble_phase2_audit_summary.csv")
+        if os.path.isfile(phase3_csv):
+            audit_csv = phase3_csv
+            ensemble_out = os.path.join(_ROOT, "results", "ensemble_phase3_out")
+            autolabel_dir = os.path.join(_ROOT, "results", "autolabel_phase3_out")
+        elif os.path.isfile(phase2_csv):
+            audit_csv = phase2_csv
+            ensemble_out = os.path.join(_ROOT, "results", "ensemble_phase2_out")
+            autolabel_dir = os.path.join(_ROOT, "results", "autolabel_phase2_out")
+        else:
+            audit_csv = None
         gold_std_dir = os.path.join(_ROOT, "JHU_data_radiologist_corrected")
 
-        if not os.path.isfile(audit_csv):
+        pairs = []
+        if audit_csv and os.path.isfile(audit_csv):
+            pairs = discover_phase2_dataset(
+                data_dir=data_dir,
+                audit_csv=audit_csv,
+                ensemble_out_dir=ensemble_out,
+                autolabel_dir=autolabel_dir,
+                use_weak=True,
+                gold_standard_dir=gold_std_dir,
+                require_foreground=False,
+            )
+
+        clean_pair = next((p for p in pairs if p["category"] == "CLEAN_HIGH_CONFIDENCE"), None)
+        weak_pair = next((p for p in pairs if p["category"] == "WEAK_COARSE"), None)
+
+        if clean_pair is None or weak_pair is None:
             with tempfile.TemporaryDirectory() as tmpdir:
                 img_p = os.path.join(tmpdir, "ct.nii.gz")
                 lbl_p = os.path.join(tmpdir, "lbl.nii.gz")
@@ -267,18 +293,7 @@ class TestPipelineDryRun(unittest.TestCase):
                 self.assertEqual(batch["image"].shape[1:], (1, 16, 16, 16))
                 self.assertEqual(batch["label"].shape[1:], (1, 16, 16, 16))
         else:
-            pairs = discover_phase2_dataset(
-                data_dir=data_dir,
-                audit_csv=audit_csv,
-                ensemble_out_dir=ensemble_out,
-                autolabel_dir=autolabel_dir,
-                use_weak=True,
-                gold_standard_dir=gold_std_dir,
-            )
             train_transforms, _ = get_transforms(roi_size=(96, 96, 96))
-            clean_pair = next(p for p in pairs if p["category"] == "CLEAN_HIGH_CONFIDENCE")
-            weak_pair = next(p for p in pairs if p["category"] == "WEAK_COARSE")
-
             ds = Dataset(data=[clean_pair, weak_pair], transform=train_transforms)
             loader = DataLoader(ds, batch_size=1, num_workers=0, shuffle=False)
 

@@ -93,6 +93,7 @@ def discover_phase2_dataset(
     gold_standard_dir=None,
     max_cases=0,
     seed=42,
+    require_foreground=True,
 ):
     """Build image/label pairs using ensemble consensus masks as labels.
 
@@ -200,6 +201,25 @@ def discover_phase2_dataset(
         if min(ct_shape) < 16 or min(lbl_shape) < 16:
             print(f"  WARNING: Skipping {sub_id} because scan is too small/scout (CT shape {ct_shape}, label shape {lbl_shape})")
             continue
+
+        # Verify non-empty foreground GI supervision (prevent all-background masks from poisoning distillation)
+        if require_foreground:
+            # Fast-path check: if audit summary recorded zero Betti components across all GI organs, foreground is guaranteed empty
+            betti_cols = [c for c in ['stomach_betti_consensus', 'duodenum_betti_consensus', 'small_bowel_betti_consensus', 'colon_betti_consensus'] if c in row]
+            if betti_cols and sum(row[c] for c in betti_cols) == 0:
+                print(f"  WARNING: Skipping {sub_id} because audit record indicates zero foreground GI components.")
+                continue
+
+            try:
+                lbl_nii = nib.load(label_path)
+                lbl_data = np.asanyarray(lbl_nii.dataobj)
+                fg_voxels = int(np.sum((lbl_data >= 1) & (lbl_data <= 4)))
+                if fg_voxels == 0:
+                    print(f"  WARNING: Skipping {sub_id} because label contains zero foreground GI voxels (all background).")
+                    continue
+            except Exception as e:
+                print(f"  WARNING: Skipping {sub_id} due to NIfTI read error checking foreground: {e}")
+                continue
 
         is_gold_standard = sub_id in gold_standard_ids
 

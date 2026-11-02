@@ -1,61 +1,65 @@
 # Production Verification & Forensic Audit Report
-**Audit Execution Timestamp:** 2026-11-02 08:43:05 UTC
+**Audit Timestamp:** 2026-11-02 21:39:21 UTC
+**Overall Status:** `ALL VERIFICATION GATES PASSED`
 **Cluster Environment:** CBI HPC (`/mnt/scratch/user/chrsong/mp-factory`)
-**Verification Scope:** End-to-End Project 9 (GI Organ Segmentation) & Project 10 (Generative Synthesis & Kinetics)
+**Audit Scope:** On-disk asset inventory, cryptographic checkpoint fingerprints, geometric header validation, and historical metric aggregation.
 
 ---
 
-## Executive Summary
+## Executive Summary & Verification Gates
 
-This forensic verification report provides complete, cryptographic, and cohort-accounting verification
-of all model checkpoints, segmentation inferences, consensus ensembles, and contrast synthesis benchmarks
-produced by the MultiPhase-GI Processing Factory.
-
-All three previous sanity-checker data/dependency blockers have been resolved:
-1. **Dependency Smoke Test:** Made `nnunet_mednext` optional on import in `stress_test_contrast_perturbation.py` so pure NumPy logic (`compute_binary_dice`) runs cleanly across any environment.
-2. **Manifest Tracking:** Tracked canonical copies of `ensemble_phase3_audit_summary.csv` and `multiphase_pairs.csv` under `docs/manifests/` with dual fallback in `project_wide_sanity_check.py`.
-3. **Non-fatal Cluster Scratch Gating:** Missing cluster scratch assets evaluate as non-fatal warnings on lightweight checkouts while passing on production mounts with zero critical failures.
+| Gate ID | Verification Domain | Status | Scope / Summary |
+| :---: | :--- | :---: | :--- |
+| **Gate 1** | Model Checkpoints (26 weights hashed & loaded) | **PASS** | 26 / 26 checkpoints valid |
+| **Gate 2** | Raw Ingestion & JHU Ground Truth Headers | **PASS** | 1632 CTs, 6 JHU NRRDs |
+| **Gate 3** | Phase 3 Batch Segmentations (1,632 volumes) | **PASS** | MedNeXt 1632, Swin 1632 |
+| **Gate 4** | Ensemble Consensus & Cleansing (Zero-FG Quarantining) | **PASS** | 1,632 consensus, 0 empty in clean, 188 clean training pool |
+| **Gate 5** | Project 10 Synthesis, Registration & Kinetics Containment | **PASS** | 1545 pairs, 1067 synthetics, Kinetics: PASS |
+| **Gate 6** | Manuscript Tables Compilation Deliverables | **PASS** | Tables 1-4 successfully compiled to MD and TeX |
 
 ---
 
-## 1. Cryptographic Checkpoint Identity & Integrity (SHA-256)
+## 1. Cryptographic Checkpoint Fingerprints (SHA-256)
 
-| Architecture / Stage | Checkpoint Path | Size (MB) | SHA-256 Digest | Status |
+Full 64-character SHA-256 cryptographic digests and PyTorch loadability checks for all production weights:
+
+| Architecture / Stage | Checkpoint Path | Size (MB) | Full SHA-256 Digest | Status |
 | :--- | :--- | :---: | :--- | :---: |
-| **MedNeXt Phase 1 Fold 0** | `results/mednext_models/fold_0/best_mednext_gi.pt` | 40.23 MB | `2cbf8f96fd8fbc50...1b7d4b45` | PASS |
-| **MedNeXt Phase 1 Fold 1** | `results/mednext_models/fold_1/best_mednext_gi.pt` | 40.23 MB | `1d9746ae9995d19b...1b48f7ff` | PASS |
-| **MedNeXt Phase 1 Fold 2** | `results/mednext_models/fold_2/best_mednext_gi.pt` | 40.23 MB | `e53895bcc5ed0542...5a40c1a1` | PASS |
-| **MedNeXt Phase 1 Fold 3** | `results/mednext_models/fold_3/best_mednext_gi.pt` | 40.23 MB | `5ecd180b41b8da53...bed6d08c` | PASS |
-| **MedNeXt Phase 2 Fold 0** | `results/mednext_phase2/fold_0/best_mednext_phase2.pt` | 40.23 MB | `18265105e83689c4...0afa3a43` | PASS |
-| **MedNeXt Phase 2 Fold 1** | `results/mednext_phase2/fold_1/best_mednext_phase2.pt` | 40.23 MB | `3045e5895e3b6e99...72cfb6a6` | PASS |
-| **MedNeXt Phase 2 Fold 2** | `results/mednext_phase2/fold_2/best_mednext_phase2.pt` | 40.23 MB | `5452b23b023f6a3b...b0407760` | PASS |
-| **MedNeXt Phase 2 Fold 3** | `results/mednext_phase2/fold_3/best_mednext_phase2.pt` | 40.23 MB | `97dffa923643d26b...f1d0b3a8` | PASS |
-| **MedNeXt Phase 3 Fold 0** | `results/mednext_phase3/fold_0/best_mednext_phase2.pt` | 40.23 MB | `888b48563b8b0d60...37047168` | PASS |
-| **MedNeXt Phase 3 Fold 1** | `results/mednext_phase3/fold_1/best_mednext_phase2.pt` | 40.23 MB | `72b8170bbbc12f96...083cdfbb` | PASS |
-| **MedNeXt Phase 3 Fold 2** | `results/mednext_phase3/fold_2/best_mednext_phase2.pt` | 40.23 MB | `11adfc5db41ab4f4...4057a441` | PASS |
-| **MedNeXt Phase 3 Fold 3** | `results/mednext_phase3/fold_3/best_mednext_phase2.pt` | 40.23 MB | `23986d1c01c7b3da...488774fb` | PASS |
-| **MedNeXt Pool873 Fold 0** | `results/mednext_pool873/fold_0/best_mednext_phase2.pt` | 40.23 MB | `282e54321d1000b0...076a6a46` | PASS |
-| **MedNeXt Pool873 Fold 1** | `results/mednext_pool873/fold_1/best_mednext_phase2.pt` | 40.23 MB | `982c35f30b242a8b...c2097d0b` | PASS |
-| **MedNeXt Pool873 Fold 2** | `results/mednext_pool873/fold_2/best_mednext_phase2.pt` | 40.23 MB | `24328c5b6dd742d0...3462fc88` | PASS |
-| **MedNeXt Pool873 Fold 3** | `results/mednext_pool873/fold_3/best_mednext_phase2.pt` | 40.23 MB | `f54dbdf919caf080...2a307a59` | PASS |
-| **Swin-UNETR Phase 1 Fold 0** | `results/swin_unetr_models/fold_0/best_swin_unetr_gi.pt` | 244.47 MB | `452dafe523907aa6...9720f158` | PASS |
-| **Swin-UNETR Phase 1 Fold 1** | `results/swin_unetr_models/fold_1/best_swin_unetr_gi.pt` | 244.47 MB | `d6f625a2dc35893c...78eb1db7` | PASS |
-| **Swin-UNETR Phase 1 Fold 2** | `results/swin_unetr_models/fold_2/best_swin_unetr_gi.pt` | 244.47 MB | `675d2511a48c5fb8...cc33d6d0` | PASS |
-| **Swin-UNETR Phase 1 Fold 3** | `results/swin_unetr_models/fold_3/best_swin_unetr_gi.pt` | 244.47 MB | `f576d85ffa3466be...c3ebd6f8` | PASS |
-| **Swin-UNETR Phase 3 Fold 0** | `results/swin_unetr_phase3/fold_0/last_swin_unetr_phase2.pt` | 719.05 MB | `dae581082787f441...22f54f1e` | PASS |
-| **Swin-UNETR Phase 3 Fold 1** | `results/swin_unetr_phase3/fold_1/last_swin_unetr_phase2.pt` | 719.05 MB | `c71d8cfd59fd405a...ea594b57` | PASS |
-| **Swin-UNETR Phase 3 Fold 2** | `results/swin_unetr_phase3/fold_2/last_swin_unetr_phase2.pt` | 719.05 MB | `0686c999a25cce7d...b10279c8` | PASS |
-| **Swin-UNETR Phase 3 Fold 3** | `results/swin_unetr_phase3/fold_3/last_swin_unetr_phase2.pt` | 719.05 MB | `1261daf3891db11c...0f4ec352` | PASS |
-| **P10 Stage 1 Autoencoder** | `results/project10/checkpoints/stage1_ae/best_stage1_ae.pt` | 129.61 MB | `8f3edc3fcad9dc08...d2760435` | PASS |
-| **P10 Stage 2 Contrast Synthesis** | `results/project10/checkpoints/stage2_synthesis/best_synthesis_net.pt` | 1253.69 MB | `1cf4af5bf792c311...43b7e20a` | PASS |
+| **MedNeXt Phase 1 Fold 0** | `results/mednext_models/fold_0/best_mednext_gi.pt` | 40.23 MB | `2cbf8f96fd8fbc50ddb714ffdfc6c1b92c72c38aec78f39aa91adf451b7d4b45` | PASS |
+| **MedNeXt Phase 1 Fold 1** | `results/mednext_models/fold_1/best_mednext_gi.pt` | 40.23 MB | `1d9746ae9995d19b6b43ea59039930fd3bd1de5bcdce512bdd15cd191b48f7ff` | PASS |
+| **MedNeXt Phase 1 Fold 2** | `results/mednext_models/fold_2/best_mednext_gi.pt` | 40.23 MB | `e53895bcc5ed05422449677ac9eb12260ea44aef869a239fbb91aa365a40c1a1` | PASS |
+| **MedNeXt Phase 1 Fold 3** | `results/mednext_models/fold_3/best_mednext_gi.pt` | 40.23 MB | `5ecd180b41b8da5379b6af9f631e641885ba6c82985ff0b3b696e42ebed6d08c` | PASS |
+| **MedNeXt Phase 2 Fold 0** | `results/mednext_phase2/fold_0/best_mednext_phase2.pt` | 40.23 MB | `18265105e83689c48e0e9deea22f6d108f5bbf6fcf61e59329cfd3210afa3a43` | PASS |
+| **MedNeXt Phase 2 Fold 1** | `results/mednext_phase2/fold_1/best_mednext_phase2.pt` | 40.23 MB | `3045e5895e3b6e9924814d02e118ef03e777912d5d7c0c835df5615d72cfb6a6` | PASS |
+| **MedNeXt Phase 2 Fold 2** | `results/mednext_phase2/fold_2/best_mednext_phase2.pt` | 40.23 MB | `5452b23b023f6a3b3d1127d9a4a534e64c2740c47b5f983917f5bbe8b0407760` | PASS |
+| **MedNeXt Phase 2 Fold 3** | `results/mednext_phase2/fold_3/best_mednext_phase2.pt` | 40.23 MB | `97dffa923643d26b5fce0646a4061147388d24dde3ec72cee9e3cdbff1d0b3a8` | PASS |
+| **MedNeXt Phase 3 Fold 0** | `results/mednext_phase3/fold_0/best_mednext_phase2.pt` | 40.23 MB | `888b48563b8b0d60e3ec114be06cac6db3a68b289d26078b1384233637047168` | PASS |
+| **MedNeXt Phase 3 Fold 1** | `results/mednext_phase3/fold_1/best_mednext_phase2.pt` | 40.23 MB | `72b8170bbbc12f9673cd8cec03a57dd659c088925575c51d285e6c5e083cdfbb` | PASS |
+| **MedNeXt Phase 3 Fold 2** | `results/mednext_phase3/fold_2/best_mednext_phase2.pt` | 40.23 MB | `11adfc5db41ab4f45eb83bc4e87ed2b97852e611f1d9b35e36f8f3824057a441` | PASS |
+| **MedNeXt Phase 3 Fold 3** | `results/mednext_phase3/fold_3/best_mednext_phase2.pt` | 40.23 MB | `23986d1c01c7b3dab02f6b5cc572c7ebc98f6ebebdd6bdc43357e118488774fb` | PASS |
+| **MedNeXt Pool873 Fold 0** | `results/mednext_pool873/fold_0/best_mednext_phase2.pt` | 40.23 MB | `282e54321d1000b0a9e977402407e0918b1ceb956fbf240bc1fd2fe7076a6a46` | PASS |
+| **MedNeXt Pool873 Fold 1** | `results/mednext_pool873/fold_1/best_mednext_phase2.pt` | 40.23 MB | `982c35f30b242a8b2e963a01f7fc211e7e8475dca9ffeb9fd0269c3ac2097d0b` | PASS |
+| **MedNeXt Pool873 Fold 2** | `results/mednext_pool873/fold_2/best_mednext_phase2.pt` | 40.23 MB | `24328c5b6dd742d053955b63967bba95dd2888e860669d3c2449113a3462fc88` | PASS |
+| **MedNeXt Pool873 Fold 3** | `results/mednext_pool873/fold_3/best_mednext_phase2.pt` | 40.23 MB | `f54dbdf919caf080701d4579b7c94fabb25773fdf487df0e816cbad62a307a59` | PASS |
+| **Swin-UNETR Phase 1 Fold 0** | `results/swin_unetr_models/fold_0/best_swin_unetr_gi.pt` | 244.47 MB | `452dafe523907aa673b7cf5e7cf359fa412d8f8df8546d6f85940d739720f158` | PASS |
+| **Swin-UNETR Phase 1 Fold 1** | `results/swin_unetr_models/fold_1/best_swin_unetr_gi.pt` | 244.47 MB | `d6f625a2dc35893c31ae2ca75c083884fb434e584c53ed85f79c4a7178eb1db7` | PASS |
+| **Swin-UNETR Phase 1 Fold 2** | `results/swin_unetr_models/fold_2/best_swin_unetr_gi.pt` | 244.47 MB | `675d2511a48c5fb81f6c26143e0ebcbecd562856dc8fae90aecd35dacc33d6d0` | PASS |
+| **Swin-UNETR Phase 1 Fold 3** | `results/swin_unetr_models/fold_3/best_swin_unetr_gi.pt` | 244.47 MB | `f576d85ffa3466be7092446b52581f861fd67dfc4118bdf12d376811c3ebd6f8` | PASS |
+| **Swin-UNETR Phase 3 Fold 0** | `results/swin_unetr_phase3/fold_0/last_swin_unetr_phase2.pt` | 719.05 MB | `dae581082787f441e3ddbf52497d44b9c474ba7273b480bce3a56c7822f54f1e` | PASS |
+| **Swin-UNETR Phase 3 Fold 1** | `results/swin_unetr_phase3/fold_1/last_swin_unetr_phase2.pt` | 719.05 MB | `c71d8cfd59fd405a020568b7310fe76833f70adcf16dd288fa662d46ea594b57` | PASS |
+| **Swin-UNETR Phase 3 Fold 2** | `results/swin_unetr_phase3/fold_2/last_swin_unetr_phase2.pt` | 719.05 MB | `0686c999a25cce7ddb96471933f34d814a00c6b2a0877d524841c260b10279c8` | PASS |
+| **Swin-UNETR Phase 3 Fold 3** | `results/swin_unetr_phase3/fold_3/last_swin_unetr_phase2.pt` | 719.05 MB | `1261daf3891db11c036cbf1aef0e125b9cdd0d1e918d7f7df1aaac460f4ec352` | PASS |
+| **P10 Stage 1 Autoencoder** | `results/project10/checkpoints/stage1_ae/best_stage1_ae.pt` | 129.61 MB | `8f3edc3fcad9dc08f60af1bdd87f1f62a3e5424e3c05fd8310ef301ad2760435` | PASS |
+| **P10 Stage 2 Contrast Synthesis** | `results/project10/checkpoints/stage2_synthesis/best_synthesis_net.pt` | 1253.69 MB | `1cf4af5bf792c3114b6fa0a5b4392e2219bd2ae75d33a614b2c8b3ba43b7e20a` | PASS |
 
 ---
 
 ## 2. Raw Datasets & Expert Ground Truth Accounting
 
-- **CancerVerse_dbox Ingestion:** **1,632 / 1,632** 3D non-contrast CT volumes verified on disk.
-- **JHU Radiologist Ground Truth:** **6 / 6** expert NRRD multi-organ segmentations (`.seg.nrrd`) verified with canonical LPS orientation and physical millimeter spacing.
-- **JHU Clinical Mask Propagation:** 11 evaluated scans across 5 distinct patients (`BDMAP_00242114`, `BDMAP_00242131`, `BDMAP_00242136`, `BDMAP_00394224`, `BDMAP_00242113`).
+- **CancerVerse_dbox Ingestion:** **1,632 / 1,632** 3D non-contrast CT volumes confirmed.
+- **CT Geometry Sample Validation:** PASS (3D volumes, min dim >= 16)
+- **JHU Radiologist Ground Truth:** **6 / 6** expert NRRD multi-organ segmentations (`.seg.nrrd`).
+- **JHU Header & Coordinate Validation:** PASS (3D spatial directions and millimeter spacings verified)
 
 ---
 
@@ -64,20 +68,21 @@ All three previous sanity-checker data/dependency blockers have been resolved:
 - **MedNeXt-B Phase 3 GI Predictions:** **1,632 / 1,632** 3D multi-label masks (`*_gi_seg.nii.gz`).
 - **MedNeXt-B Softmax Probability Arrays:** **1,632 / 1,632** 5-channel probability tensors (`*_gi_probs.npz`).
 - **Swin-UNETR Phase 3 GI Predictions:** **1,632 / 1,632** 3D multi-label masks (`*_gi_seg.nii.gz`).
-- **Completion Rate:** **100.0%** across both independent deep learning architectures.
+- **Mask Sample Content:** PASS (Foreground classes strictly within 0..4)
 
 ---
 
-## 4. Multi-Model Ensemble Consensus & Automated Data Cleansing
+## 4. Multi-Model Ensemble Consensus & Data Cleansing (Foreground Gating)
 
 - **Consensus Pseudo-GT Masks:** **1,632 / 1,632** 3D volumes.
 - **Spatial Uncertainty Maps:** **1,632 / 1,632** normalized voxel entropy maps.
 - **Autolabeled Boundary Masks:** **462 / 465** (`ignore_index=255` boundary exclusion masks).
 - **Ensemble Audit Triage Breakdown (Total N = 1,632):**
-  - `NOISE_REJECT`: **759 scans (46.5%)**
-  - `WEAK_COARSE`: **465 scans (28.5%)**
-  - `CLEAN_HIGH_CONFIDENCE`: **408 scans (25.0%)**
-- **Unified Gastro Clean Distillation Pool:** **873 subjects** passed strict geometric and NIfTI integrity checks.
+  - `NOISE_REJECT`: **1,444 scans (88.5%)**
+  - `WEAK_COARSE`: **185 scans (11.3%)**
+  - `CLEAN_HIGH_CONFIDENCE`: **3 scans (0.2%)**
+- **Quarantined Zero-Foreground Cases:** **903 scans** report zero foreground components across all 4 GI organs and are strictly quarantined to `NOISE_REJECT`.
+- **Active Distillation Training Pool:** **188 verified scans** (3 `CLEAN_HIGH_CONFIDENCE` + 185 `WEAK_COARSE`) with verified non-empty foreground GI anatomy.
 
 ---
 
@@ -85,13 +90,13 @@ All three previous sanity-checker data/dependency blockers have been resolved:
 
 - **Multi-Phase Pair Discovery:** **1,545 paired CTs** across **438 distinct patients** (`multiphase_pairs.csv`).
 - **Deformable B-Spline Registration:** **1,534** registered moving volumes and **1,534** displacement vector fields (DVFs).
-- **Synthesized 3D Contrast Volumes:** **1,067** volumes generated via 3D diffusion / translation network.
-- **Fidelity Benchmark Accounting:** **1,067 volumes** evaluated with masked soft-tissue Pearson correlation (Mean R = **0.3430**).
-- **Tumor Hemodynamic Perfusion:** **1,990 simulated lesions** verified across HCC, PDAC, Hemangioma, and Hepatic Metastasis with 0.0 HU boundary bleed.
+- **Synthesized 3D Contrast Volumes:** **1,067** volumes on disk.
+- **Aggregated Historical Benchmark:** **1,067 volumes** evaluated with reference-supported Pearson correlation (Mean R = **0.3430**).
+- **Dynamic Tumor Kinetics Containment:** PASS (Exactly 0.0 HU bleed outside lesion geometry)
 
 ---
 
-## 6. Official Manuscript Publication Tables (Compiled from Production Results)
+## 6. Official Manuscript Publication Tables (Compiled Deliverables)
 
 
 # MultiPhase-GI: Master Publication Tables
@@ -155,8 +160,10 @@ All three previous sanity-checker data/dependency blockers have been resolved:
 
 ---
 
-## 7. Verification Audit Conclusion
+## 7. Audit Conclusion & Boundaries
 
-All production claims regarding dataset volume counts (1,632), paired discovery (1,545 / 438 patients),
-model checkpoints, segmentation completeness, synthesis fidelity, and publication tables have been fully reproduced
-and forensically verified from active disk deliverables.
+Verification concluded with overall status: **ALL VERIFICATION GATES PASSED**.
+
+- All required model weights and on-disk volumes were verified.
+- Empty consensus masks were strictly quarantined from the distillation training pool.
+- Benchmark metrics represent recorded historical evaluation summaries, not live re-execution of 1,067 generative diffusion runs.

@@ -116,6 +116,12 @@ def build_manifest(
     """
     df = pd.read_csv(audit_csv)
 
+    # Exclude scans with zero foreground GI components from training manifest
+    betti_cols = [c for c in df.columns if c.endswith('_betti_consensus')]
+    if betti_cols:
+        has_fg = (df[betti_cols].sum(axis=1) > 0)
+        df = df[has_fg].copy()
+
     cohort_clean = df[df['triage_category'].astype(str) == 'CLEAN_HIGH_CONFIDENCE'].copy() if 'triage_category' in df else df.iloc[:0]
     cohort_weak  = df[df['triage_category'].astype(str) == 'WEAK_COARSE'].copy() if 'triage_category' in df and use_weak else df.iloc[:0]
 
@@ -192,6 +198,9 @@ def verify_dataset_integrity(manifest, n_workers=1, early_exit=True):
                     ec += 1
                 if lbl_data.ndim not in (3, 4):
                     msgs.append(f"label is not 3D/4D (shape {lbl_data.shape})")
+                    ec += 1
+                if np.sum((lbl_data >= 1) & (lbl_data <= 4)) == 0:
+                    msgs.append("label contains zero foreground GI voxels (all background)")
                     ec += 1
             except Exception as exc:
                 msgs.append(f"NIfTI load/read error: {exc}")

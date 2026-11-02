@@ -1715,3 +1715,101 @@ def test_project_wide_sanity_check_manifest_fallback_and_zero_critical_failures(
     assert proc.returncode == 0, f"Sanity check returned non-zero: {proc.stderr}\n{proc.stdout}"
     assert "Critical Failures      : 0" in proc.stdout
     assert "System Health Score" in proc.stdout
+
+
+def test_evaluate_subject_zero_foreground_quarantined_to_noise_reject():
+    """Finding 1 (602a7ea): All-background/empty consensus masks are triaged to NOISE_REJECT,
+    not CLEAN_HIGH_CONFIDENCE, and report 0 foreground voxels/components."""
+    import tempfile
+    import nibabel as nib
+    from code.evaluation.evaluate_multi_model_ensemble import evaluate_subject
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        sub_id = "TEST_EMPTY_001"
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+
+        # Create two all-zero (background) 8x8x8 mask NIfTIs
+        affine = np.eye(4)
+        m1_path = tmp_path / f"{sub_id}_m1.nii.gz"
+        m2_path = tmp_path / f"{sub_id}_m2.nii.gz"
+        empty_data = np.zeros((8, 8, 8), dtype=np.uint8)
+        nib.save(nib.Nifti1Image(empty_data, affine), m1_path)
+        nib.save(nib.Nifti1Image(empty_data, affine), m2_path)
+
+        res = evaluate_subject(
+            subject_id=sub_id,
+            model_files=[str(m1_path), str(m2_path)],
+            model_names=["ModelA", "ModelB"],
+            out_dir=str(out_dir)
+        )
+
+        assert res["status"] == "SUCCESS"
+        assert res["triage_category"] == "NOISE_REJECT"
+        assert "Zero Foreground Components" in res["action"]
+        assert res["total_foreground_voxels"] == 0
+        assert res["total_foreground_components"] == 0
+        assert res["mean_consensus_dice"] == 0.0
+
+
+def test_verify_production_results_strict_boolean_gate_enforcement():
+    """Finding 2 (602a7ea): verify_production_results exits non-zero if any gate fails."""
+    import code.evaluation.verify_production_results as vpr
+    from unittest.mock import patch
+
+    # Mock compile_and_verify_manuscript_tables to return False
+    with patch("code.evaluation.verify_production_results.compile_and_verify_manuscript_tables", return_value=(False, "")):
+        with pytest.raises(SystemExit) as exc_info:
+            vpr.main([])
+        assert exc_info.value.code == 1
+
+
+def test_train_mednext_phase2_rejects_empty_foreground_supervision():
+    """Finding 1 (602a7ea): train_mednext_phase2 skips subjects whose consensus masks have zero foreground voxels."""
+    import tempfile
+    import nibabel as nib
+    from code.training.train_mednext_phase2 import discover_phase2_dataset
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        sub_id = "BDMAP_00000001"
+        ct_dir = tmp_path / "ct_dir" / sub_id
+        ct_dir.mkdir(parents=True)
+        cons_dir = tmp_path / "cons_dir"
+        cons_dir.mkdir(parents=True)
+
+        # Valid 3D CT volume (16x16x16)
+        affine = np.eye(4)
+        ct_path = ct_dir / "ct.nii.gz"
+        ct_vol = np.full((16, 16, 16), 40.0, dtype=np.float32)
+        nib.save(nib.Nifti1Image(ct_vol, affine), ct_path)
+
+        # Empty consensus label (all zeros)
+        cons_path = cons_dir / f"{sub_id}_consensus.nii.gz"
+        empty_lbl = np.zeros((16, 16, 16), dtype=np.uint8)
+        nib.save(nib.Nifti1Image(empty_lbl, affine), cons_path)
+
+        # Audit CSV marking the subject CLEAN
+        audit_csv = tmp_path / "audit.csv"
+        df = pd.DataFrame([{
+            "subject_id": sub_id,
+            "status": "SUCCESS",
+            "triage_category": "CLEAN_HIGH_CONFIDENCE",
+            "stomach_betti_consensus": 0,
+            "duodenum_betti_consensus": 0,
+            "small_bowel_betti_consensus": 0,
+            "colon_betti_consensus": 0,
+        }])
+        df.to_csv(audit_csv, index=False)
+
+        # Discovery should skip the empty label and return 0 data pairs
+        pairs = discover_phase2_dataset(
+            data_dir=str(tmp_path / "ct_dir"),
+            audit_csv=str(audit_csv),
+            ensemble_out_dir=str(cons_dir),
+            autolabel_dir=None,
+            use_weak=False,
+            gold_standard_dir=None
+        )
+        assert len(pairs) == 0, f"Expected 0 usable pairs for empty foreground label, got {len(pairs)}"
