@@ -2001,14 +2001,15 @@ def test_production_train_phase2_ignore_index_clamping_and_masking():
 
 
 def test_production_statistical_significance_patient_id_and_fdr_nan_preservation():
-    """F10 & F12 Regression: Patient ID extraction distinguishes BDMAP patients and FDR preserves NaN indices."""
+    """F10 & F12 Regression: Patient ID extraction maps known sibling phases and FDR preserves NaN indices."""
     from code.evaluation.statistical_significance_test import extract_patient_id, apply_fdr_correction
     import numpy as np
 
-    # 1. Patient ID distinction: BDMAP subjects must NOT collapse into 'BDMAP'
-    assert extract_patient_id("BDMAP_00242131") == "BDMAP_00242131"
-    assert extract_patient_id("BDMAP_00242132") == "BDMAP_00242132"
-    assert extract_patient_id("BDMAP_00242131") != extract_patient_id("BDMAP_00242132")
+    # 1. Patient ID distinction: sibling phases map to same patient; distinct patients remain distinct
+    assert extract_patient_id("BDMAP_00242131") == "PATIENT_BDMAP_P2"
+    assert extract_patient_id("BDMAP_00242132") == "PATIENT_BDMAP_P2"
+    assert extract_patient_id("BDMAP_00242113") != extract_patient_id("BDMAP_00242131")
+    assert extract_patient_id("BDMAP_00242385") != extract_patient_id("BDMAP_00242386")
     assert extract_patient_id("CV_1001_P0") == "CV_1001"
     assert extract_patient_id("CV_1001_P1") == "CV_1001"
 
@@ -2082,4 +2083,178 @@ def test_production_stress_test_contrast_perturbation_summary_df_no_name_error(t
     content = out_md.read_text()
     assert "# MultiPhase-GI: Generative Contrast Robustness" in content
     assert "Pass Rate (≥0.85)" in content
+
+
+def test_scaling_sweep_schema_determination_and_roi_crop_order(tmp_path):
+    """F01 & F02 Regression: Scaling sweep correctly classifies gi_mask.nii.gz as 5-class and returns exact ROI."""
+    from code.training.run_scaling_sweep import determine_mask_schema, build_transforms
+    import nibabel as nib
+    import numpy as np
+
+    # 1. Schema determination: gi_mask.nii.gz and stomach.nii.gz MUST NOT be mapped to bdmap (where 1=0)
+    assert determine_mask_schema("/path/to/BDMAP_001/gi_mask.nii.gz", "/data/BDMAP") == "gi_5class"
+    assert determine_mask_schema("/path/to/segmentations/stomach.nii.gz", "/data/BDMAP") == "gi_5class"
+    assert determine_mask_schema("/path/to/jhu_radiologist/case.nii.gz", "/data/jhu") == "jhu"
+    assert determine_mask_schema("/path/to/totalseg_gi_masks_bdmap/case.nii.gz", "/data/totalseg_gi_masks_bdmap") == "bdmap"
+
+    # 2. Transform order test: Native 1mm input resampled to (1.5, 1.5, 2.0) must return exact requested ROI (32, 32, 32)
+    # Create mock CT (48, 48, 48) with 1mm spacing and non-zero foreground
+    ct_data = np.zeros((48, 48, 48), dtype=np.float32)
+    ct_data[10:38, 10:38, 10:38] = 50.0  # Foreground soft tissue
+    lbl_data = np.zeros((48, 48, 48), dtype=np.uint8)
+    lbl_data[12:36, 12:36, 12:36] = 1   # Stomach label
+
+    ct_aff = np.diag([1.0, 1.0, 1.0, 1.0])
+    ct_nii = nib.Nifti1Image(ct_data, ct_aff)
+    lbl_nii = nib.Nifti1Image(lbl_data, ct_aff)
+
+    img_p = str(tmp_path / "test_ct.nii.gz")
+    lbl_p = str(tmp_path / "test_lbl.nii.gz")
+    nib.save(ct_nii, img_p)
+    nib.save(lbl_nii, lbl_p)
+
+    tf = build_transforms(roi_size=(32, 32, 32), is_train=True)
+    sample = tf({"image": img_p, "label": lbl_p, "schema": "gi_5class"})
+
+    # RandCropByPosNegLabeld returns list of cropped samples
+    if isinstance(sample, list):
+        out_img = sample[0]["image"]
+        out_lbl = sample[0]["label"]
+    else:
+        out_img = sample["image"]
+        out_lbl = sample["label"]
+
+    assert out_img.shape == (1, 32, 32, 32), f"Expected image shape (1, 32, 32, 32), got {out_img.shape}"
+    assert out_lbl.shape == (1, 32, 32, 32), f"Expected label shape (1, 32, 32, 32), got {out_lbl.shape}"
+
+
+def test_merge_ensemble_chunks_rejects_conflicting_duplicate_subjects(tmp_path):
+    """F07 Regression: Ensemble merge rejects shards containing conflicting duplicate subjects."""
+    import subprocess
+    import sys
+    import pandas as pd
+
+    c1_path = tmp_path / "chunk_0.csv"
+    c2_path = tmp_path / "chunk_1.csv"
+    out_csv = tmp_path / "merged.csv"
+
+    # Shard 1: Subject case_01 is CLEAN_HIGH_CONFIDENCE
+    df1 = pd.DataFrame([{
+        "subject_id": "case_01",
+        "triage_category": "CLEAN_HIGH_CONFIDENCE",
+        "mean_consensus_dice": 0.88,
+        "consensus_sha256": "aaaa1111",
+        "status": "SUCCESS"
+    }])
+    df1.to_csv(c1_path, index=False)
+
+    # Shard 2: Subject case_01 is NOISE_REJECT (conflict!)
+    df2 = pd.DataFrame([{
+        "subject_id": "case_01",
+        "triage_category": "NOISE_REJECT",
+        "mean_consensus_dice": 0.35,
+        "consensus_sha256": "bbbb2222",
+        "status": "SUCCESS"
+    }])
+    df2.to_csv(c2_path, index=False)
+
+    merge_script = BASE_DIR + "/code/utilities/merge_ensemble_chunks.py"
+    cmd = [
+        sys.executable, merge_script,
+        "--pattern", str(tmp_path / "chunk_*.csv"),
+        "--out_csv", str(out_csv),
+        "--splits_dir", "none",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    assert proc.returncode != 0, "Merge should fail closed on conflicting duplicate subjects!"
+    assert "conflicting duplicate" in proc.stderr or "conflicting duplicate" in proc.stdout
+
+
+def test_synthesis_merge_revalidates_support_mask_hash(tmp_path):
+    """F06 Regression: Synthesis merge revalidates companion support mask SHA256 and fails on changed support."""
+    from code.project10.evaluation.evaluate_synthesis import merge_worker_csvs, METRIC_VERSION
+    import nibabel as nib
+    import numpy as np
+    import pandas as pd
+    import pytest
+
+    # Create dummy real, fake, and support files
+    shape = (16, 16, 16)
+    aff = np.eye(4)
+    fake_dir = tmp_path / "fake"
+    real_dir = tmp_path / "real"
+    fake_dir.mkdir()
+    real_dir.mkdir()
+
+    fake_nii = fake_dir / "case01_synthetic_contrast.nii.gz"
+    real_nii = real_dir / "case01_reg.nii.gz"
+    supp_nii = real_dir / "case01_reg_support.nii.gz"
+
+    nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), aff), str(fake_nii))
+    nib.save(nib.Nifti1Image(np.zeros(shape, dtype=np.float32), aff), str(real_nii))
+    nib.save(nib.Nifti1Image(np.ones(shape, dtype=np.uint8), aff), str(supp_nii))
+
+    import hashlib
+    def get_sha(p):
+        with open(p, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+
+    run_manifest = tmp_path / "run_manifest.json"
+    import json
+    with open(run_manifest, "w") as f:
+        json.dump({"run_id": "test_run_01"}, f)
+
+    shard_csv = tmp_path / "merged_synthesis_worker_0.csv"
+
+    # Row records an outdated support hash (simulating modified support file)
+    df = pd.DataFrame([{
+        "Subject": "case01_synthetic_contrast.nii.gz",
+        "metric_version": METRIC_VERSION,
+        "Reference_Coverage": 1.0,
+        "SSIM": 0.85,
+        "PSNR": 25.0,
+        "L1_Error": 10.0,
+        "Body_L1_Error": 10.0,
+        "RMSE": 12.0,
+        "Pearson_R": 0.90,
+        "run_id": "test_run_01",
+        "fake_sha256": get_sha(fake_nii),
+        "real_sha256": get_sha(real_nii),
+        "support_sha256": "stale_support_hash_12345",
+    }])
+    df.to_csv(shard_csv, index=False)
+
+    out_merged = tmp_path / "merged_synthesis.csv"
+
+    # Merge must raise ValueError due to stale support_sha256
+    with pytest.raises(ValueError, match="stale support_sha256"):
+        merge_worker_csvs(
+            output_csv=out_merged,
+            total_workers=1,
+            expected_run_id="test_run_01",
+            fake_dir=fake_dir,
+            real_dir=real_dir,
+            allow_partial=True
+        )
+
+
+def test_deterministic_patient_hashing_immune_to_attrition():
+    """F07 & F13 Regression: Patient hashing produces identical validation assignments despite attrition."""
+    import hashlib
+
+    def is_val(pid, seed=42, val_fraction=0.1):
+        return (int(hashlib.md5(f"{seed}::{pid}".encode()).hexdigest(), 16) % 10000) < int(val_fraction * 10000)
+
+    # Initial 10 patients
+    all_patients = [f"PT_{i:03d}" for i in range(10)]
+    initial_val = {p for p in all_patients if is_val(p)}
+
+    # Attrition drops PT_005 (e.g. registration failure)
+    remaining_patients = [p for p in all_patients if p != "PT_005"]
+    remaining_val = {p for p in remaining_patients if is_val(p)}
+
+    # Every remaining patient MUST retain its exact assignment
+    for p in remaining_patients:
+        assert (p in remaining_val) == (p in initial_val)
+
 

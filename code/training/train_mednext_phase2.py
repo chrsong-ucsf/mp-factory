@@ -504,8 +504,17 @@ def main():
         sys.exit(1)
 
     # Train / Val Split grouped by patient ID to strictly prevent patient leakage across folds (F07/F13)
+    JHU_SCAN_TO_PATIENT_MAP = {
+        "BDMAP_00242113": "PATIENT_BDMAP_P1", "BDMAP_00242114": "PATIENT_BDMAP_P1",
+        "BDMAP_00242115": "PATIENT_BDMAP_P1", "BDMAP_00242116": "PATIENT_BDMAP_P1",
+        "BDMAP_00242131": "PATIENT_BDMAP_P2", "BDMAP_00242132": "PATIENT_BDMAP_P2", "BDMAP_00242133": "PATIENT_BDMAP_P2",
+        "BDMAP_00242134": "PATIENT_BDMAP_P3", "BDMAP_00242135": "PATIENT_BDMAP_P4", "BDMAP_00242136": "PATIENT_BDMAP_P4",
+        "BDMAP_00394224": "PATIENT_BDMAP_P5",
+    }
     def extract_pt_id(sub):
         s = str(sub).strip()
+        if s in JHU_SCAN_TO_PATIENT_MAP:
+            return JHU_SCAN_TO_PATIENT_MAP[s]
         parts = s.split("_")
         if len(parts) >= 2 and parts[0] in ("CV", "CancerVerse", "BDMAP"):
             return f"{parts[0]}_{parts[1]}"

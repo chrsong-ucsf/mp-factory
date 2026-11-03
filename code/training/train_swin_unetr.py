@@ -117,7 +117,9 @@ def discover_dataset(data_dir, gold_standard_dir=None):
             data_pairs.append({
                 "image": ct_file,
                 "label": combined_mask,
-                "is_gold_standard": is_gold_standard
+                "is_gold_standard": is_gold_standard,
+                "subject_id": subject_id,
+                "name": subject_id,
             })
         else:
             # Check if individual organ files exist using aliases
@@ -130,7 +132,9 @@ def discover_dataset(data_dir, gold_standard_dir=None):
                 data_pairs.append({
                     "image": ct_file,
                     "label_dir": search_dir,
-                    "is_gold_standard": is_gold_standard
+                    "is_gold_standard": is_gold_standard,
+                    "subject_id": subject_id,
+                    "name": subject_id,
                 })
 
     return data_pairs
@@ -257,12 +261,22 @@ def main():
         return
 
     # Train / Val Split grouped by patient ID to strictly prevent patient leakage across folds (F07/F13)
+    JHU_SCAN_TO_PATIENT_MAP = {
+        "BDMAP_00242113": "PATIENT_BDMAP_P1", "BDMAP_00242114": "PATIENT_BDMAP_P1",
+        "BDMAP_00242115": "PATIENT_BDMAP_P1", "BDMAP_00242116": "PATIENT_BDMAP_P1",
+        "BDMAP_00242131": "PATIENT_BDMAP_P2", "BDMAP_00242132": "PATIENT_BDMAP_P2", "BDMAP_00242133": "PATIENT_BDMAP_P2",
+        "BDMAP_00242134": "PATIENT_BDMAP_P3", "BDMAP_00242135": "PATIENT_BDMAP_P4", "BDMAP_00242136": "PATIENT_BDMAP_P4",
+        "BDMAP_00394224": "PATIENT_BDMAP_P5",
+    }
     patient_map = {}
     for i, pair in enumerate(data_pairs):
         sub = pair.get("name", pair.get("subject_id", f"case_{i}"))
         s = str(sub).strip()
-        parts = s.split("_")
-        pid = f"{parts[0]}_{parts[1]}" if (len(parts) >= 2 and parts[0] in ("CV", "CancerVerse", "BDMAP")) else s
+        if s in JHU_SCAN_TO_PATIENT_MAP:
+            pid = JHU_SCAN_TO_PATIENT_MAP[s]
+        else:
+            parts = s.split("_")
+            pid = f"{parts[0]}_{parts[1]}" if (len(parts) >= 2 and parts[0] in ("CV", "CancerVerse", "BDMAP")) else s
         patient_map.setdefault(pid, []).append(i)
 
     unique_patients = np.sort(list(patient_map.keys()))

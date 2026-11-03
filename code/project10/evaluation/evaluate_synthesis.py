@@ -39,14 +39,14 @@ logging.basicConfig(
 logger = logging.getLogger("evaluate_synthesis")
 
 METRIC_COLUMNS = ["SSIM", "PSNR", "L1_Error", "Body_L1_Error", "RMSE", "Pearson_R", "Reference_Coverage"]
-METRIC_VERSION = "v3_supported_spatial"
+METRIC_VERSION = "v4_audited_support"
 
 
 def compute_file_sha256(filepath: str | Path) -> str:
-    """Compute SHA-256 hash of a file."""
+    """Compute SHA-256 hash of a file with streaming 1MB blocks."""
     h = hashlib.sha256()
     with open(filepath, "rb") as f:
-        while chunk := f.read(65536):
+        while chunk := f.read(1048576):
             h.update(chunk)
     return h.hexdigest()
 
@@ -629,6 +629,14 @@ def merge_worker_csvs(
                     raise ValueError(
                         f"Row for subject '{subj}' has stale real_sha256 ({row['real_sha256']} != current {curr_r_sha}). "
                         "Input reference file contents have changed; re-evaluation is required."
+                    )
+            supp_cand = Path(str(r_cand).replace(".nii.gz", "_support.nii.gz"))
+            if supp_cand.exists() and "support_sha256" in row and pd.notna(row["support_sha256"]):
+                curr_s_sha = compute_file_sha256(supp_cand)
+                if str(row["support_sha256"]) != curr_s_sha:
+                    raise ValueError(
+                        f"Row for subject '{subj}' has stale support_sha256 ({row['support_sha256']} != current {curr_s_sha}). "
+                        "Input support file contents have changed; re-evaluation is required."
                     )
 
     merged_df = merged_df.sort_values("Subject")

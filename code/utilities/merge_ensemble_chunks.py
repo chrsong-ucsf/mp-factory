@@ -78,6 +78,25 @@ def main():
 
     merged = pd.concat(dfs, ignore_index=True)
 
+    # Validate duplicate subjects and reject conflicting entries (F07)
+    if 'subject_id' in merged.columns:
+        dup_mask = merged.duplicated(subset=['subject_id'], keep=False)
+        if dup_mask.any():
+            dups = merged[dup_mask]
+            conflicts = []
+            for sid, grp in dups.groupby('subject_id'):
+                for col in ['triage_category', 'consensus_sha256', 'mean_consensus_dice', 'status']:
+                    if col in grp.columns and grp[col].nunique() > 1:
+                        conflicts.append((sid, col, grp[col].tolist()))
+                        break
+            if conflicts:
+                raise ValueError(
+                    f"Ensemble shards contain {len(conflicts)} conflicting duplicate subjects (e.g. {conflicts[:3]}). "
+                    "Cannot merge inconsistent or corrupt worker shards."
+                )
+            print(f"Deduplicating {len(dups) - dups['subject_id'].nunique()} exact duplicate rows across shards.")
+            merged = merged.drop_duplicates(subset=['subject_id']).reset_index(drop=True)
+
     if args.sort_by in merged.columns:
         merged = merged.sort_values(args.sort_by).reset_index(drop=True)
 

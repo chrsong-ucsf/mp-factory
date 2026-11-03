@@ -41,15 +41,38 @@ ORGAN_NAMES = ["stomach", "duodenum", "small_bowel", "colon"]
 NUM_CLASSES = 5  # 0: bg, 1: stomach, 2: duodenum, 3: small bowel, 4: colon
 
 
+JHU_SCAN_TO_PATIENT_MAP = {
+    "BDMAP_00242113": "PATIENT_BDMAP_P1", "BDMAP_00242114": "PATIENT_BDMAP_P1",
+    "BDMAP_00242115": "PATIENT_BDMAP_P1", "BDMAP_00242116": "PATIENT_BDMAP_P1",
+    "BDMAP_00242131": "PATIENT_BDMAP_P2", "BDMAP_00242132": "PATIENT_BDMAP_P2", "BDMAP_00242133": "PATIENT_BDMAP_P2",
+    "BDMAP_00242134": "PATIENT_BDMAP_P3", "BDMAP_00242135": "PATIENT_BDMAP_P4", "BDMAP_00242136": "PATIENT_BDMAP_P4",
+    "BDMAP_00394224": "PATIENT_BDMAP_P5",
+}
+
+def extract_patient_id(subject_id: str) -> str:
+    s = str(subject_id).strip()
+    if s in JHU_SCAN_TO_PATIENT_MAP:
+        return JHU_SCAN_TO_PATIENT_MAP[s]
+    parts = s.split("_")
+    if len(parts) >= 2 and parts[0] in ("CV", "CancerVerse", "BDMAP"):
+        return f"{parts[0]}_{parts[1]}"
+    return s
+
+
 def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, gold_standard_dir=None, max_cases=20, exclude_subjects=None):
     cases = []
-    exclude_set = set(str(s) for s in (exclude_subjects or []))
+    raw_exclude = set(str(s) for s in (exclude_subjects or []))
+    exclude_set = set()
+    for s in raw_exclude:
+        exclude_set.add(s)
+        exclude_set.add(extract_patient_id(s))
+
     # If gold_standard_dir is provided, look for gold standard masks
     if gold_standard_dir and os.path.exists(gold_standard_dir):
         gs_files = sorted(glob.glob(os.path.join(gold_standard_dir, "*.nii.gz")))
         for gf in gs_files:
             sub = os.path.basename(gf).replace(".nii.gz", "")
-            if sub in exclude_set:
+            if sub in exclude_set or extract_patient_id(sub) in exclude_set:
                 continue
             ct = os.path.join(data_dir, sub, "ct.nii.gz")
             if os.path.exists(ct):
@@ -65,7 +88,7 @@ def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, gold_standard_d
         clean = df[df["triage_category"] == "CLEAN_HIGH_CONFIDENCE"]
         for _, row in clean.iterrows():
             sub = str(row["subject_id"])
-            if sub in exclude_set:
+            if sub in exclude_set or extract_patient_id(sub) in exclude_set:
                 continue
             ct = os.path.join(data_dir, sub, "ct.nii.gz")
             lbl = os.path.join(ensemble_out_dir, f"{sub}_consensus.nii.gz")
@@ -77,7 +100,7 @@ def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, gold_standard_d
     if not cases and os.path.exists(ensemble_out_dir):
         for lbl in sorted(glob.glob(os.path.join(ensemble_out_dir, "*_consensus.nii.gz"))):
             sub = os.path.basename(lbl).replace("_consensus.nii.gz", "")
-            if sub in exclude_set:
+            if sub in exclude_set or extract_patient_id(sub) in exclude_set:
                 continue
             ct = os.path.join(data_dir, sub, "ct.nii.gz")
             if os.path.exists(ct):
@@ -176,11 +199,15 @@ def main():
     print("=" * 70)
 
     exclude_subs = set()
-    if args.exclude_manifest and os.path.exists(args.exclude_manifest):
+    if args.exclude_manifest:
+        if not os.path.exists(args.exclude_manifest):
+            raise FileNotFoundError(f"Specified --exclude_manifest does not exist: {args.exclude_manifest}")
         ex_df = pd.read_csv(args.exclude_manifest)
-        if "subject_id" in ex_df.columns:
-            exclude_subs = set(ex_df["subject_id"].astype(str))
-            print(f"Excluding {len(exclude_subs)} training subjects from validation holdout.")
+        col = "subject_id" if "subject_id" in ex_df.columns else ("name" if "name" in ex_df.columns else None)
+        if col is None:
+            raise ValueError(f"--exclude_manifest '{args.exclude_manifest}' is malformed: missing 'subject_id' or 'name' column.")
+        exclude_subs = set(ex_df[col].astype(str))
+        print(f"Excluding {len(exclude_subs)} training subjects and their sibling phases from validation holdout.")
 
     # 1. Find validation cases
     val_cases = find_validation_cases(

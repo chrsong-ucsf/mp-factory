@@ -123,9 +123,20 @@ def apply_fdr_correction(results_list, alpha=0.05):
     return results_list
 
 
+JHU_SCAN_TO_PATIENT_MAP = {
+    "BDMAP_00242113": "PATIENT_BDMAP_P1", "BDMAP_00242114": "PATIENT_BDMAP_P1",
+    "BDMAP_00242115": "PATIENT_BDMAP_P1", "BDMAP_00242116": "PATIENT_BDMAP_P1",
+    "BDMAP_00242131": "PATIENT_BDMAP_P2", "BDMAP_00242132": "PATIENT_BDMAP_P2", "BDMAP_00242133": "PATIENT_BDMAP_P2",
+    "BDMAP_00242134": "PATIENT_BDMAP_P3", "BDMAP_00242135": "PATIENT_BDMAP_P4", "BDMAP_00242136": "PATIENT_BDMAP_P4",
+    "BDMAP_00394224": "PATIENT_BDMAP_P5",
+}
+
+
 def extract_patient_id(subject_id: str) -> str:
-    """Extract patient ID avoiding collapsing distinct BDMAP subjects (F12)."""
+    """Extract authoritative patient ID, mapping sibling phases to the same patient (F12)."""
     s = str(subject_id).strip()
+    if s in JHU_SCAN_TO_PATIENT_MAP:
+        return JHU_SCAN_TO_PATIENT_MAP[s]
     parts = s.split("_")
     if len(parts) >= 2:
         if parts[0] in ("CV", "CancerVerse"):
@@ -156,14 +167,25 @@ def evaluate_pairs(df, model_a_col, model_b_col, label_name, patient_col=None):
     mean_diff = np.mean(diff)
     median_diff = np.median(diff)
 
-    # Paired tests
+    # Independent patient inference: aggregate scan rows per patient before paired hypothesis testing (F12)
+    if patient_col and patient_col in valid.columns:
+        pt_df = valid.groupby(patient_col)[[model_a_col, model_b_col]].mean().reset_index()
+        a_test = pt_df[model_a_col].values
+        b_test = pt_df[model_b_col].values
+        n_pts = len(pt_df)
+    else:
+        a_test = a
+        b_test = b
+        n_pts = n
+
+    # Paired hypothesis tests on independent patient observations
     try:
-        t_stat, p_val_ttest = stats.ttest_rel(a, b)
+        t_stat, p_val_ttest = stats.ttest_rel(a_test, b_test) if n_pts >= 2 else (np.nan, np.nan)
     except Exception:
         t_stat, p_val_ttest = np.nan, np.nan
 
     try:
-        w_stat, p_val_wilcoxon = stats.wilcoxon(a, b, zero_method="pratt")
+        w_stat, p_val_wilcoxon = stats.wilcoxon(a_test, b_test, zero_method="pratt") if n_pts >= 5 else (np.nan, np.nan)
     except Exception:
         w_stat, p_val_wilcoxon = np.nan, np.nan
 
@@ -173,11 +195,16 @@ def evaluate_pairs(df, model_a_col, model_b_col, label_name, patient_col=None):
     else:
         ci_low, ci_high = bootstrap_ci(diff)
 
-    sig_str = "***" if p_val_wilcoxon < 0.001 else ("**" if p_val_wilcoxon < 0.01 else ("*" if p_val_wilcoxon < 0.05 else "ns"))
+    sig_str = "***" if (not np.isnan(p_val_wilcoxon) and p_val_wilcoxon < 0.001) else (
+        "**" if (not np.isnan(p_val_wilcoxon) and p_val_wilcoxon < 0.01) else (
+            "*" if (not np.isnan(p_val_wilcoxon) and p_val_wilcoxon < 0.05) else "ns"
+        )
+    )
 
     return {
         "comparison": label_name,
         "n_samples": n,
+        "n_patients": n_pts,
         "n_patients": valid[patient_col].nunique() if (patient_col and patient_col in valid.columns) else n,
         "mean_model_a": mean_a,
         "mean_model_b": mean_b,
@@ -229,10 +256,7 @@ def main():
         
         # Merge on subject_id to align paired comparisons (strictly 1-to-1)
         merged = pd.merge(med, tot, on="subject_id", suffixes=("_mednext", "_totalseg"))
-        if "patient_id_mednext" in merged.columns:
-            merged["patient_id"] = merged["patient_id_mednext"]
-        elif "patient_id" not in merged.columns and "subject_id" in merged.columns:
-            merged["patient_id"] = merged["subject_id"].apply(extract_patient_id)
+        merged["patient_id"] = merged["subject_id"].apply(extract_patient_id)
         if len(merged) > 0:
             for o in ["stomach_dice", "duodenum_dice", "mean_dice", "mean_hd95"]:
                 res = evaluate_pairs(merged, f"{o}_mednext", f"{o}_totalseg", f"MedNeXt vs TotalSeg on JHU Expert ({o})", patient_col="patient_id")

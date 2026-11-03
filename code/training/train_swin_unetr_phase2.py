@@ -356,20 +356,43 @@ def main():
         seed=args.seed,
     )
 
-    np.random.seed(args.seed)
-    indices = np.random.permutation(len(data_pairs))
+    # Train / Val Split grouped by patient ID to strictly prevent patient leakage across folds (F07/F13)
+    JHU_SCAN_TO_PATIENT_MAP = {
+        "BDMAP_00242113": "PATIENT_BDMAP_P1", "BDMAP_00242114": "PATIENT_BDMAP_P1",
+        "BDMAP_00242115": "PATIENT_BDMAP_P1", "BDMAP_00242116": "PATIENT_BDMAP_P1",
+        "BDMAP_00242131": "PATIENT_BDMAP_P2", "BDMAP_00242132": "PATIENT_BDMAP_P2", "BDMAP_00242133": "PATIENT_BDMAP_P2",
+        "BDMAP_00242134": "PATIENT_BDMAP_P3", "BDMAP_00242135": "PATIENT_BDMAP_P4", "BDMAP_00242136": "PATIENT_BDMAP_P4",
+        "BDMAP_00394224": "PATIENT_BDMAP_P5",
+    }
+    patient_map = {}
+    for i, pair in enumerate(data_pairs):
+        sub = pair.get("name", pair.get("subject_id", f"case_{i}"))
+        s = str(sub).strip()
+        if s in JHU_SCAN_TO_PATIENT_MAP:
+            pid = JHU_SCAN_TO_PATIENT_MAP[s]
+        else:
+            parts = s.split("_")
+            pid = f"{parts[0]}_{parts[1]}" if (len(parts) >= 2 and parts[0] in ("CV", "CancerVerse", "BDMAP")) else s
+        patient_map.setdefault(pid, []).append(i)
+
+    unique_patients = np.sort(list(patient_map.keys()))
+    rng = np.random.RandomState(args.seed)
+    shuffled_patients = rng.permutation(unique_patients)
+
     if args.fold >= 0:
-        folds       = np.array_split(indices, args.num_folds)
-        val_indices = folds[args.fold]
-        train_idx   = np.setdiff1d(indices, val_indices)
-        train_files = [data_pairs[i] for i in train_idx]
-        val_files   = [data_pairs[i] for i in val_indices]
-        print(f"[Fold {args.fold}/{args.num_folds}] Train: {len(train_files)} | Val: {len(val_files)}")
+        patient_folds = np.array_split(shuffled_patients, args.num_folds)
+        val_patients = set(patient_folds[args.fold])
+        train_patients = set(np.setdiff1d(shuffled_patients, patient_folds[args.fold]))
+        train_files = [data_pairs[idx] for pid in train_patients for idx in patient_map[pid]]
+        val_files   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
+        print(f"[Fold {args.fold}/{args.num_folds} Patient Split] Train: {len(train_files)} ({len(train_patients)} pts) | Val: {len(val_files)} ({len(val_patients)} pts)")
     else:
-        split       = int(0.8 * len(data_pairs))
-        train_files = [data_pairs[i] for i in indices[:split]]
-        val_files   = [data_pairs[i] for i in indices[split:]]
-        print(f"[80/20 Split] Train: {len(train_files)} | Val: {len(val_files)}")
+        n_val_pt = max(1, int(0.2 * len(shuffled_patients)))
+        val_patients = set(shuffled_patients[:n_val_pt])
+        train_patients = set(shuffled_patients[n_val_pt:])
+        train_files = [data_pairs[idx] for pid in train_patients for idx in patient_map[pid]]
+        val_files   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
+        print(f"[Patient 80/20 Split] Train: {len(train_files)} ({len(train_patients)} pts) | Val: {len(val_files)} ({len(val_patients)} pts)")
 
     # Fast validation subsample (50 scans max) to keep epoch pace fast
     if len(val_files) > 50:

@@ -113,10 +113,43 @@ ORGAN_NAMES = ["stomach", "duodenum", "small_bowel", "colon"]
 # Data helpers
 # ---------------------------------------------------------------------------
 
+def determine_mask_schema(mask_path, data_dir, mask_dir=None):
+    """Explicitly determines label schema without erroneously mapping 1 (stomach) to 0 (esophagus) (F01/F14)."""
+    p_lower = mask_path.lower()
+    d_lower = (data_dir or "").lower()
+    m_lower = (mask_dir or "").lower()
+
+    if "jhu" in d_lower or "jhu" in m_lower or "jhu" in p_lower:
+        return "jhu"
+
+    # Canonical 5-class GI masks or single organ masks (where 1=stomach, 2=duo, 3=sb, 4=colon)
+    base_name = os.path.basename(mask_path).lower()
+    if base_name in ("gi_mask.nii.gz", "stomach.nii.gz", "duodenum.nii.gz", "small_bowel.nii.gz", "colon.nii.gz"):
+        return "gi_5class"
+
+    if any(k in p_lower for k in ("autolabel", "consensus", "canonical", "gi_5class")):
+        return "gi_5class"
+
+    # Raw BDMAP multi-organ annotations (where 1=esophagus, 2=stomach, 3=duo, 4=sb, 5=sb, 6=colon)
+    # Check bdmap before generic totalseg so totalseg_gi_masks_bdmap matches bdmap
+    if "totalseg_gi_masks_bdmap" in m_lower or "totalseg_gi_masks_bdmap" in p_lower or "totalseg_gi_masks_bdmap" in d_lower:
+        return "bdmap"
+    if ("bdmap" in m_lower or "bdmap" in d_lower) and "gi_mask" not in p_lower:
+        return "bdmap"
+
+    # Raw TotalSegmentator multi-organ masks
+    if "totalseg" in p_lower or "totalseg" in m_lower or "totalseg" in d_lower:
+        if "v1" in p_lower or "v1" in m_lower or "total_v1" in p_lower:
+            return "totalseg_v1"
+        return "totalseg_v2"
+        return "bdmap"
+
+    return "gi_5class"
+
+
 def find_cases(data_dir, mask_dir):
-    """Return list of {image, label, name} dicts for paired NIfTI cases."""
+    """Return list of {image, label, name, schema} dicts for paired NIfTI cases with verified schema."""
     cases = []
-    default_schema = "jhu" if "jhu" in data_dir.lower() else "bdmap"
 
     # Layout 1: data_dir/BDMAP_*/ct.nii.gz + mask_dir/BDMAP_*/gi_mask.nii.gz
     for ct_path in sorted(glob.glob(os.path.join(data_dir, "BDMAP_*", "ct.nii.gz"))):
@@ -125,7 +158,8 @@ def find_cases(data_dir, mask_dir):
         if not os.path.exists(mask_path):
             mask_path = os.path.join(mask_dir, patient_id, "segmentations", "stomach.nii.gz")
         if os.path.exists(ct_path) and os.path.exists(mask_path):
-            cases.append({"image": ct_path, "label": mask_path, "name": patient_id, "schema": default_schema})
+            schema = determine_mask_schema(mask_path, data_dir, mask_dir)
+            cases.append({"image": ct_path, "label": mask_path, "name": patient_id, "schema": schema})
 
     # Layout 2: CancerVerse / mp-factory subject directories (sub/ct.nii.gz + sub/gi_mask.nii.gz)
     if not cases:
@@ -133,7 +167,8 @@ def find_cases(data_dir, mask_dir):
             patient_id = os.path.basename(os.path.dirname(ct_path))
             mask_path = os.path.join(data_dir, patient_id, "gi_mask.nii.gz")
             if os.path.exists(mask_path):
-                cases.append({"image": ct_path, "label": mask_path, "name": patient_id, "schema": default_schema})
+                schema = determine_mask_schema(mask_path, data_dir, mask_dir)
+                cases.append({"image": ct_path, "label": mask_path, "name": patient_id, "schema": schema})
 
     # Layout 3: Flat layout data_dir/*.nii.gz + mask_dir/*.nii.gz
     if not cases:
@@ -141,7 +176,8 @@ def find_cases(data_dir, mask_dir):
             fname = os.path.basename(img_path)
             lbl_path = os.path.join(mask_dir, fname)
             if os.path.exists(lbl_path):
-                cases.append({"image": img_path, "label": lbl_path, "name": fname.split(".")[0], "schema": default_schema})
+                schema = determine_mask_schema(lbl_path, data_dir, mask_dir)
+                cases.append({"image": img_path, "label": lbl_path, "name": fname.split(".")[0], "schema": schema})
 
     return cases
 
@@ -214,7 +250,8 @@ class RemapGILabelTargets(MapTransform):
 
 
 def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
-    shared = [
+    """Build MONAI transform pipeline with standard Spacing/Intensity before final ROI cropping (F02/F14)."""
+    transforms = [
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
@@ -222,22 +259,24 @@ def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
         ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest", padding_mode="zeros"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
-        EnsureTyped(keys=["image", "label"]),
     ]
     if is_train:
-        shared.insert(5, CropForegroundd(keys=["image", "label"], source_key="image"))
-        shared.insert(6, SpatialPadd(keys=["image", "label"], spatial_size=roi_size))
-        shared.insert(7, RandCropByPosNegLabeld(
-            keys=["image", "label"],
-            label_key="label",
-            spatial_size=roi_size,
-            pos=2, neg=1, num_samples=2,
-            image_key="image", image_threshold=0,
-        ))
-        shared.append(RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0))
-        shared.append(RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=1))
-        shared.append(RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=2))
-    return Compose(shared)
+        transforms.extend([
+            CropForegroundd(keys=["image", "label"], source_key="image"),
+            SpatialPadd(keys=["image", "label"], spatial_size=roi_size),
+            RandCropByPosNegLabeld(
+                keys=["image", "label"],
+                label_key="label",
+                spatial_size=roi_size,
+                pos=2, neg=1, num_samples=2,
+                image_key="image", image_threshold=0,
+            ),
+            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0),
+            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=1),
+            RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=2),
+        ])
+    transforms.append(EnsureTyped(keys=["image", "label"]))
+    return Compose(transforms)
 
 
 def build_model(num_classes, device):

@@ -67,28 +67,24 @@ from schema_mapping import (
 )
 
 
-def compute_input_fingerprint(subject_id: str, model_files: list, schema_version: str = "gi_v2") -> str:
-    """Cryptographic hash binding subject ID, schema version, model file contents, and probability sidecars."""
+def compute_input_fingerprint(subject_id: str, model_files: list, model_names: list = None, schema_version: str = "gi_v2") -> str:
+    """Cryptographic hash streaming full file contents of all model files and probability sidecars (F05)."""
     h = hashlib.sha256()
-    h.update(f"{subject_id}|{schema_version}|".encode("utf-8"))
-    for p in sorted(model_files):
-        if os.path.exists(p):
-            h.update(f"{p}:{os.path.getsize(p)}:".encode("utf-8"))
-            try:
-                with open(p, 'rb') as f:
-                    h.update(f.read(65536))
-            except Exception:
-                pass
-            prob_p = p.replace('_gi_seg.nii.gz', '_gi_probs.npz') if p.endswith('_gi_seg.nii.gz') else None
-            if prob_p and os.path.exists(prob_p):
-                h.update(f"{prob_p}:{os.path.getsize(prob_p)}:".encode("utf-8"))
-                try:
-                    with open(prob_p, 'rb') as pf:
-                        h.update(pf.read(65536))
-                except Exception:
-                    pass
-        else:
-            h.update(f"{p}:missing|".encode("utf-8"))
+    names_str = ",".join(model_names) if model_names else ",".join([os.path.basename(p) for p in model_files])
+    h.update(f"{subject_id}|{schema_version}|{names_str}|".encode("utf-8"))
+    for p in model_files:
+        if not os.path.exists(p):
+            raise FileNotFoundError(f"Missing required model file for ensemble fingerprint: {p}")
+        h.update(f"{p}:{os.path.getsize(p)}:".encode("utf-8"))
+        with open(p, 'rb') as f:
+            while chunk := f.read(1048576):
+                h.update(chunk)
+        prob_p = p.replace('_gi_seg.nii.gz', '_gi_probs.npz') if p.endswith('_gi_seg.nii.gz') else None
+        if prob_p and os.path.exists(prob_p):
+            h.update(f"{prob_p}:{os.path.getsize(prob_p)}:".encode("utf-8"))
+            with open(prob_p, 'rb') as pf:
+                while pchunk := pf.read(1048576):
+                    h.update(pchunk)
     return h.hexdigest()
 
 
@@ -526,8 +522,11 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
 
         with open(consensus_path, "rb") as f_c:
             cons_sha = hashlib.sha256(f_c.read()).hexdigest()
+        with open(uncertainty_path, "rb") as f_u:
+            unc_sha = hashlib.sha256(f_u.read()).hexdigest()
         res['consensus_sha256'] = cons_sha
-        res['input_fingerprint'] = compute_input_fingerprint(subject_id, model_files)
+        res['uncertainty_sha256'] = unc_sha
+        res['input_fingerprint'] = compute_input_fingerprint(subject_id, model_files, model_names=model_names)
 
         res['mean_uncertainty'] = round(float(np.mean(uncertainty_map)), 4)
         res['max_uncertainty'] = round(float(np.max(uncertainty_map)), 4)
@@ -893,7 +892,7 @@ def main():
                         continue
 
                     mfiles = [subject_maps[name][sub] for name in model_names]
-                    expected_fp = compute_input_fingerprint(sub, mfiles)
+                    expected_fp = compute_input_fingerprint(sub, mfiles, model_names=model_names)
                     if 'input_fingerprint' not in row or pd.isna(row['input_fingerprint']):
                         continue
                     if str(row['input_fingerprint']) != expected_fp:
@@ -904,6 +903,11 @@ def main():
                         curr_sha = hashlib.sha256(f_c.read()).hexdigest()
                     if curr_sha != str(row['consensus_sha256']):
                         continue
+                    with open(u_path, 'rb') as f_u:
+                        curr_u_sha = hashlib.sha256(f_u.read()).hexdigest()
+                    if 'uncertainty_sha256' in row and pd.notna(row['uncertainty_sha256']):
+                        if curr_u_sha != str(row['uncertainty_sha256']):
+                            continue
 
                     already_processed.add(sub)
                     results.append(row.to_dict())

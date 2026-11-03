@@ -116,7 +116,9 @@ def discover_dataset(data_dir, gold_standard_dir=None):
             data_pairs.append({
                 "image": ct_file,
                 "label": combined_mask,
-                "is_gold_standard": is_gold_standard
+                "is_gold_standard": is_gold_standard,
+                "subject_id": subject_id,
+                "name": subject_id,
             })
         else:
             # Check if individual organ files exist using aliases
@@ -129,7 +131,9 @@ def discover_dataset(data_dir, gold_standard_dir=None):
                 data_pairs.append({
                     "image": ct_file,
                     "label_dir": search_dir,
-                    "is_gold_standard": is_gold_standard
+                    "is_gold_standard": is_gold_standard,
+                    "subject_id": subject_id,
+                    "name": subject_id,
                 })
 
     return data_pairs
@@ -333,23 +337,43 @@ def main():
         print("Error: No data pairs found!")
         return
 
-    # Train / Val Split
-    np.random.seed(42)
-    indices = np.arange(len(data_pairs))
-    np.random.shuffle(indices)
+    # Train / Val Split grouped by patient ID to strictly prevent patient leakage across folds (F07/F13)
+    JHU_SCAN_TO_PATIENT_MAP = {
+        "BDMAP_00242113": "PATIENT_BDMAP_P1", "BDMAP_00242114": "PATIENT_BDMAP_P1",
+        "BDMAP_00242115": "PATIENT_BDMAP_P1", "BDMAP_00242116": "PATIENT_BDMAP_P1",
+        "BDMAP_00242131": "PATIENT_BDMAP_P2", "BDMAP_00242132": "PATIENT_BDMAP_P2", "BDMAP_00242133": "PATIENT_BDMAP_P2",
+        "BDMAP_00242134": "PATIENT_BDMAP_P3", "BDMAP_00242135": "PATIENT_BDMAP_P4", "BDMAP_00242136": "PATIENT_BDMAP_P4",
+        "BDMAP_00394224": "PATIENT_BDMAP_P5",
+    }
+    patient_map = {}
+    for i, pair in enumerate(data_pairs):
+        sub = pair.get("name", pair.get("subject_id", f"case_{i}"))
+        s = str(sub).strip()
+        if s in JHU_SCAN_TO_PATIENT_MAP:
+            pid = JHU_SCAN_TO_PATIENT_MAP[s]
+        else:
+            parts = s.split("_")
+            pid = f"{parts[0]}_{parts[1]}" if (len(parts) >= 2 and parts[0] in ("CV", "CancerVerse", "BDMAP")) else s
+        patient_map.setdefault(pid, []).append(i)
+
+    unique_patients = np.sort(list(patient_map.keys()))
+    rng = np.random.RandomState(42)
+    shuffled_patients = rng.permutation(unique_patients)
 
     if args.fold >= 0:
-        folds = np.array_split(indices, args.num_folds)
-        val_indices = folds[args.fold]
-        train_indices = np.setdiff1d(indices, val_indices)
-        train_pairs = [data_pairs[i] for i in train_indices]
-        val_pairs = [data_pairs[i] for i in val_indices]
-        print(f"[Fold {args.fold}/{args.num_folds}] Train scans: {len(train_pairs)} | Full Val pool: {len(val_pairs)}")
+        patient_folds = np.array_split(shuffled_patients, args.num_folds)
+        val_patients = set(patient_folds[args.fold])
+        train_patients = set(np.setdiff1d(shuffled_patients, patient_folds[args.fold]))
+        train_pairs = [data_pairs[idx] for pid in train_patients for idx in patient_map[pid]]
+        val_pairs   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
+        print(f"[Fold {args.fold}/{args.num_folds} Patient Split] Train scans: {len(train_pairs)} ({len(train_patients)} pts) | Full Val pool: {len(val_pairs)} ({len(val_patients)} pts)")
     else:
-        split_idx = int(0.8 * len(data_pairs))
-        train_pairs = [data_pairs[i] for i in indices[:split_idx]]
-        val_pairs = [data_pairs[i] for i in indices[split_idx:]]
-        print(f"[Standard 80/20 Split] Train scans: {len(train_pairs)} | Full Val pool: {len(val_pairs)}")
+        n_val_pt = max(1, int(0.2 * len(shuffled_patients)))
+        val_patients = set(shuffled_patients[:n_val_pt])
+        train_patients = set(shuffled_patients[n_val_pt:])
+        train_pairs = [data_pairs[idx] for pid in train_patients for idx in patient_map[pid]]
+        val_pairs   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
+        print(f"[Patient 80/20 Split] Train scans: {len(train_pairs)} ({len(train_patients)} pts) | Full Val pool: {len(val_pairs)} ({len(val_patients)} pts)")
 
     # Subsample Validation scans for fast evaluation
     if args.max_val_samples > 0 and len(val_pairs) > args.max_val_samples:

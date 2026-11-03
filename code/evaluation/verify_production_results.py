@@ -223,7 +223,19 @@ def verify_ensemble_and_manifests():
         zero_fg_total = 0
 
     manifest_csv = RESULTS_DIR / "dataset_splits_phase3" / "dataset_manifest_valid.csv"
-    manifest_rows = len(pd.read_csv(manifest_csv)) if manifest_csv.exists() else 0
+    manifest_rows = 0
+    manifest_valid = True
+    if manifest_csv.exists():
+        mdf = pd.read_csv(manifest_csv)
+        manifest_rows = len(mdf)
+        for _, mrow in mdf.head(10).iterrows():
+            ct_p = mrow.get("image", mrow.get("ct_path"))
+            lbl_p = mrow.get("label", mrow.get("label_path"))
+            if not ct_p or not lbl_p or not os.path.exists(ct_p) or not os.path.exists(lbl_p):
+                manifest_valid = False
+                break
+    else:
+        manifest_valid = False
 
     print(f"  - Consensus Pseudo-GT Masks : {len(cons_files):,} / 1,632")
     print(f"  - Spatial Uncertainty Maps  : {len(unc_files):,} / 1,632")
@@ -232,7 +244,7 @@ def verify_ensemble_and_manifests():
     print(f"  - Triage Breakdown          : {triage_counts}")
     print(f"  - Zero-FG in Clean Category : {zero_fg_clean} (Must be 0)")
     print(f"  - Zero-FG Total (Quarantined): {zero_fg_total}")
-    print(f"  - Verified Clean Manifest   : {manifest_rows} CT/label pairs")
+    print(f"  - Verified Clean Manifest   : {manifest_rows} CT/label pairs (integrity: {'PASS' if manifest_valid else 'FAIL'})")
 
     return {
         "consensus_count": len(cons_files),
@@ -243,6 +255,7 @@ def verify_ensemble_and_manifests():
         "zero_fg_clean": zero_fg_clean,
         "zero_fg_total": zero_fg_total,
         "manifest_rows": manifest_rows,
+        "manifest_valid": manifest_valid,
     }
 
 
@@ -443,12 +456,14 @@ def main(argv=None):
     ens_ok = (ens_info["consensus_count"] == 1632 and
               ens_info["uncertainty_count"] == 1632 and
               ens_info["zero_fg_clean"] == 0 and
-              ens_info["manifest_rows"] >= 34)
+              ens_info["manifest_rows"] >= 34 and
+              ens_info.get("manifest_valid", True))
     p10_ok = (p10_info["pairs_count"] >= 1500 and
-              p10_info["reg_vols"] > 0 and
-              p10_info["reg_dvfs"] > 0 and
-              p10_info["synth_vols"] > 0 and
-              p10_info["n_evaluated"] > 0 and
+              p10_info["reg_vols"] >= 1500 and
+              p10_info["reg_dvfs"] >= 1500 and
+              p10_info["reg_vols"] == p10_info["reg_dvfs"] and
+              p10_info["synth_vols"] >= 1000 and
+              p10_info["n_evaluated"] >= 250 and
               p10_info["kinetics_ok"])
 
     gates = {

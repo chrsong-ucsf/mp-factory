@@ -387,6 +387,9 @@ def build_arg_parser():
     parser.add_argument("--out_dir", type=str,
                         default="results/project10/synthetic_volumes",
                         help="Output directory for generated synthetic NIfTI CT volumes")
+    parser.add_argument("--pairs_csv", type=str,
+                        default="results/project10/manifests/multiphase_pairs.csv",
+                        help="Path to multiphase_pairs.csv for authoritative phase metadata lookup")
     parser.add_argument("--target_phase", type=str, default="auto",
                         help="Target contrast acquisition phase ('auto', 'arterial_early', 'arterial_late', 'venous', 'delayed', or 0..4)")
     parser.add_argument("--num_steps", type=int, default=50, help="Number of DDIM sampling steps (default: 50)")
@@ -427,6 +430,23 @@ def main():
         my_files = my_files[:args.max_samples]
 
     log.info(f"Total volumes discovered: {len(all_files)} | Assigned to worker {args.array_id}: {len(my_files)}")
+
+    # Load authoritative pairs manifest for target acquisition phase mapping (F06)
+    pairs_meta = {}
+    if args.pairs_csv and os.path.exists(args.pairs_csv):
+        try:
+            pdf = pd.read_csv(args.pairs_csv, dtype=str)
+            for _, prow in pdf.iterrows():
+                s_p0 = str(prow.get("subject_p0", "")).strip()
+                s_tgt = str(prow.get("subject_target", "")).strip()
+                p_tgt = prow.get("phase_target", prow.get("phase_target_raw", "")).strip()
+                if s_p0 and s_tgt:
+                    pairs_meta[(s_p0, s_tgt)] = p_tgt
+                    pairs_meta[f"{s_p0}--{s_tgt}"] = p_tgt
+                    pairs_meta[f"{s_p0}_{s_tgt}"] = p_tgt
+            log.info(f"Loaded {len(pairs_meta)} pair phase mappings from {args.pairs_csv}")
+        except Exception as pe:
+            log.warning(f"Could not load phase pairs from {args.pairs_csv}: {pe}")
 
     # 1. Load Stage 1 Autoencoder
     log.info(f"Loading Stage 1 Autoencoder from: {args.ae_checkpoint}")
@@ -581,23 +601,47 @@ def main():
         mask_sha = checkpoint_sha256(mask_path) if mask_path and os.path.exists(mask_path) else None
 
         # Resolve target phase (F06)
+        target_phase_id = None
         if args.target_phase != "auto":
             phase_key = str(args.target_phase).lower()
             if phase_key not in PHASE_NAME_TO_ID:
                 raise ValueError(f"Unknown --target_phase '{args.target_phase}'. Choose from {list(PHASE_NAME_TO_ID.keys())}")
             target_phase_id = PHASE_NAME_TO_ID[phase_key]
         else:
-            p_lower = pair_name.lower()
-            if "arterial_early" in p_lower or "early_art" in p_lower:
-                target_phase_id = 1
-            elif "arterial" in p_lower:
-                target_phase_id = 2
-            elif "delayed" in p_lower:
-                target_phase_id = 4
-            elif "venous" in p_lower or "portal" in p_lower or "pv" in p_lower:
-                target_phase_id = 3
-            else:
-                target_phase_id = 3  # Standard abdominal contrast phase
+            # 1. Authoritative lookup from pairs manifest
+            meta_phase = pairs_meta.get((subject_p0, subject_target), pairs_meta.get(pair_name))
+            if meta_phase:
+                m_lower = str(meta_phase).lower()
+                if "early_art" in m_lower or "arterial_early" in m_lower or "p1" in m_lower:
+                    target_phase_id = 1
+                elif "late_art" in m_lower or "arterial" in m_lower or "p2" in m_lower:
+                    target_phase_id = 2
+                elif "delayed" in m_lower or "p4" in m_lower:
+                    target_phase_id = 4
+                elif "venous" in m_lower or "portal" in m_lower or "pv" in m_lower or "p3" in m_lower:
+                    target_phase_id = 3
+                elif m_lower in PHASE_NAME_TO_ID:
+                    target_phase_id = PHASE_NAME_TO_ID[m_lower]
+
+            # 2. Check explicit phase token in candidate filename
+            if target_phase_id is None:
+                p_lower = pair_name.lower()
+                if "arterial_early" in p_lower or "early_art" in p_lower:
+                    target_phase_id = 1
+                elif "arterial" in p_lower:
+                    target_phase_id = 2
+                elif "delayed" in p_lower:
+                    target_phase_id = 4
+                elif "venous" in p_lower or "portal" in p_lower or "pv" in p_lower:
+                    target_phase_id = 3
+
+            # 3. Fail closed if phase cannot be verified
+            if target_phase_id is None:
+                raise ValueError(
+                    f"Cannot determine target acquisition phase for candidate '{pair_name}'. "
+                    f"Target subject '{subject_target}' not found in {args.pairs_csv} and filename has no phase token. "
+                    "Specify --target_phase explicitly or provide valid manifest."
+                )
         target_phase_name = ID_TO_PHASE_NAME.get(target_phase_id, f"phase_{target_phase_id}")
         target_phase_tensor = torch.tensor([target_phase_id], device=device, dtype=torch.long)
 
