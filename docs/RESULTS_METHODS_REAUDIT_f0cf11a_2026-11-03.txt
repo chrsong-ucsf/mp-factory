@@ -1,0 +1,189 @@
+MP-FACTORY: NEXT RESULTS AND METHODS AUDIT
+Date: 2026-11-03 (America/Los_Angeles)
+Audited HEAD: f0cf11a52329dae2775ce9cb4a4fc33cc2c9fd71
+Comparison: d1a6717 and RESULTS_METHODS_REAUDIT_d1a6717_2026-11-03.txt
+Scope: source, current local artifacts, tests, failure/provenance probes and methods.
+User requested the audit artifacts be committed and pushed after completion.
+
+VERDICT
+
+Remediation remains incomplete. Scaling ROI, full-content fingerprints, known JHU
+within-run grouping and patient-level hypothesis tests have verified repairs. But
+automatic synthesis phase selection now has undefined-name failures; source schema
+selection, cross-stage holdouts, support presence transitions, merge provenance and
+production manifest validation still have concrete defects. Historic results and
+the archived188-case training pool have not been reconciled with current methods.
+
+FRESH VERIFICATION
+
+- Started clean on main at the audited HEAD; origin/main matched after git fetch.
+- Full configured suite:136 passed in31.76s, exit0.
+- All90 tracked Python files parse; all76 tracked shell/SLURM files pass bash -n.
+- Pyflakes exits1 with178 diagnostics, including three undefined-name locations:
+  sample_multiphase_diffusion.py:438 pd; :612 subject_target; :642 subject_target. Other diagnostics
+  include unused imports/locals and duplicate dictionary keys; lint is not clean.
+- Built-in sanity checker:31checks,13PASS/17WARN/0FAIL/1INFO; exit0. This does not
+  establish production availability or method validity.
+- Targeted current production functions/CLI were probed with temporary inputs.
+  Synthetic probes demonstrate supported-path behavior, not cohort failure rates.
+- No implementation changes, training, production inference, SLURM submissions,
+  remote data mutations or cluster checkpoint verification were performed.
+- The recorded fixes below are local code/probe findings. Historic output validity
+  is a separate question requiring current run manifests and regenerated metrics.
+
+REMAINING ACTIONABLE FINDINGS
+
+1. [P1] Default automatic target-phase resolution crashes.
+   code/project10/evaluation/sample_multiphase_diffusion.py:438 uses pd.read_csv
+   without importing pandas. The exception is caught at:448-449, so phase metadata
+   silently remains empty. Auto resolution at:612 then evaluates subject_target,
+   which is never assigned; :554 extracts only subject_p0. Exact production-expression
+   probes raise NameError for both pd and subject_target. The explicit phase override
+   bypasses this branch, but the advertised default auto path remains unusable.
+   Fix: import pandas, parse/validate both source and target IDs, require a valid
+   manifest lookup and integration-test ID-only registered filenames through main.
+
+2. [P1] Scaling misidentifies the producer schema for TotalSeg BDMAP-cohort outputs.
+   code/training/run_scaling_sweep.py:135-136 explicitly maps directory
+   totalseg_gi_masks_bdmap to raw BDMAP schema. Its producer,
+   code/slurm_scripts/run_totalseg_bdmap.py:19,70-75, writes default TotalSegmentator
+   full-body ml=True masks there; BDMAP names the cohort, not the label vocabulary.
+   Probe of actual determine_mask_schema plus canonical conversion:
+   TotalSeg[6,19,18,20] -> bdmap -> [4,0,0,0], expected[1,2,3,4].
+   tests/test_audit_remediation_regressions.py:2098 currently expects the wrong schema.
+   Fix producer/task/version provenance and the incorrect regression expectation.
+   Additional partial-label issue: find_cases():157-162 still selects stomach.nii.gz
+   alone when a combined mask is absent, ignoring an available duodenum mask. Probe
+   returns target classes[0,1] despite both organ files. Merge/align all organ masks
+   or explicitly mark unlabeled anatomy as ignored rather than known background.
+
+3. [P2] Cross-stage patient independence is still not guaranteed.
+   P9 grouping now works within all four trainers for the known JHU siblings, but
+   Phase1 and Phase2 independently permute the current patient cohort:
+   train_mednext.py:359-375; train_mednext_phase2.py:528-544. Phase2 loads Phase1
+   checkpoint weights at:598-601. Exact production split-block probe:
+   Phase1 on all11known scans validates131/132/133; Phase2 eligible subset113/134/135
+   validates113, already in Phase1 training. Intrastage grouping cannot remove prior
+   exposure through warm-start/teacher checkpoints.
+   P10 hashing normally survives attrition, but its no/all-validation fallbacks at
+   train_stage1_autoencoder.py:157-168 and train_stage2_synthesis.py:384-395 depend on
+   the current cohort. Probe AE[P0,P2,P3] forces valP0/trainP2,P3; registered survivors
+   [P2,P3] force diffusion valP2, already seen by the AE.
+   Fix: persist shared patient assignments and checkpoint membership before selection;
+   fail or report empty validation subsets rather than reassigning patients.
+   Actual historical exposure cannot be measured without saved training manifests.
+
+4. [P2] Scaling evaluation holdout and endpoint contracts remain incomplete.
+   eval_scaling_checkpoints.py:188-210 now rejects explicitly bad exclusion manifests
+   and expands known siblings, but exclusions remain optional and unbound to each
+   checkpoint's training membership. One common cohort is selected before checkpoint
+   loading at:213-216. run_scaling_sweep.py:457-464 still independently samples train
+   and supplied expert validation; fallback:469-473 still splits individual scans.
+   Posthoc absent-organ results at eval_scaling_checkpoints.py:165-169 become0 and
+   enter the mean, unlike sweep/JHU eligible-organ policies. Require independent
+   per-checkpoint patient exclusions and aligned eligibility denominators.
+
+5. [P2] Support addition/deletion still bypasses verified synthesis merging.
+   evaluate_synthesis.py:633-639 checks a support SHA only when the current file
+   exists AND the recorded row has a nonblank SHA. Editing a recorded existing file
+   now rejects correctly, but support presence/absence is part of the metric contract.
+   Integrated production probe: evaluate50%-support case, delete sidecar, then default
+   verified merge accepts the old Reference_Coverage.5 even though current fallback
+   support differs. Absent-to-present transitions likewise skip a blank old hash.
+   Fix: unconditionally compare recorded/current support presence and identity;
+   revalidate complete current manifest/run identity before merging.
+
+6. [P2] Ensemble merger still discards some conflicting run provenance as duplicates.
+   merge_ensemble_chunks.py:84-96 compares only triage_category, consensus_sha256,
+   mean_consensus_dice and status. Conflicts in input_fingerprint, uncertainty_sha256,
+   model/run/version identity or other metrics are ignored before drop_duplicates.
+   Actual CLI probe: same subject and those four fields, but RUN_A/RUN_B input and
+   uncertainty identities, exits0 and retains RUN_A as an allegedly exact duplicate.
+   No complete expected partition, worker-completion or cohort proof is enforced.
+   Fix: validate all identity/metric fields and expected ownership; reject mixed-run
+   rows and incomplete current cohorts instead of arbitrarily retaining one row.
+   Resume additionally compares uncertainty_sha256 only if present at ensemble:906-910;
+   require this output identity for a cryptographically verified completed record.
+
+7. [P1/P2] Production manifest integrity can pass corrupt and mostly missing data.
+   verify_production_results.py:231-236 reads head(10) only and checks path existence
+   without opening volumes. Actual scanner probe:34manifest rows; first10 CT/label
+   paths are corrupt text files; remaining24pairs are missing. Function returns
+   manifest_valid=True and manifest_rows34. The ensemble gate at:456-460 accepts
+   this integrity flag; file/foreground/geometry/cohort validity is not established.
+   Fix: validate every required pair's readable finite content, geometry, canonical
+   labels, eligible supervision and unique cohort linkage. If checks are sampled,
+   label them sampled and do not certify the whole pool as pristine/verified.
+
+8. [P2] Increased production thresholds still do not prove complete matching cohorts.
+   verify_production_results.py:461-467 now requires>=1500registrations/DVFs with
+   equal counts,>=1000synthetics and>=250evaluations. The earlier one-item bypass is
+   fixed. However, the gate does not require corresponding subject sets, documented
+   exclusions, row hashes, completion metadata or current checkpoint/input lineage.
+   Temporary actual-main gate-control probe passes at1500/1500/1000/250against1545
+   pair rows. This probes logic, not actual remote inventories. Equal counts can
+   describe different case sets and historical/partial evaluations.
+   Fix: compare against explicit current expected case sets and provenance contracts,
+   and separate inventory completeness from scientific metric validation.
+
+9. [P1] Archived training eligibility and descendant training remain unreconciled.
+   docs/manifests/ensemble_phase3_audit_summary.csv remains1444REJECT/185WEAK/3CLEAN;
+   production report:80-85 still certifies188verified scans. Fresh current-rule replay
+   of rounded per-organ archived statistics remains1598REJECT/34WEAK/0CLEAN. Row2
+   retains empty-organ-inflated global scores. Replay is diagnostic, not new volume
+   evaluation. Regenerate source-volume scores, versioned eligibility/manifests and
+   reconcile affected checkpoint training lineage before asserting result closure.
+
+10.[P2] Statistical core repair works, but residual inferential contracts remain.
+   Known11JHU scans now map to5patients and hypotheses aggregate patients. Actual
+   25scan/5patient probe yields Wilcoxon p=.0625, matching direct SciPy on5summaries.
+   FDR NaN indexing and adjusted-q reporting retain their repairs.
+   Remaining: statistical_significance_test.py:65-66 bootstraps scans when only one
+   independent patient exists; probe returns95%CI[.18,.42]. Main:259 overwrites
+   supplied patient metadata with inferred IDs, so unmapped future sibling scans
+   can lose authoritative grouping. Duplicate subject records are silently dropped
+   at:254-255 without checking conflicting measurements/runs. Descriptive means and
+   effect sizes remain scan-weighted while hypothesis tests use patient means.
+   Fix: preserve/validate authoritative IDs, reject conflicts, decline population
+   uncertainty for one independent patient and identify/report a consistent estimand.
+
+11.[P2] Fresh report timestamp is not independently verified current result evidence.
+   f0cf11a changes only the production report timestamp to2026-11-03 09:29:12UTC.
+   ALL GATES PASSED,188verified pool and historic metrics/checkpoint digests remain.
+   Local results/logs are empty; CT cohort absent. Remote absence is not inferred,
+   but raw current metrics, checkpoints and training/run manifests are unavailable
+   for independent reexecution here. Fixed literature comparator values remain
+   unverified; synthesis report/showcase retain inconsistent262/1067descriptions.
+   All1545archived pairs still lack source/target exam dates, so contemporaneous
+   clinical pairing remains unverified. Regenerate/reconcile actual evidence and
+   claims; distinguish software repairs from validated scientific improvement.
+
+VERIFIED FIXES RETAINED OR ADDED
+
+- Full mask/NPZ input contents now stream through SHA256; ordered model names affect
+  identity. Parent's valid same-size gzip tail-change probe now changes fingerprint.
+- Canonical gi_mask discovery preserves stomach; actual spacing-before-crop pipeline
+  returns two1x32x32x32tensors for requested32-cube ROI on1mm input.
+- All four segmentation trainers group known JHU siblings and discovery carries IDs.
+- Physical probability resampling, zero padding, safe ignored-label validation,
+  explicit JHU conversion, absent-case filtering and physical spacing remain repaired.
+- Conflicting triage/consensus/status/mean-Dice duplicate ensemble rows now reject.
+  More complete provenance conflict checking remains item6.
+- Synthesis metric version is now v4_audited_support; editing a recorded existing
+  support sidecar rejects during merge. Presence transitions remain item5.
+- New P10 patient hash assignment is stable except its cohort-dependent fallback.
+- Explicit phase-conditioned sampling, timestep mismatch rejection, stress reporting,
+  CT loading failures, strict four-table requirement and test-report isolation remain.
+- Higher P10 inventory thresholds reject the previous one-artifact completion case.
+
+NEXT ACCEPTANCE GATE
+
+Repair default sampling and source-task schema first. Persist shared patient/fold and
+checkpoint membership across stages. Make verified worker resume and both mergers
+validate complete identities, including absent/present sidecars. Validate all training
+pairs and actual expected cohort sets, then regenerate archives, affected training and
+independent results. Do not certify old result cohorts from passing local tests alone.
+
+Evidence: audit_evidence_f0cf11a_2026-11-03/ contains full-suite/lint/sanity output,
+full-file hash repair, provenance-conflict merge, corrupt-manifest and archive replay.
+This audit changes documentation/evidence only; source fixes were not applied.

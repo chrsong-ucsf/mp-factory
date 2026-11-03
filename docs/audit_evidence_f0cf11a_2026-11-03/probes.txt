@@ -1,0 +1,3 @@
+FULL_HASH_REPAIR {"same_size": true, "prefix_equal": true, "fingerprint_changed": true, "model_name_changes_fingerprint": true}
+ENSEMBLE_PROVENANCE_CONFLICT {"exit": 0, "rows": 1, "retained_input_fingerprint": ["RUN_A"]}
+INVALID_MANIFEST_ACCEPTED {"rows": 34, "manifest_valid": true, "corrupt_first_rows": 10, "missing_later_rows": 24}
