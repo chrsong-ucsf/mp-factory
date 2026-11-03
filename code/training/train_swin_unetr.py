@@ -5,6 +5,7 @@ import re
 import argparse
 import hashlib
 import json
+import tempfile
 import numpy as np
 import nibabel as nib
 import torch
@@ -146,6 +147,7 @@ class GIDataset(Dataset):
     def __init__(self, data_pairs, transform=None):
         self.data_pairs = data_pairs
         self.transform = transform
+        self._tmp_dir = tempfile.mkdtemp(prefix="gi_swin_masks_")
 
     def __len__(self):
         return len(self.data_pairs)
@@ -169,12 +171,19 @@ class GIDataset(Dataset):
                     organ_file = os.path.join(search_dir, f"{alias}.nii.gz")
                     if os.path.exists(organ_file):
                         o_nii = nib.load(organ_file)
+                        if o_nii.shape[:3] != ct_nii.shape[:3] or not np.allclose(o_nii.affine, ct_nii.affine, atol=1e-3):
+                            import nibabel.processing as nip
+                            try:
+                                o_nii = nip.resample_from_to(o_nii, ct_nii, order=0)
+                            except Exception as re_err:
+                                raise ValueError(f"Malformed organ mask geometry in {organ_file}: {re_err}") from re_err
                         o_arr = np.asanyarray(o_nii.dataobj) > 0
                         gt_arr[o_arr] = organ_id
                         break
 
-            # Save temporary merged mask in memory or pass as volume
-            temp_lbl_path = os.path.join(os.path.dirname(img_path), "gi_mask_temp.nii.gz")
+            # Write merged mask to a fold-specific temp directory to avoid race conditions
+            subject_id = os.path.basename(os.path.dirname(img_path))
+            temp_lbl_path = os.path.join(self._tmp_dir, f"{subject_id}_gi_mask.nii.gz")
             if not os.path.exists(temp_lbl_path):
                 lbl_nii = nib.Nifti1Image(gt_arr, ct_nii.affine, ct_nii.header)
                 nib.save(lbl_nii, temp_lbl_path)

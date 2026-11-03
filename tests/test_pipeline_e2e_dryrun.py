@@ -79,6 +79,9 @@ class TestPipelineDryRun(unittest.TestCase):
                         "uncertainty_mean": [0.05, 0.10, 0.25, 0.04, 0.12],
                         "triage_category": ["CLEAN_HIGH_CONFIDENCE", "WEAK_COARSE", "NOISE_REJECT", "CLEAN_HIGH_CONFIDENCE", "WEAK_COARSE"],
                         "category": ["CLEAN_HIGH_CONFIDENCE", "WEAK_COARSE", "NOISE_REJECT", "CLEAN_HIGH_CONFIDENCE", "WEAK_COARSE"],
+                        "input_fingerprint": [f"fp_{100+j+i*5:08d}" for j in range(5)],
+                        "consensus_sha256": [f"cons_{100+j+i*5:08d}" for j in range(5)],
+                        "uncertainty_sha256": [f"unc_{100+j+i*5:08d}" for j in range(5)],
                         "status": ["SUCCESS"] * 5,
                     })
                     df_chunk.to_csv(cpath, index=False)
@@ -93,6 +96,8 @@ class TestPipelineDryRun(unittest.TestCase):
                 "--splits_dir", splits_dir,
                 "--ensemble_out_dir", cons_dir,
             ]
+            if existing_chunks:
+                cmd.append("--allow_unverified_provenance")
             res = subprocess.run(cmd, capture_output=True, text=True)
             self.assertEqual(res.returncode, 0, f"merge failed:\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}")
             df = pd.read_csv(out_csv)

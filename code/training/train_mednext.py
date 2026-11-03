@@ -179,6 +179,12 @@ class GIDataset(Dataset):
                     organ_file = os.path.join(search_dir, f"{alias}.nii.gz")
                     if os.path.exists(organ_file):
                         o_nii = nib.load(organ_file)
+                        if o_nii.shape[:3] != ct_nii.shape[:3] or not np.allclose(o_nii.affine, ct_nii.affine, atol=1e-3):
+                            import nibabel.processing as nip
+                            try:
+                                o_nii = nip.resample_from_to(o_nii, ct_nii, order=0)
+                            except Exception as re_err:
+                                raise ValueError(f"Malformed organ mask geometry in {organ_file}: {re_err}") from re_err
                         o_arr = np.asanyarray(o_nii.dataobj) > 0
                         gt_arr[o_arr] = organ_id
                         break

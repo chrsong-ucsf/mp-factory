@@ -28,7 +28,15 @@ except Exception:  # pragma: no cover - splits are optional if import fails
     export_dataset_splits = None
 
 
-def merge_chunks(pattern, out_csv, sort_by="subject_id", splits_dir=None, ensemble_out_dir=None):
+def merge_chunks(
+    pattern,
+    out_csv,
+    sort_by="subject_id",
+    splits_dir=None,
+    ensemble_out_dir=None,
+    require_provenance=True,
+    expected_cases=None,
+):
     """Programmatic API to merge ensemble shards and export dataset splits."""
     files = sorted(glob.glob(pattern))
     if not files:
@@ -78,8 +86,17 @@ def merge_chunks(pattern, out_csv, sort_by="subject_id", splits_dir=None, ensemb
             print(f"Deduplicating {len(dups) - dups['subject_id'].nunique()} exact duplicate rows across shards.")
             merged = merged.drop_duplicates(subset=['subject_id']).reset_index(drop=True)
 
-        # Enforce required provenance across all rows if provenance columns are declared in schema
-        for req_prov in ['input_fingerprint', 'consensus_sha256', 'uncertainty_sha256']:
+        # Enforce required provenance across all rows by default (Finding 9)
+        required_prov_cols = ['input_fingerprint', 'consensus_sha256', 'uncertainty_sha256']
+        if require_provenance:
+            missing_cols = [c for c in required_prov_cols if c not in merged.columns]
+            if missing_cols:
+                raise ValueError(
+                    f"Ensemble merge requires mandatory provenance columns {missing_cols}, "
+                    f"but they are absent from the merged schema. Pass --allow_unverified_provenance to bypass."
+                )
+
+        for req_prov in required_prov_cols:
             if req_prov in merged.columns:
                 success_mask = (merged['status'] == 'SUCCESS') if 'status' in merged.columns else np.ones(len(merged), dtype=bool)
                 prov_series = merged.loc[success_mask, req_prov]
@@ -89,6 +106,10 @@ def merge_chunks(pattern, out_csv, sort_by="subject_id", splits_dir=None, ensemb
                     raise ValueError(
                         f"Ensemble merge encountered {len(bad_sids)} rows with missing required provenance '{req_prov}' (e.g. {bad_sids[:3]})."
                     )
+
+    if expected_cases is not None:
+        if len(merged) < expected_cases:
+            raise ValueError(f"Ensemble merge produced {len(merged)} cases, but expected at least {expected_cases}.")
 
     if sort_by in merged.columns:
         merged = merged.sort_values(sort_by).reset_index(drop=True)
@@ -108,10 +129,13 @@ def merge_chunks(pattern, out_csv, sort_by="subject_id", splits_dir=None, ensemb
             pct = count / len(merged) * 100.0
             print(f"  {cat:<45}: {count:,} cases ({pct:.1f}%)")
     if 'mean_consensus_dice' in merged.columns:
-        valid = merged[merged['status'] == 'SUCCESS']
-        print(f"\nMean Consensus Dice   : {valid['mean_consensus_dice'].mean():.4f}")
-        print(f"Mean Inter-Model Dice : {valid['mean_inter_model_dice'].mean():.4f}")
-        print(f"Mean Uncertainty      : {valid['mean_uncertainty'].mean():.4f}")
+        valid = merged[merged['status'] == 'SUCCESS'] if 'status' in merged.columns else merged
+        if not valid.empty:
+            print(f"\nMean Consensus Dice   : {valid['mean_consensus_dice'].mean():.4f}")
+            if 'mean_inter_model_dice' in valid.columns:
+                print(f"Mean Inter-Model Dice : {valid['mean_inter_model_dice'].mean():.4f}")
+            if 'mean_uncertainty' in valid.columns:
+                print(f"Mean Uncertainty      : {valid['mean_uncertainty'].mean():.4f}")
 
     if isinstance(splits_dir, str) and splits_dir.lower() == "none":
         print("\n[DATASET SPLITS] Skipped (--splits_dir none).")
@@ -161,6 +185,17 @@ def main():
         default=None,
         help="Consensus mask directory, embedded as consensus_path in split CSVs."
     )
+    parser.add_argument(
+        "--allow_unverified_provenance",
+        action="store_true",
+        help="Allow merging chunks lacking mandatory provenance columns."
+    )
+    parser.add_argument(
+        "--expected_cases",
+        type=int,
+        default=None,
+        help="Minimum expected case count in merged summary."
+    )
     args = parser.parse_args()
 
     try:
@@ -169,9 +204,11 @@ def main():
             args.out_csv,
             sort_by=args.sort_by,
             splits_dir=args.splits_dir,
-            ensemble_out_dir=args.ensemble_out_dir
+            ensemble_out_dir=args.ensemble_out_dir,
+            require_provenance=not args.allow_unverified_provenance,
+            expected_cases=args.expected_cases,
         )
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}")
         sys.exit(1)
 

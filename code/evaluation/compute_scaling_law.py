@@ -10,7 +10,10 @@ def fit_and_print(csv_path):
     print(f"Fitting {csv_path}...")
     df = pd.read_csv(csv_path)
     
-    df['train_size'] = df['cohort'].str.extract(r'N0*(\d+)').astype(float)
+    if 'n_train_scans' in df.columns:
+        df['train_size'] = pd.to_numeric(df['n_train_scans'], errors='coerce')
+    elif 'train_size' not in df.columns:
+        df['train_size'] = df['cohort'].str.extract(r'N0*(\d+)').astype(float)
         
     agg_df = df.groupby('train_size')['mean_dice'].mean().reset_index()
     agg_df = agg_df.dropna()

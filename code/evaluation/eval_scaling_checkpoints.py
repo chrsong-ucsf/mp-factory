@@ -10,6 +10,7 @@ import sys
 import glob
 import csv
 import json
+import re
 import argparse
 import numpy as np
 import pandas as pd
@@ -176,9 +177,68 @@ def evaluate_checkpoint(model, ckpt_path, cases, val_tf, roi_size, device):
     }
 
 
+def validate_checkpoint_manifest(ckpt: str, ckpt_dir: str = None):
+    """Validate that checkpoint has an authentic training manifest with required membership schema (Finding 3)."""
+    if ckpt_dir is None:
+        ckpt_dir = os.path.dirname(ckpt) or "."
+    ckpt_name = os.path.basename(ckpt)
+    fold_match = re.search(r'fold_(\d+)', ckpt_name) or re.search(r'fold_(\d+)', ckpt_dir)
+    if fold_match:
+        expected_manifest_name = f"fold_{fold_match.group(1)}_manifest.json"
+        manifest_candidates = [
+            os.path.join(ckpt_dir, expected_manifest_name),
+            os.path.join(ckpt_dir, "train_manifest.json"),
+        ]
+    else:
+        manifest_candidates = [os.path.join(ckpt_dir, "train_manifest.json")]
+
+    found_manifest = None
+    for mc in manifest_candidates:
+        if os.path.exists(mc):
+            found_manifest = mc
+            break
+
+    if found_manifest is None:
+        raise RuntimeError(
+            f"Missing required training manifest in {ckpt_dir} for checkpoint {ckpt}. "
+            f"Expected one of {[os.path.basename(m) for m in manifest_candidates]}. "
+            f"Bound membership/configuration is required to evaluate holdout validation."
+        )
+
+    try:
+        with open(found_manifest, "r") as mf:
+            minfo = json.load(mf)
+        if not isinstance(minfo, dict) or not minfo:
+            raise ValueError("Manifest is empty or not a valid JSON dictionary")
+
+        # Validate training membership schema
+        train_members = (
+            minfo.get("train_cases", [])
+            + minfo.get("train_scans", [])
+            + minfo.get("train_patients", [])
+        )
+        if not train_members or not isinstance(train_members, list):
+            raise ValueError(
+                f"Manifest {found_manifest} has empty or missing training membership "
+                f"('train_cases', 'train_scans', or 'train_patients')"
+            )
+
+        # Validate fold binding if applicable
+        if "fold" in minfo and fold_match:
+            if int(minfo["fold"]) != int(fold_match.group(1)):
+                raise ValueError(
+                    f"Manifest fold mismatch: manifest specifies fold {minfo['fold']} but checkpoint is fold {fold_match.group(1)}"
+                )
+        return found_manifest, minfo
+    except Exception as me:
+        raise RuntimeError(f"Could not read, parse, or validate training manifest {found_manifest}: {me}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate scaling sweep checkpoints post-hoc.")
     parser.add_argument("--results_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/scaling_sweep")
+    parser.add_argument("--checkpoints", type=str, nargs="+", default=None,
+                        help="Explicit checkpoint file(s) to evaluate instead of scanning results_dir")
     parser.add_argument("--data_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox")
     parser.add_argument("--ensemble_out_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_out")
     parser.add_argument("--audit_csv", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/ensemble_audit_summary.csv")
@@ -200,6 +260,26 @@ def main():
         print(f"      Gold Std:   {args.gold_standard_dir}")
     print("=" * 70)
 
+    # 1. Discover all checkpoints
+    if args.checkpoints:
+        ckpts = args.checkpoints
+    else:
+        # Pattern 1: results/scaling_sweep/N*/seed*/best_mednext_phase2.pt
+        ckpts = sorted(glob.glob(os.path.join(args.results_dir, "N*", "seed*", "best_mednext_phase2.pt")))
+        if not ckpts:
+            # Fallback to any best_*.pt
+            ckpts = sorted(glob.glob(os.path.join(args.results_dir, "**", "best_*.pt"), recursive=True))
+
+    if not ckpts:
+        print(f"No checkpoints found under {args.results_dir}")
+        sys.exit(1)
+
+    print(f"Discovered {len(ckpts)} checkpoints to evaluate.\n")
+
+    # Validate training manifests for all checkpoints upfront (Finding 3)
+    for ckpt in ckpts:
+        validate_checkpoint_manifest(ckpt)
+
     exclude_subs = set()
     if args.exclude_manifest:
         if not os.path.exists(args.exclude_manifest):
@@ -211,7 +291,7 @@ def main():
         exclude_subs = set(ex_df[col].astype(str))
         print(f"Excluding {len(exclude_subs)} training subjects and their sibling phases from validation holdout.")
 
-    # 1. Find validation cases
+    # 2. Find validation cases
     val_cases = find_validation_cases(
         args.data_dir, args.ensemble_out_dir, args.audit_csv,
         gold_standard_dir=args.gold_standard_dir, max_cases=args.num_val_cases,
@@ -222,24 +302,11 @@ def main():
         sys.exit(1)
     print(f"Loaded {len(val_cases)} validation cases for evaluation.")
 
-    # 2. Get transforms with FixLiarLabelAffined
+    # 3. Get transforms with FixLiarLabelAffined
     if get_transforms is None:
         print("ERROR: get_transforms could not be imported from train_mednext_phase2.")
         sys.exit(1)
     _, val_tf = get_transforms(roi_size=tuple(args.roi_size))
-
-    # 3. Discover all checkpoints
-    # Pattern 1: results/scaling_sweep/N*/seed*/best_mednext_phase2.pt
-    ckpts = sorted(glob.glob(os.path.join(args.results_dir, "N*", "seed*", "best_mednext_phase2.pt")))
-    if not ckpts:
-        # Fallback to any best_*.pt
-        ckpts = sorted(glob.glob(os.path.join(args.results_dir, "**", "best_*.pt"), recursive=True))
-
-    if not ckpts:
-        print(f"No checkpoints found under {args.results_dir}")
-        sys.exit(1)
-
-    print(f"Discovered {len(ckpts)} checkpoints to evaluate.\n")
 
     # 4. Instantiate Model (model_id="B", kernel_size=3 to match sweep config in submit_scaling_sweep.sh)
     if create_mednext_v1 is None:
@@ -270,35 +337,18 @@ def main():
             ckpt_excludes.add(s_str)
             ckpt_excludes.add(extract_patient_id(s_str))
 
-        # Look for matching checkpoint manifest (train_manifest.json or fold_<n>_manifest.json)
-        manifest_candidates = [os.path.join(ckpt_dir, "train_manifest.json")]
-        manifest_candidates.extend(sorted(glob.glob(os.path.join(ckpt_dir, "*manifest*.json"))))
-
-        found_manifest = None
-        for mc in manifest_candidates:
-            if os.path.exists(mc):
-                found_manifest = mc
-                break
-
-        if found_manifest is None:
-            raise RuntimeError(
-                f"Missing required training manifest in {ckpt_dir} for checkpoint {ckpt}. "
-                f"Bound membership/configuration is required to evaluate holdout validation."
-            )
-
-        try:
-            with open(found_manifest, "r") as mf:
-                minfo = json.load(mf)
-                for c_name in (
-                    minfo.get("train_cases", [])
-                    + minfo.get("train_scans", [])
-                    + minfo.get("train_patients", [])
-                ):
-                    c_str = str(c_name)
-                    ckpt_excludes.add(c_str)
-                    ckpt_excludes.add(extract_patient_id(c_str))
-        except Exception as me:
-            raise RuntimeError(f"Could not read or parse training manifest {found_manifest}: {me}")
+        # Look for matching checkpoint manifest (train_manifest.json or fold_<n>_manifest.json) (Finding 3)
+        found_manifest, minfo = validate_checkpoint_manifest(ckpt, ckpt_dir)
+        train_members = (
+            minfo.get("train_cases", [])
+            + minfo.get("train_scans", [])
+            + minfo.get("train_patients", [])
+        )
+        for c_name in train_members:
+            c_str = str(c_name).strip()
+            if c_str:
+                ckpt_excludes.add(c_str)
+                ckpt_excludes.add(extract_patient_id(c_str))
 
         curr_val_cases = [
             c for c in val_cases

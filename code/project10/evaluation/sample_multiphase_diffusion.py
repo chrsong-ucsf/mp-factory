@@ -370,7 +370,8 @@ ID_TO_PHASE_NAME = {
 
 def build_arg_parser():
     parser = argparse.ArgumentParser(description="Multiphase Diffusion Inference & Sampling")
-    parser.add_argument("--registered_dir", type=str,
+    parser.add_argument("--registered_dir", "--data_dir", type=str,
+                        dest="registered_dir",
                         default="results/project10/registered_volumes",
                         help="Directory containing registered moving/fixed CT volumes")
     parser.add_argument("--ncct_dir", type=str,
@@ -382,7 +383,8 @@ def build_arg_parser():
     parser.add_argument("--ae_checkpoint", type=str,
                         default="results/project10/checkpoints/stage1_ae/best_stage1_ae.pt",
                         help="Path to trained Stage 1 Autoencoder checkpoint")
-    parser.add_argument("--diffusion_checkpoint", type=str,
+    parser.add_argument("--diffusion_checkpoint", "--stage2_checkpoint", type=str,
+                        dest="diffusion_checkpoint",
                         default="results/project10/checkpoints/stage2_synthesis/best_synthesis_net.pt",
                         help="Path to trained Stage 2 Latent Diffusion checkpoint")
     parser.add_argument("--out_dir", type=str,
@@ -416,6 +418,29 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log.info(f"Using device: {device} | Worker: [{args.array_id}/{args.total_workers}]")
 
+    # Load authoritative pairs manifest for target acquisition phase mapping (F06)
+    pairs_meta = {}
+    if args.pairs_csv:
+        if not os.path.exists(args.pairs_csv):
+            raise FileNotFoundError(f"Specified --pairs_csv manifest not found: {args.pairs_csv}")
+        try:
+            pdf = pd.read_csv(args.pairs_csv, dtype=str)
+            for idx, prow in pdf.iterrows():
+                s_p0 = str(prow.get("subject_p0", "")).strip()
+                s_tgt = str(prow.get("subject_target", "")).strip()
+                p_tgt = str(prow.get("phase_target", prow.get("phase_target_raw", ""))).strip()
+                if s_p0 and s_tgt:
+                    for k in [(s_p0, s_tgt), f"{s_p0}--{s_tgt}", f"{s_p0}_{s_tgt}", s_tgt]:
+                        if k in pairs_meta and pairs_meta[k] != p_tgt:
+                            raise ValueError(
+                                f"Contradictory phase mapping in {args.pairs_csv} row {idx} for '{k}': "
+                                f"existing phase '{pairs_meta[k]}' vs new phase '{p_tgt}'"
+                            )
+                        pairs_meta[k] = p_tgt
+            log.info(f"Loaded {len(pairs_meta)} pair phase mappings from {args.pairs_csv}")
+        except Exception as pe:
+            raise ValueError(f"Failed to load required pairs manifest from {args.pairs_csv}: {pe}")
+
     # Discover candidate CT volumes
     all_files = sorted(glob.glob(os.path.join(args.registered_dir, "*_reg.nii.gz")))
     if not all_files:
@@ -431,26 +456,6 @@ def main():
         my_files = my_files[:args.max_samples]
 
     log.info(f"Total volumes discovered: {len(all_files)} | Assigned to worker {args.array_id}: {len(my_files)}")
-
-    # Load authoritative pairs manifest for target acquisition phase mapping (F06)
-    pairs_meta = {}
-    if args.pairs_csv:
-        if not os.path.exists(args.pairs_csv):
-            raise FileNotFoundError(f"Specified --pairs_csv manifest not found: {args.pairs_csv}")
-        try:
-            pdf = pd.read_csv(args.pairs_csv, dtype=str)
-            for _, prow in pdf.iterrows():
-                s_p0 = str(prow.get("subject_p0", "")).strip()
-                s_tgt = str(prow.get("subject_target", "")).strip()
-                p_tgt = str(prow.get("phase_target", prow.get("phase_target_raw", ""))).strip()
-                if s_p0 and s_tgt:
-                    pairs_meta[(s_p0, s_tgt)] = p_tgt
-                    pairs_meta[f"{s_p0}--{s_tgt}"] = p_tgt
-                    pairs_meta[f"{s_p0}_{s_tgt}"] = p_tgt
-                    pairs_meta[s_tgt] = p_tgt
-            log.info(f"Loaded {len(pairs_meta)} pair phase mappings from {args.pairs_csv}")
-        except Exception as pe:
-            raise ValueError(f"Failed to load required pairs manifest from {args.pairs_csv}: {pe}")
 
     # 1. Load Stage 1 Autoencoder
     log.info(f"Loading Stage 1 Autoencoder from: {args.ae_checkpoint}")

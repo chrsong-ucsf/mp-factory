@@ -557,23 +557,32 @@ def main() -> None:
                         val_loss_acc += v_loss.item()
                         n_val_batches += 1
 
+                # Reduce validation loss and batch counts across DDP ranks (Finding 10)
+                if is_ddp and dist.is_initialized():
+                    val_tensor = torch.tensor([val_loss_acc, float(n_val_batches)], device=device)
+                    dist.all_reduce(val_tensor, op=dist.ReduceOp.SUM)
+                    val_loss_acc = val_tensor[0].item()
+                    n_val_batches = int(val_tensor[1].item())
+
                 if n_val_batches > 0:
                     val_loss = val_loss_acc / n_val_batches
                     if val_loss < best_val_loss:
                         best_val_loss = val_loss
-                        best_path = os.path.join(args.out_dir, "best_synthesis_net.pt")
-                        payload = stage2_checkpoint_payload(
-                            epoch=epoch + 1,
-                            model=model,
-                            optimizer=optimizer,
-                            scheduler=scheduler,
-                            best_val_loss=best_val_loss,
-                            ae_checkpoint_sha256=ae_sha,
-                            conditioning=conditioning,
-                            timesteps=args.timesteps,
-                        )
-                        torch.save(payload, best_path)
-                        log.info(f"  [Epoch {epoch+1:03d}] New best val_loss={val_loss:.5f} -> saved {best_path}")
+                        if is_master:
+                            best_path = os.path.join(args.out_dir, "best_synthesis_net.pt")
+                            raw_model = model.module if is_ddp else model
+                            payload = stage2_checkpoint_payload(
+                                epoch=epoch + 1,
+                                model=raw_model,
+                                optimizer=optimizer,
+                                scheduler=scheduler,
+                                best_val_loss=best_val_loss,
+                                ae_checkpoint_sha256=ae_sha,
+                                conditioning=conditioning,
+                                timesteps=args.timesteps,
+                            )
+                            torch.save(payload, best_path)
+                            log.info(f"  [Epoch {epoch+1:03d}] New best val_loss={val_loss:.5f} -> saved {best_path}")
                 else:
                     log.warning("No validation batches executed; reporting validation as unavailable (NaN).")
 

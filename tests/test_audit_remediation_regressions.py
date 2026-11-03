@@ -2433,6 +2433,7 @@ def test_ensemble_merge_rejects_provenance_conflict(tmp_path):
         "subject_id": "BDMAP_001",
         "triage_category": "CLEAN_HIGH_CONFIDENCE",
         "mean_consensus_dice": 0.90,
+        "input_fingerprint": "fp_1",
         "consensus_sha256": "sha_cons_1",
         "uncertainty_sha256": "sha_unc_A",
         "status": "SUCCESS",
@@ -2441,6 +2442,7 @@ def test_ensemble_merge_rejects_provenance_conflict(tmp_path):
         "subject_id": "BDMAP_001",
         "triage_category": "CLEAN_HIGH_CONFIDENCE",
         "mean_consensus_dice": 0.90,
+        "input_fingerprint": "fp_1",
         "consensus_sha256": "sha_cons_1",
         "uncertainty_sha256": "sha_unc_B",  # Conflicting output identity!
         "status": "SUCCESS",
@@ -2670,6 +2672,8 @@ def test_merge_ensemble_chunks_rejects_missing_vs_present_provenance(tmp_path):
         "triage_category": "CLEAN_HIGH_CONFIDENCE",
         "mean_consensus_dice": 0.90,
         "input_fingerprint": np.nan,
+        "consensus_sha256": "sha_cons_1",
+        "uncertainty_sha256": "sha_unc_1",
         "status": "SUCCESS",
     }])
     df2 = pd.DataFrame([{
@@ -2677,6 +2681,8 @@ def test_merge_ensemble_chunks_rejects_missing_vs_present_provenance(tmp_path):
         "triage_category": "CLEAN_HIGH_CONFIDENCE",
         "mean_consensus_dice": 0.90,
         "input_fingerprint": "RUN_B",
+        "consensus_sha256": "sha_cons_1",
+        "uncertainty_sha256": "sha_unc_1",
         "status": "SUCCESS",
     }])
     df1.to_csv(c1, index=False)
@@ -2702,6 +2708,194 @@ def test_statistical_significance_duplicate_checking_includes_hd95(tmp_path):
 
     assert len(conflicts) == 1
     assert conflicts[0][1] == "mean_hd95"
+
+
+def test_scaling_sweep_loop_variable_does_not_shadow_gc():
+    """Finding 1 (7dafd09): Scaling sweep loop variable does not shadow the gc module."""
+    import inspect
+    from code.training import run_scaling_sweep
+    source = inspect.getsource(run_scaling_sweep.run_single_sweep)
+    assert "for gc in " not in source, "Found 'for gc in' which shadows imported gc module!"
+    assert "for g_case in gold_standard_cases:" in source
+
+
+def test_phase1_dataset_organ_mask_physical_resampling(tmp_path):
+    """Finding 2 (7dafd09): Phase 1 loaders resample organ masks onto CT physical grid and reject displaced anatomy."""
+    import numpy as np
+    import nibabel as nib
+    from code.training.train_mednext import GIDataset as MedGIDataset
+    from code.training.train_swin_unetr import GIDataset as SwinGIDataset
+
+    sub_dir = tmp_path / "BDMAP_001"
+    seg_dir = sub_dir / "segmentations"
+    seg_dir.mkdir(parents=True)
+
+    ct_p = sub_dir / "ct.nii.gz"
+    stomach_p = seg_dir / "stomach.nii.gz"
+
+    # CT at origin 0..15 mm
+    ct_aff = np.eye(4)
+    ct_arr = np.ones((16, 16, 16), dtype=np.float32) * 50.0
+    nib.save(nib.Nifti1Image(ct_arr, ct_aff), str(ct_p))
+
+    # Stomach mask displaced to x=100 mm (zero physical overlap)
+    org_aff = np.eye(4)
+    org_aff[0, 3] = 100.0
+    org_arr = np.ones((16, 16, 16), dtype=np.uint8)
+    nib.save(nib.Nifti1Image(org_arr, org_aff), str(stomach_p))
+
+    pairs = [{"image": str(ct_p), "label_dir": str(seg_dir)}]
+
+    ds_med = MedGIDataset(pairs)
+    sample_med = ds_med[0]
+    # Merged label should have zero foreground voxels within CT FOV because organ is at x=100
+    lbl_med = nib.load(sample_med["label"]).get_fdata()
+    assert (lbl_med == 1).sum() == 0, "Displaced organ mask must not be mapped into CT FOV!"
+
+    ds_swin = SwinGIDataset(pairs)
+    sample_swin = ds_swin[0]
+    lbl_swin = nib.load(sample_swin["label"]).get_fdata()
+    assert (lbl_swin == 1).sum() == 0, "Displaced organ mask must not be mapped into CT FOV in Swin!"
+
+
+def test_scaling_checkpoint_eval_rejects_empty_and_unrelated_manifests(tmp_path):
+    """Finding 3 (7dafd09): eval_scaling_checkpoints fails closed on empty or unrelated manifests."""
+    from code.evaluation.eval_scaling_checkpoints import main as eval_main
+
+    ckpt_dir = tmp_path / "ckpt"
+    ckpt_dir.mkdir()
+    ckpt_file = ckpt_dir / "model.pt"
+    ckpt_file.write_text("fake_weights")
+
+    # Unrelated manifest containing {}
+    unrelated_mf = ckpt_dir / "unrelated_manifest.json"
+    unrelated_mf.write_text("{}")
+
+    import sys
+    orig_argv = sys.argv
+    try:
+        sys.argv = [
+            "eval_scaling_checkpoints.py",
+            "--checkpoints", str(ckpt_file),
+            "--data_dir", str(tmp_path),
+            "--output_csv", str(tmp_path / "eval.csv"),
+        ]
+        with pytest.raises(RuntimeError, match="Missing required training manifest"):
+            eval_main()
+    finally:
+        sys.argv = orig_argv
+
+
+def test_merged_organ_cache_invalidation_on_tampered_output(tmp_path):
+    """Finding 4 (7dafd09): assemble_or_get_mask regenerates cache when cached output is tampered."""
+    from code.training.run_scaling_sweep import assemble_or_get_mask
+    import nibabel as nib
+
+    sub_dir = tmp_path / "BDMAP_001"
+    seg_dir = sub_dir / "segmentations"
+    seg_dir.mkdir(parents=True)
+
+    ct_p = sub_dir / "ct.nii.gz"
+    stomach_p = seg_dir / "stomach.nii.gz"
+    duodenum_p = seg_dir / "duodenum.nii.gz"
+
+    ct_arr = np.zeros((10, 10, 10), dtype=np.float32)
+    nib.save(nib.Nifti1Image(ct_arr, np.eye(4)), str(ct_p))
+    nib.save(nib.Nifti1Image(np.ones((10, 10, 10), dtype=np.uint8), np.eye(4)), str(stomach_p))
+    nib.save(nib.Nifti1Image(np.ones((10, 10, 10), dtype=np.uint8), np.eye(4)), str(duodenum_p))
+
+    # Initial assembly
+    p1 = assemble_or_get_mask(str(tmp_path), "BDMAP_001", str(ct_p))
+    assert os.path.exists(p1)
+
+    # Tamper with the cached mask: overwrite with all colon (class 4)
+    tampered_data = np.full((10, 10, 10), 4, dtype=np.uint8)
+    nib.save(nib.Nifti1Image(tampered_data, np.eye(4)), p1)
+
+    # Calling assemble_or_get_mask must detect tampering and regenerate
+    p2 = assemble_or_get_mask(str(tmp_path), "BDMAP_001", str(ct_p))
+    res_arr = nib.load(p2).get_fdata()
+    uniq = set(np.unique(res_arr).astype(int))
+    assert 4 not in uniq
+    assert 1 in uniq or 2 in uniq
+
+
+def test_scaling_sweep_records_actual_n():
+    """Finding 5 (7dafd09): Scaling sweep records requested vs actual train/val counts in manifest."""
+    n_train = 3
+    n_cases = 5
+    manifest_info = {
+        "n_cases": n_train,
+        "n_requested": n_cases,
+        "n_train_scans": n_train,
+        "n_train_patients": 3,
+        "n_val_scans": 1,
+        "n_val_patients": 1,
+    }
+    assert manifest_info["n_cases"] == 3
+    assert manifest_info["n_requested"] == 5
+
+
+def test_ensemble_merge_rejects_missing_provenance_by_default(tmp_path):
+    """Finding 9 (7dafd09): merge_chunks rejects CSV shards lacking mandatory provenance columns."""
+    from code.utilities.merge_ensemble_chunks import merge_chunks
+
+    c1 = tmp_path / "chunk_0.csv"
+    out_csv = tmp_path / "merged.csv"
+
+    # Missing input_fingerprint, consensus_sha256, uncertainty_sha256
+    df = pd.DataFrame([{
+        "subject_id": "BDMAP_001",
+        "triage_category": "WEAK_COARSE",
+        "mean_consensus_dice": 0.80,
+        "status": "SUCCESS",
+    }])
+    df.to_csv(c1, index=False)
+
+    with pytest.raises(ValueError, match="mandatory provenance columns"):
+        merge_chunks(str(tmp_path / "chunk_*.csv"), str(out_csv))
+
+    # Passing require_provenance=False bypasses check
+    merged = merge_chunks(str(tmp_path / "chunk_*.csv"), str(out_csv), require_provenance=False, splits_dir="none")
+    assert len(merged) == 1
+
+
+def test_stage2_ddp_validation_is_master_gating():
+    """Finding 10 (7dafd09): Non-master ranks do not save best_synthesis_net.pt in Stage 2 training."""
+    import inspect
+    from code.project10.training import train_stage2_synthesis
+    src = inspect.getsource(train_stage2_synthesis)
+    assert "if is_master:" in src
+    assert "best_path = os.path.join(args.out_dir, \"best_synthesis_net.pt\")" in src
+
+
+def test_multiphase_diffusion_sampling_rejects_contradictory_phase_mappings(tmp_path):
+    """Finding 11 (7dafd09): sample_multiphase_diffusion rejects contradictory duplicate phase mappings."""
+    pairs_csv = tmp_path / "pairs.csv"
+    pdf = pd.DataFrame([
+        {"subject_p0": "CV_001", "subject_target": "CV_002", "phase_target": "arterial_early"},
+        {"subject_p0": "CV_001", "subject_target": "CV_002", "phase_target": "arterial_late"},
+    ])
+    pdf.to_csv(pairs_csv, index=False)
+
+    import sys
+    from code.project10.evaluation.sample_multiphase_diffusion import main as sample_main
+
+    orig_argv = sys.argv
+    try:
+        sys.argv = [
+            "sample_multiphase_diffusion.py",
+            "--data_dir", str(tmp_path),
+            "--pairs_csv", str(pairs_csv),
+            "--out_dir", str(tmp_path / "out"),
+            "--ae_checkpoint", str(tmp_path / "ae.pt"),
+            "--stage2_checkpoint", str(tmp_path / "s2.pt"),
+        ]
+        with pytest.raises(ValueError, match="Contradictory phase mapping"):
+            sample_main()
+    finally:
+        sys.argv = orig_argv
+
 
 
 

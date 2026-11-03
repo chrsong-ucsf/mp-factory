@@ -240,7 +240,7 @@ def verify_ensemble_and_manifests():
             seen_subjects = set()
             seen_ct_paths = set()
             seen_lbl_paths = set()
-            expected_subjects = set(df_audit["subject_id"].astype(str)) if "subject_id" in df_audit.columns else None
+            audit_triage_map = dict(zip(df_audit["subject_id"].astype(str), df_audit["triage_category"].astype(str))) if "subject_id" in df_audit.columns and "triage_category" in df_audit.columns else {}
 
             for idx, mrow in mdf.iterrows():
                 sub = str(mrow.get("subject_id", mrow.get("subject", ""))).strip()
@@ -254,10 +254,22 @@ def verify_ensemble_and_manifests():
                     break
                 seen_subjects.add(sub)
 
-                if expected_subjects is not None and sub not in expected_subjects:
-                    manifest_valid = False
-                    manifest_errors.append(f"Row {idx}: subject {sub} not in expected audit cohort")
-                    break
+                if audit_triage_map:
+                    if sub not in audit_triage_map:
+                        manifest_valid = False
+                        manifest_errors.append(f"Row {idx}: subject {sub} not in expected audit cohort")
+                        break
+                    audit_cat = audit_triage_map[sub]
+                    if audit_cat == "NOISE_REJECT":
+                        manifest_valid = False
+                        manifest_errors.append(f"Row {idx}: subject {sub} is NOISE_REJECT in audit summary (rejected subjects cannot be in training pool)")
+                        break
+                    if "category" in mrow:
+                        manifest_cat = str(mrow["category"]).strip()
+                        if manifest_cat != audit_cat:
+                            manifest_valid = False
+                            manifest_errors.append(f"Row {idx}: manifest category '{manifest_cat}' disagrees with audit category '{audit_cat}' for subject {sub}")
+                            break
 
                 ct_p = str(mrow.get("image", mrow.get("ct_path", ""))).strip()
                 lbl_p = str(mrow.get("label", mrow.get("label_path", ""))).strip()
@@ -319,15 +331,45 @@ def verify_ensemble_and_manifests():
                         break
 
                     lbl_arr = np.asanyarray(lbl_nii.dataobj)
-                    # Must contain valid GI foreground anatomy (classes 1-4); ignore index 255 does not count (Finding 7)
-                    if not np.any((lbl_arr >= 1) & (lbl_arr <= 4)):
+                    if not np.isfinite(lbl_arr).all():
+                        manifest_valid = False
+                        manifest_errors.append(f"Row {idx}: label contains NaN or Inf values")
+                        break
+
+                    # Check for integer/discrete values within canonical vocabulary {0, 1, 2, 3, 4, 255} (Finding 6)
+                    if lbl_arr.dtype.kind not in ('u', 'i'):
+                        mod_1 = np.mod(lbl_arr, 1)
+                        if np.any(mod_1 != 0):
+                            manifest_valid = False
+                            manifest_errors.append(f"Row {idx}: label contains fractional/non-integer values")
+                            break
+
+                    # Bounds check: labels must be >= 0 and <= 255
+                    if lbl_arr.min() < 0 or lbl_arr.max() > 255:
+                        manifest_valid = False
+                        manifest_errors.append(f"Row {idx}: label values out of bounds [0, 255]")
+                        break
+
+                    # Foreground check: extract only non-zero, non-ignore voxels
+                    fg_voxels = lbl_arr[(lbl_arr > 0) & (lbl_arr != 255)]
+                    if len(fg_voxels) == 0:
                         manifest_valid = False
                         manifest_errors.append(f"Row {idx}: clean label has zero valid GI foreground voxels (classes 1-4)")
+                        break
+
+                    fg_uniq = set(np.unique(fg_voxels).astype(int))
+                    if not fg_uniq.issubset({1, 2, 3, 4}):
+                        manifest_valid = False
+                        manifest_errors.append(f"Row {idx}: label contains non-canonical classes {fg_uniq}")
                         break
                 except Exception as ex:
                     manifest_valid = False
                     manifest_errors.append(f"Row {idx}: corrupt/unreadable volume ({ex})")
                     break
+
+        if not manifest_valid:
+            manifest_clean = 0
+            manifest_weak = 0
     else:
         manifest_valid = False
         manifest_errors.append(f"Manifest file not found: {manifest_csv}")
@@ -412,34 +454,53 @@ def verify_project10_synthesis_and_kinetics():
 
     cohort_lineage_ok = True
 
-    # 1. Output files must be non-empty and readable NIfTI volumes (Finding 8)
+    # 1. Output files must be non-empty and readable NIfTI volumes across all payloads (Findings 7 & 8)
     files_readable = True
-    for p_list in [reg_vols, reg_dvfs, synth_vols]:
-        if not p_list:
-            continue
-        # Check size on all files (min NIfTI header size is 352 bytes)
-        for p in p_list:
-            if not os.path.exists(p) or os.path.getsize(p) < 352:
+    for p in reg_vols:
+        if not os.path.exists(p) or os.path.getsize(p) < 352:
+            files_readable = False
+            break
+        try:
+            hdr = nib.load(p).header
+            shp = hdr.get_data_shape()
+            if len(shp) < 3 or min(shp[:3]) < 4:
                 files_readable = False
                 break
+        except Exception:
+            files_readable = False
+            break
+
+    for p in synth_vols:
         if not files_readable:
             break
-        # Sample header validation (first 10, middle 10, last 10)
-        sample_indices = sorted(list(set(
-            list(range(min(10, len(p_list))))
-            + list(range(max(0, len(p_list)//2 - 5), min(len(p_list), len(p_list)//2 + 5)))
-            + list(range(max(0, len(p_list) - 10), len(p_list)))
-        )))
-        for s_idx in sample_indices:
-            try:
-                hdr = nib.load(p_list[s_idx]).header
-                if len(hdr.get_data_shape()) < 3 or min(hdr.get_data_shape()[:3]) < 4:
-                    files_readable = False
-                    break
-            except Exception:
+        if not os.path.exists(p) or os.path.getsize(p) < 352:
+            files_readable = False
+            break
+        try:
+            hdr = nib.load(p).header
+            shp = hdr.get_data_shape()
+            if len(shp) < 3 or min(shp[:3]) < 4:
                 files_readable = False
                 break
+        except Exception:
+            files_readable = False
+            break
+
+    # DVF validation: must be a 4D/5D deformation vector field with 3 displacement components
+    for p in reg_dvfs:
         if not files_readable:
+            break
+        if not os.path.exists(p) or os.path.getsize(p) < 352:
+            files_readable = False
+            break
+        try:
+            hdr = nib.load(p).header
+            shp = hdr.get_data_shape()
+            if len(shp) < 4 or 3 not in shp[3:]:
+                files_readable = False
+                break
+        except Exception:
+            files_readable = False
             break
 
     if not files_readable:
@@ -458,7 +519,7 @@ def verify_project10_synthesis_and_kinetics():
         if matched_registrations < min(len(reg_vols), 1500):
             cohort_lineage_ok = False
 
-    # 4. Mandatory metrics table columns and valid provenance (Finding 8)
+    # 4. Mandatory metrics table columns, supported version, consistent run_id, and valid numeric domains (Findings 7 & 8)
     REQUIRED_METRIC_COLS = ["Subject", "run_id", "metric_version", "Reference_Coverage", "Pearson_R"]
     if metrics_csv.exists() and n_eval > 0:
         missing_cols = [c for c in REQUIRED_METRIC_COLS if c not in df_metrics.columns]
@@ -469,6 +530,39 @@ def verify_project10_synthesis_and_kinetics():
                 if df_metrics[c].isna().any() or (df_metrics[c].astype(str).str.strip().isin(["", "nan", "None"])).any():
                     cohort_lineage_ok = False
                     break
+
+            # Metric version must match current supported standard 'v4_audited_support' or 'v3_supported_spatial'
+            metric_versions = set(df_metrics["metric_version"].dropna().astype(str).str.strip().unique())
+            if not metric_versions or not metric_versions.issubset({"v4_audited_support", "v3_supported_spatial"}):
+                cohort_lineage_ok = False
+
+            # Shard/run identity: all evaluated rows must belong to a single consistent execution run
+            run_ids = set(df_metrics["run_id"].dropna().astype(str).str.strip().unique())
+            if len(run_ids) != 1 or "" in run_ids or "nan" in run_ids:
+                cohort_lineage_ok = False
+
+            # Strict numeric domains for metrics
+            cov = pd.to_numeric(df_metrics["Reference_Coverage"], errors="coerce")
+            if cov.isna().any() or (cov < 0.0).any() or (cov > 1.0).any():
+                cohort_lineage_ok = False
+
+            pearson = pd.to_numeric(df_metrics["Pearson_R"], errors="coerce")
+            if pearson.isna().any() or (pearson < -1.0).any() or (pearson > 1.0).any():
+                cohort_lineage_ok = False
+
+            if "SSIM" in df_metrics.columns:
+                ssim = pd.to_numeric(df_metrics["SSIM"], errors="coerce")
+                if ssim.isna().any() or (ssim < -1.0).any() or (ssim > 1.0).any():
+                    cohort_lineage_ok = False
+
+            if "L1_Error" in df_metrics.columns:
+                l1 = pd.to_numeric(df_metrics["L1_Error"], errors="coerce")
+                if l1.isna().any() or (l1 < 0.0).any():
+                    cohort_lineage_ok = False
+
+            if mean_r < -1.0 or mean_r > 1.0:
+                cohort_lineage_ok = False
+
             eval_stems = {str(s).replace("_synthetic_contrast.nii.gz", "").replace("_reg.nii.gz", "").replace(".nii.gz", "") for s in df_metrics["Subject"]}
             matched_evals = len(eval_stems.intersection(expected_pair_names)) if expected_pair_names else 0
             if matched_evals < min(n_eval, 250):
@@ -585,7 +679,21 @@ def generate_production_report(gates, ckpt_records, ds_info, seg_info, ens_info,
     n_clean = ens_info["triage_counts"].get("CLEAN_HIGH_CONFIDENCE", 0)
     n_weak = ens_info["triage_counts"].get("WEAK_COARSE", 0)
     excluded_candidates = (n_clean + n_weak) - manifest_rows
-    exclusion_note = f"; {excluded_candidates} candidate excluded due to missing human coarse annotations on disk (e.g. BDMAP_00391877)" if excluded_candidates > 0 else ""
+    exclusions_json = RESULTS_DIR / "dataset_splits_phase3" / "manifest_exclusions.json"
+    if not exclusions_json.exists():
+        exclusions_json = BASE_DIR / "docs" / "manifest_exclusions.json"
+    if exclusions_json.exists():
+        try:
+            with open(exclusions_json, "r") as ef:
+                ex_payload = json.load(ef)
+            n_ex = ex_payload.get("total_excluded", excluded_candidates)
+            reason_counts = ex_payload.get("exclusion_reasons", {})
+            reasons_str = ", ".join(f"{count} {reason.replace('_', ' ')}" for reason, count in reason_counts.items())
+            exclusion_note = f"; {n_ex} candidates excluded [{reasons_str}] per manifest_exclusions.json"
+        except Exception:
+            exclusion_note = f"; {excluded_candidates} candidates excluded" if excluded_candidates > 0 else ""
+    else:
+        exclusion_note = f"; {excluded_candidates} candidates excluded" if excluded_candidates > 0 else ""
     md.append(f"- **Active Distillation Training Pool:** **{manifest_rows:,} verified scans** ({manifest_clean:,} `CLEAN_HIGH_CONFIDENCE` + {manifest_weak:,} `WEAK_COARSE`{exclusion_note}) with verified non-empty foreground GI anatomy.\n")
 
     md.append("---\n")

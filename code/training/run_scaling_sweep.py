@@ -210,14 +210,34 @@ def assemble_or_get_mask(mask_dir, patient_id, ct_path):
             if os.path.exists(ct_path):
                 source_hashes["ct"] = compute_file_sha256(ct_path)
 
-            # Check if cache is strictly valid
+            # Check if cache is strictly valid (Finding 4)
             cache_valid = False
             if os.path.exists(merged_cached) and os.path.exists(meta_cached):
                 try:
                     with open(meta_cached, "r") as mf:
                         cached_meta = json.load(mf)
-                    if cached_meta.get("source_hashes") == source_hashes:
-                        cache_valid = True
+                    if (
+                        cached_meta.get("source_hashes") == source_hashes
+                        and cached_meta.get("schema_version") == "v2_merged"
+                        and "merged_sha256" in cached_meta
+                    ):
+                        # Verify the cached file has not been replaced or tampered with
+                        if compute_file_sha256(merged_cached) == cached_meta["merged_sha256"]:
+                            # Verify readability, discrete canonical labels, and geometry agreement with CT
+                            m_nii = nib.load(merged_cached)
+                            ct_nii = nib.load(ct_path)
+                            if (
+                                m_nii.shape[:3] == ct_nii.shape[:3]
+                                and np.allclose(m_nii.affine, ct_nii.affine, atol=1e-3)
+                            ):
+                                m_arr = np.asanyarray(m_nii.dataobj)
+                                uniq = np.unique(m_arr)
+                                if np.all(np.equal(np.mod(uniq, 1), 0)):
+                                    uniq_set = set(int(v) for v in uniq)
+                                    if uniq_set.issubset({0, 1, 2, 3, 4}):
+                                        present_organs = uniq_set - {0}
+                                        if present_organs.issubset(set(found_organs.keys())):
+                                            cache_valid = True
                 except Exception:
                     cache_valid = False
 
@@ -245,8 +265,15 @@ def assemble_or_get_mask(mask_dir, patient_id, ct_path):
             meta_path = meta_cached
             try:
                 nib.save(merged_nii, save_path)
+                merged_sha = compute_file_sha256(save_path)
                 with open(meta_path, "w") as mf:
-                    json.dump({"source_hashes": source_hashes, "organs": list(found_organs.keys())}, mf)
+                    json.dump({
+                        "source_hashes": source_hashes,
+                        "merged_sha256": merged_sha,
+                        "schema_version": "v2_merged",
+                        "organs": list(found_organs.keys()),
+                        "shape": list(shape),
+                    }, mf)
                 return save_path
             except Exception:
                 import tempfile
@@ -254,8 +281,15 @@ def assemble_or_get_mask(mask_dir, patient_id, ct_path):
                 save_path = os.path.join(td, f"{patient_id}_gi_mask_merged.nii.gz")
                 meta_path = save_path + ".meta.json"
                 nib.save(merged_nii, save_path)
+                merged_sha = compute_file_sha256(save_path)
                 with open(meta_path, "w") as mf:
-                    json.dump({"source_hashes": source_hashes, "organs": list(found_organs.keys())}, mf)
+                    json.dump({
+                        "source_hashes": source_hashes,
+                        "merged_sha256": merged_sha,
+                        "schema_version": "v2_merged",
+                        "organs": list(found_organs.keys()),
+                        "shape": list(shape),
+                    }, mf)
                 return save_path
 
     stomach_p = os.path.join(mask_dir, patient_id, "segmentations", "stomach.nii.gz")
@@ -574,8 +608,8 @@ def run_single_sweep(
     # Strictly ensure training cohort does NOT include any gold standard validation cases or their sibling phases!
     if gold_standard_cases:
         gold_patients = set()
-        for gc in gold_standard_cases:
-            p_name = gc.get("name", "")
+        for g_case in gold_standard_cases:
+            p_name = g_case.get("name", "")
             pid = extract_patient_id(p_name)
             gold_patients.add(pid)
             gold_patients.add(p_name)
@@ -621,14 +655,19 @@ def run_single_sweep(
     if n_train == 0 or n_val == 0:
         raise ValueError(f"Scaling sweep requires nonempty train and val populations! Got train={n_train}, val={n_val}")
 
-    # Output paths — per (N, seed) to avoid clobbering across multi-seed runs (Finding 2)
-    run_dir = os.path.join(output_dir, f"N{n_cases:04d}", f"seed{seed}")
+    # Output paths — per (N, seed) to avoid clobbering across multi-seed runs (Findings 2 & 5)
+    run_dir = os.path.join(output_dir, f"N{n_train:04d}", f"seed{seed}")
     os.makedirs(run_dir, exist_ok=True)
     n_dir = run_dir
 
     # Save training membership manifest into run_dir
     manifest_info = {
-        "n_cases": n_cases,
+        "n_cases": n_train,
+        "n_requested": n_cases,
+        "n_train_scans": n_train,
+        "n_train_patients": len({extract_patient_id(c.get('name', '')) for c in train_cases}),
+        "n_val_scans": n_val,
+        "n_val_patients": len({extract_patient_id(c.get('name', '')) for c in val_cases}),
         "seed": seed,
         "train_patients": sorted(list({extract_patient_id(c.get('name', '')) for c in train_cases})),
         "val_patients": sorted(list({extract_patient_id(c.get('name', '')) for c in val_cases})),
@@ -639,7 +678,7 @@ def run_single_sweep(
         json.dump(manifest_info, f, indent=2)
 
     print(f"\n{'='*60}")
-    print(f"  Scaling Sweep: N={n_cases} | seed={seed} | train={n_train} | val={n_val} | loss={loss_name}")
+    print(f"  Scaling Sweep: N={n_train} (requested={n_cases}) | seed={seed} | train={n_train} | val={n_val} | loss={loss_name}")
     print(f"{'='*60}")
 
     train_ds = Dataset(data=train_cases, transform=build_transforms(roi_size, is_train=True))

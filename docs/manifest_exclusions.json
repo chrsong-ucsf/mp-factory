@@ -1,0 +1,308 @@
+{
+  "schema_version": "v1_manifest_exclusions",
+  "total_candidates": 188,
+  "total_valid": 151,
+  "total_excluded": 37,
+  "exclusion_reasons": {
+    "missing_coarse_annotations": 1,
+    "zero_foreground_anatomy": 36
+  },
+  "excluded_subjects": [
+    {
+      "subject_id": "BDMAP_00242539",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242539/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00242539_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00242569",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242569/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00242569_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00375745",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375745/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00375745_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00375837",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375837/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00375837_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00375838",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375838/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00375838_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00375839",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375839/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00375839_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00375936",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375936/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00375936_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00375981",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375981/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00375981_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00375982",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375982/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00375982_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376038",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376038/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376038_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376269",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376269/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376269_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376336",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376336/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376336_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376340",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376340/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376340_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376483",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376483/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376483_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376484",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376484/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376484_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376545",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376545/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376545_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376673",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376673/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376673_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376674",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376674/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376674_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376747",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376747/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376747_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376821",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376821/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376821_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00376952",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376952/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00376952_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00391877",
+      "category": "WEAK_COARSE",
+      "reason": "missing_coarse_annotations",
+      "detail": "No human coarse annotation or segmentations directory found on disk",
+      "ct_path": "CancerVerse_dbox/BDMAP_00391877/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00391877_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00392024",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00392024/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00392024_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00392613",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00392613/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00392613_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00392863",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00392863/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00392863_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00393289",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00393289/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00393289_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00393949",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00393949/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00393949_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00394168",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394168/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00394168_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00394187",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394187/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00394187_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00394335",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394335/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00394335_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00394671",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394671/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00394671_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00395737",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00395737/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00395737_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00396271",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396271/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00396271_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00396379",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396379/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00396379_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00396887",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396887/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00396887_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00397184",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00397184/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00397184_autolabel.nii.gz"
+    },
+    {
+      "subject_id": "BDMAP_00397252",
+      "category": "WEAK_COARSE",
+      "reason": "zero_foreground_anatomy",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "ct_path": "CancerVerse_dbox/BDMAP_00397252/ct.nii.gz",
+      "label_path": "results/autolabel_phase3_out/BDMAP_00397252_autolabel.nii.gz"
+    }
+  ]
+}
