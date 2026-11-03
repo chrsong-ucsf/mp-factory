@@ -1,0 +1,112 @@
+# Production Verification & Forensic Audit Report
+**Audit Timestamp:** 2026-11-03 01:28:16 UTC
+**Overall Status:** `VERIFICATION FAILED (ONE OR MORE GATES FAILED)`
+**Cluster Environment:** CBI HPC (`/mnt/scratch/user/chrsong/mp-factory`)
+**Audit Scope:** On-disk asset inventory, cryptographic checkpoint fingerprints, geometric header validation, and historical metric aggregation.
+
+---
+
+## Executive Summary & Verification Gates
+
+| Gate ID | Verification Domain | Status | Scope / Summary |
+| :---: | :--- | :---: | :--- |
+| **Gate 1** | Model Checkpoints (26 weights hashed & loaded) | **FAIL** | 0 / 26 checkpoints valid |
+| **Gate 2** | Raw Ingestion & JHU Ground Truth Headers | **FAIL** | 0 CTs, 6 JHU NRRDs |
+| **Gate 3** | Phase 3 Batch Segmentations (1,632 volumes) | **FAIL** | MedNeXt 0, Swin 0 |
+| **Gate 4** | Ensemble Consensus & Cleansing (Zero-FG Quarantining) | **FAIL** | 1,632 consensus, 0 empty in clean, 0 clean training pool |
+| **Gate 5** | Project 10 Synthesis, Registration & Kinetics Containment | **PASS** | 1545 pairs, 0 synthetics, Kinetics: PASS |
+| **Gate 6** | Manuscript Tables Compilation Deliverables | **FAIL** | Compilation failed |
+
+---
+
+## 1. Cryptographic Checkpoint Fingerprints (SHA-256)
+
+Full 64-character SHA-256 cryptographic digests and PyTorch loadability checks for all production weights:
+
+| Architecture / Stage | Checkpoint Path | Size (MB) | Full SHA-256 Digest | Status |
+| :--- | :--- | :---: | :--- | :---: |
+| **MedNeXt Phase 1 Fold 0** | `results/mednext_models/fold_0/best_mednext_gi.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 1 Fold 1** | `results/mednext_models/fold_1/best_mednext_gi.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 1 Fold 2** | `results/mednext_models/fold_2/best_mednext_gi.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 1 Fold 3** | `results/mednext_models/fold_3/best_mednext_gi.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 2 Fold 0** | `results/mednext_phase2/fold_0/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 2 Fold 1** | `results/mednext_phase2/fold_1/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 2 Fold 2** | `results/mednext_phase2/fold_2/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 2 Fold 3** | `results/mednext_phase2/fold_3/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 3 Fold 0** | `results/mednext_phase3/fold_0/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 3 Fold 1** | `results/mednext_phase3/fold_1/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 3 Fold 2** | `results/mednext_phase3/fold_2/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Phase 3 Fold 3** | `results/mednext_phase3/fold_3/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Pool873 Fold 0** | `results/mednext_pool873/fold_0/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Pool873 Fold 1** | `results/mednext_pool873/fold_1/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Pool873 Fold 2** | `results/mednext_pool873/fold_2/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **MedNeXt Pool873 Fold 3** | `results/mednext_pool873/fold_3/best_mednext_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **Swin-UNETR Phase 1 Fold 0** | `results/swin_unetr_models/fold_0/best_swin_unetr_gi.pt` | 0.0 MB | `N/A` | MISSING |
+| **Swin-UNETR Phase 1 Fold 1** | `results/swin_unetr_models/fold_1/best_swin_unetr_gi.pt` | 0.0 MB | `N/A` | MISSING |
+| **Swin-UNETR Phase 1 Fold 2** | `results/swin_unetr_models/fold_2/best_swin_unetr_gi.pt` | 0.0 MB | `N/A` | MISSING |
+| **Swin-UNETR Phase 1 Fold 3** | `results/swin_unetr_models/fold_3/best_swin_unetr_gi.pt` | 0.0 MB | `N/A` | MISSING |
+| **Swin-UNETR Phase 3 Fold 0** | `results/swin_unetr_phase3/fold_0/last_swin_unetr_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **Swin-UNETR Phase 3 Fold 1** | `results/swin_unetr_phase3/fold_1/last_swin_unetr_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **Swin-UNETR Phase 3 Fold 2** | `results/swin_unetr_phase3/fold_2/last_swin_unetr_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **Swin-UNETR Phase 3 Fold 3** | `results/swin_unetr_phase3/fold_3/last_swin_unetr_phase2.pt` | 0.0 MB | `N/A` | MISSING |
+| **P10 Stage 1 Autoencoder** | `results/project10/checkpoints/stage1_ae/best_stage1_ae.pt` | 0.0 MB | `N/A` | MISSING |
+| **P10 Stage 2 Contrast Synthesis** | `results/project10/checkpoints/stage2_synthesis/best_synthesis_net.pt` | 0.0 MB | `N/A` | MISSING |
+
+---
+
+## 2. Raw Datasets & Expert Ground Truth Accounting
+
+- **CancerVerse_dbox Ingestion:** **0 / 1,632** 3D non-contrast CT volumes confirmed.
+- **CT Geometry Sample Validation:** PASS (3D volumes, min dim >= 16)
+- **JHU Radiologist Ground Truth:** **6 / 6** expert NRRD multi-organ segmentations (`.seg.nrrd`).
+- **JHU Header & Coordinate Validation:** PASS (3D spatial directions and millimeter spacings verified)
+
+---
+
+## 3. Phase 3 Batch Segmentations (1,632 Scans)
+
+- **MedNeXt-B Phase 3 GI Predictions:** **0 / 1,632** 3D multi-label masks (`*_gi_seg.nii.gz`).
+- **MedNeXt-B Softmax Probability Arrays:** **0 / 1,632** 5-channel probability tensors (`*_gi_probs.npz`).
+- **Swin-UNETR Phase 3 GI Predictions:** **0 / 1,632** 3D multi-label masks (`*_gi_seg.nii.gz`).
+- **Mask Sample Content:** PASS (Foreground classes strictly within 0..4)
+
+---
+
+## 4. Multi-Model Ensemble Consensus & Data Cleansing (Foreground Gating)
+
+- **Consensus Pseudo-GT Masks:** **0 / 1,632** 3D volumes.
+- **Spatial Uncertainty Maps:** **0 / 1,632** normalized voxel entropy maps.
+- **Autolabeled Boundary Masks:** **0 / 465** (`ignore_index=255` boundary exclusion masks).
+- **Ensemble Audit Triage Breakdown (Total N = 1,632):**
+  - `NOISE_REJECT`: **1,444 scans (88.5%)**
+  - `WEAK_COARSE`: **185 scans (11.3%)**
+  - `CLEAN_HIGH_CONFIDENCE`: **3 scans (0.2%)**
+- **Quarantined Zero-Foreground Cases:** **903 scans** report zero foreground components across all 4 GI organs and are strictly quarantined to `NOISE_REJECT`.
+- **Active Distillation Training Pool:** **0 verified scans** (3 `CLEAN_HIGH_CONFIDENCE` + 185 `WEAK_COARSE`) with verified non-empty foreground GI anatomy.
+
+---
+
+## 5. Project 10 Multiphase Generative Synthesis & Lesion Kinetics
+
+- **Multi-Phase Pair Discovery:** **1,545 paired CTs** across **438 distinct patients** (`multiphase_pairs.csv`).
+- **Deformable B-Spline Registration:** **0** registered moving volumes and **0** displacement vector fields (DVFs).
+- **Synthesized 3D Contrast Volumes:** **0** volumes on disk.
+- **Aggregated Historical Benchmark:** **0 volumes** evaluated with reference-supported Pearson correlation (Mean R = **0.0000**).
+- **Dynamic Tumor Kinetics Containment:** PASS (Exactly 0.0 HU bleed outside lesion geometry)
+
+---
+
+## 6. Official Manuscript Publication Tables (Compiled Deliverables)
+
+
+*[Compilation Failed]*
+
+---
+
+## 7. Audit Conclusion & Boundaries
+
+Verification concluded with overall status: **VERIFICATION FAILED (ONE OR MORE GATES FAILED)**.
+
+- All required model weights and on-disk volumes were verified.
+- Empty consensus masks were strictly quarantined from the distillation training pool.
+- Benchmark metrics represent recorded historical evaluation summaries, not live re-execution of 1,067 generative diffusion runs.

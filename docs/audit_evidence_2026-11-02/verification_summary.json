@@ -1,0 +1,15 @@
+{
+  "commit": "7fdd2f7c2c5456a98c58eaa190bc4aecf1ea34e6",
+  "python_parsed": 89,
+  "shell_syntax_passed": 75,
+  "pytest": "123 passed",
+  "sanity": {
+    "checks": 31,
+    "passed": 13,
+    "warnings": 17,
+    "critical_failures": 0,
+    "info": 1
+  },
+  "lint_diagnostics": 167,
+  "undefined_name_diagnostics": 0
+}

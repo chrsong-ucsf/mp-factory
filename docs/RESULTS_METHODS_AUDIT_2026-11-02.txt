@@ -1,0 +1,383 @@
+MP-FACTORY: RESULTS AND METHODS AUDIT
+Audit date: 2026-11-02 (America/Los_Angeles)
+Audited commit: 7fdd2f7c2c5456a98c58eaa190bc4aecf1ea34e6
+Scope: production mp-factory repository; Project 9 segmentation and distillation,
+Project 10 registration, autoencoder, diffusion, synthesis evaluation and procedural
+tumor kinetics; manuscript/showcase claims; tests, syntax and result provenance.
+
+ASSESSMENT
+
+The current evidence does not establish a validated improvement from automated
+cleansing/distillation or clinically faithful, phase-selectable CT synthesis.
+Passing software tests and inventory gates do not resolve the confirmed label,
+geometry, support-provenance, cohort-independence and reporting defects below.
+Some historical results may be useful exploratory measurements, but affected
+benchmarks and descendant training runs need regeneration after these defects
+are resolved. This audit does not establish that every historic run exercised
+every defective branch, or that unavailable cluster files are absent remotely.
+
+Evidence classes used throughout:
+  CONFIRMED: source defect, local artifact content, or controlled production-path probe.
+  HISTORICAL: numbers in the checked-in report/showcase, without local raw outputs.
+  UNVERIFIED: cluster assets, run status, full-cohort metrics and training lineage.
+  REPLAY: recomputation of rounded archived statistics, not new image measurements.
+P1 means a major threat to the advertised scientific result or supervision chain.
+P2 means a material validity/reproducibility gap. P3 is a narrower latent issue.
+
+VERIFICATION PERFORMED
+
+- Started from a clean working tree at the commit above. Used graphify queries
+  before targeted source inspection and audited P9, P10 and claims in parallel.
+- Full configured repository suite: python -m pytest -q -> 123 passed.
+  Two overlapping invocations both completed successfully (37.10s and 34.88s);
+  this is one suite of 123 distinct tests, not 246 independent checks.
+- All 89 tracked Python files parse; all 75 tracked .sh/.sbatch files pass bash -n.
+- Pyflakes exits 1 with unused-import/local and placeholder-free f-string
+  diagnostics. No undefined-name diagnostics were found; lint is not clean.
+- Built-in sanity checker exits 0: 31 checks, 13 PASS, 17 WARN, 0 critical FAIL,
+  plus one INFO. It reports 41.9% passed. Its zero-failure exit is not a
+  production-readiness result: absent CTs, weights, predictions and metrics are
+  warnings; an empty prediction sample and empty log inventory can pass.
+- Six local expert NRRD headers were inspected. Twenty-four PNGs decode and were
+  inspected through a contact sheet. Historical P10 intensity saturation is visible.
+- Controlled synthetic probes exercised the actual ensemble evaluation path,
+  label-affine repair, registration-to-dataset/evaluator support chain, Stage 1
+  split/loading behavior, sampler fallback, CLI missing-input failure and verifier
+  gates. Temporary inputs do not establish production failure frequencies.
+- No model training, production inference, SLURM submission, remote mutation,
+  checkpoint rehashing on CHPC, or new full-cohort image evaluation was performed.
+- Existing test test_verify_production_results_strict_boolean_gate_enforcement
+  overwrote the tracked production report. The generated local report was retained
+  as evidence and its original clean bytes restored. No implementation was changed.
+
+LOCAL RESULTS AND CLAIMS MATRIX
+
+Claim / artifact                              Current evidence and interpretation
+--------------------------------------------  ----------------------------------
+1,632 ensemble records                        Archived CSV has 1,632 unique rows.
+903 empty cases quarantined                   All 903 zero-component rows REJECT.
+188 verified training pairs                   Archive categories: 3 CLEAN +185 WEAK;
+                                              actual pair manifest absent locally;
+                                              current-rule archive replay: 34 WEAK,
+                                              0 CLEAN (see F03).
+1,545 multiphase pairs /438 patients           Archived counts verified, no duplicate
+                                              source-target pairs. All exam-date
+                                              fields missing; same-day unverified.
+26 production checkpoint weights              SHA256 strings in historic report;
+                                              zero local weights to rehash/load.
+1,632 CTs /model prediction sets               Historic report only; local CT cohort,
+                                              predictions, consensus masks absent.
+JHU expert ground truth                       Six local .seg.nrrd volumes verified.
+JHU N=50 pooled evaluations                    Repeated model/scan evaluations;
+                                              broadest models: 11 scans/5 patients.
+                                              Later student models: N=1 each.
+1,067 synthetic CT volumes                    Historic report; no local volumes or
+                                              raw synthesis metric CSV.
+1,990 lesions /7,960 output files              Historic tables/figures; no local lesion
+                                              manifest or generated cohort.
+Visual and interactive deliverables           24 PNGs decode; ten SHOWCASE local
+                                              output links do not resolve here.
+
+Local results/ and logs/ inventories contain no files; CancerVerse_dbox/ is absent.
+This is a local availability limit, not evidence of remote asset loss. The historic
+2026-11-02 production report is a prior cluster inventory/aggregation claim, not a
+fresh independent verification in this audit.
+
+WHAT THE REPORTED RESULTS ACTUALLY SHOW
+
+- Historic Table 1 (499 scans) reports mean Dice approximately .003 for MedNeXt
+  and .001 for Swin. These do not demonstrate successful segmentation. They warrant
+  label/geometry/checkpoint diagnosis before attribution to architecture quality.
+- Historic JHU table reports TotalSegmentator .700, MedNeXt .489, Swin .458 and
+  ensemble .061 mean Dice on the broadest model cohorts. Phase 3 MedNeXt .038,
+  Pool873 .010, Phase 3 Swin .002 and Phase 3 ensemble .004 each have N=1.
+  Unequal sample sizes prevent a matched phase-to-phase improvement estimate.
+  Neither these numbers nor the archive demonstrate distillation superiority.
+- Historic synthesis aggregates: L1 1,237.2 HU, body L1 1,348.4 HU, SSIM -.030,
+  PSNR 11.2 dB and Pearson R .343. These report substantial error. The subgroup
+  called High-Fidelity is selected post hoc by L1<500 and still reports body L1
+  539.8 HU and R .481; this is an error stratum, not diagnostic-fidelity validation.
+- Procedural tumor intensity patterns are generated using prescribed profiles.
+  Observing the prescribed arterial/venous pattern verifies implementation behavior,
+  not independent pharmacokinetic validity, pathology realism, or diagnostic utility.
+
+CONFIRMED PRIORITY FINDINGS
+
+F01 [P1] Production ensemble uses an incorrect TotalSegmentator schema.
+  Source: code/evaluation/evaluate_multi_model_ensemble.py:399-414;
+  compare its disconnected normalize_prediction_mask helper at :61-73.
+  Actual v2 input labels 6/18/20 become GI labels 4/1/3; correct outputs are 1/3/4
+  (stomach/small bowel/colon). Production-path probe returns SUCCESS with these
+  wrong mappings. Wrong related maps remain in hard_threshold_autolabel.py:157-162,
+  train_mednext_phase2.py:347-352 and train_swin_unetr_phase2.py:246-251.
+  Consequence: corrupted consensus, agreement statistics and descendant supervision.
+  Action: require explicit version/schema provenance and use one tested conversion
+  in every actual production path; regenerate affected masks/rows/descendants.
+
+F02 [P1] Ensemble/autolabel alignment and Phase 2 geometry repair are unsafe.
+  Sources: evaluate_multi_model_ensemble.py:459-470;
+  hard_threshold_autolabel.py:140-143,179-183;
+  train_mednext_phase2.py:290-304,370-414;
+  train_swin_unetr_phase2.py:218-226.
+  Native GI masks align by shape without checking physical origin/direction.
+  Probe: identical arrays separated by 100 mm produce inter-model Dice 1.0 and
+  CLEAN_HIGH_CONFIDENCE although they do not overlap in physical space.
+  FixLiarLabelAffined infers a bad header solely from differing shapes and overwrites
+  a valid cropped label's affine. Probe: 16-cube label origin100mm/spacing1mm becomes
+  origin0/spacing1.5,1.5,2mm beside a 32-cube CT. Required ResampleToMatchd is mentioned
+  in comments but absent from the actual MedNeXt Phase 2 pipelines.
+  Action: verify geometry provenance, preserve legitimate affines and resample every
+  image/mask/probability tensor to a common physical reference using correct interpolation.
+
+F03 [P1] Archived pool of 188 still contains empty-organ-inflated legacy scores.
+  Sources: docs/manifests/ensemble_phase3_audit_summary.csv:2;
+  evaluate_multi_model_ensemble.py:548-553,576-610,635-637;
+  docs/PRODUCTION_VERIFICATION_REPORT_2026-11-02.md:80-85.
+  Example BDMAP_00242385 has absent stomach, duodenum and colon in consensus and both
+  models, yet perfect empty/empty scores enter its stored global .754/.75 Dice values.
+  Current eligibility leaves bowel Dice .01595 and inter-model Dice0: REJECT.
+  Replay of archived rounded per-organ scores using current triage_case produces
+  1,598 REJECT /34 WEAK /0 CLEAN: 154 WEAK->REJECT, three CLEAN->WEAK.
+  This proves aggregation inconsistency, not the exact post-fix production cohort.
+  Action: recompute from input volumes with current metric version and provenance,
+  regenerate training manifests, and determine which training runs inherited old labels.
+
+F04 [P1] Ensemble resume can disconnect saved masks from the current audit rows.
+  Source: evaluate_multi_model_ensemble.py:383-385,519-522,855-870.
+  File existence prevents saving newly computed outputs; SUCCESS rows resume by subject
+  ID without checking inputs/checkpoints/version. Probe: saved consensus has64 foreground
+  voxels; replace both inputs with empty masks, rerun -> row reports0/REJECT but saved
+  consensus still has64 foreground voxels.
+  Action: bind input hashes, schema, configuration, code and output hashes into completion
+  records; invalidate and atomically replace outputs/rows together when identity changes.
+
+F05 [P1] Registration-created padding is incorrectly treated as observed target data.
+  Sources: project10/datasets/register_multiphase_pairs.py:119-128,284-293;
+  project10/datasets/multiphase_paired_dataset.py:206-215;
+  project10/evaluation/evaluate_synthesis.py:85-101.
+  Registration fills outside moving field of view with -1000 HU but does not preserve
+  original-domain support. Dataset and evaluator create support=1 over that registered
+  grid, so unobserved padding is indistinguishable from acquired air.
+  Integrated probe: register8x8x4 moving image onto8-cube reference; 50% becomes fill,
+  but the actual dataset accepts it with target_support1.0 and evaluator support1.0.
+  Action: warp/save original moving-domain support with the final transform and propagate
+  it through crop/resampling, training loss, metrics and completion provenance.
+
+F06 [P1] Mixed-phase diffusion has no requested-phase conditioning.
+  Sources: project10/datasets/multiphase_paired_dataset.py:339-345;
+  project10/training/train_stage2_synthesis.py:457-479;
+  project10/models/synthesis_net.py:59-83.
+  Dataset phase metadata is not consumed by training; model accepts noisy latent,
+  diffusion step, source latent and anatomy only. Diffusion timestep is not acquisition
+  phase/time. Archive mixes1,228 venous/161 early arterial/156 late arterial targets.
+  Phase-specific names cannot establish selectable physiological phase generation.
+  Action: add explicit phase/time conditioning and stratified endpoints, or constrain
+  the scientific task and cohort to one target phase.
+
+F07 [P1] Stage 1 and Stage 2 do not share an independent patient holdout.
+  Sources: project10/training/train_stage1_autoencoder.py:146-163;
+  project10/training/train_stage2_synthesis.py:365-381.
+  Stage1 discards patient grouping and randomly splits phase volumes. Stage2 separately
+  splits patients, so its frozen encoder may already have seen its validation patients.
+  Synthetic ten-patient/two-phase probe: both Stage1 validation patients also in train.
+  Action: persist one patient-grouped development/validation/test assignment before any
+  stage, including AE pretraining and preprocessing fitting; audit existing run overlaps.
+
+F08 [P1] Stress report makes favorable claims independent of measured results.
+  Source: project10/evaluation/stress_test_contrast_perturbation.py:234-239,310-325.
+  Report always prints >95% retention and Zero Hallucination Confirmed. Procedure
+  perturbs already generated images then compares a fixed segmenter's predictions;
+  it does not test generation under noisy source inputs or independently detect lesions.
+  Action: derive prose from measured endpoints and call this output-image segmentation
+  consistency. Use separate generator-robustness and independent lesion/anatomy endpoints.
+
+F09 [P1] Production verification gates do not establish their advertised completion.
+  Source: code/evaluation/verify_production_results.py:171-197,422-428.
+  Gate2 ignores ct_sample_ok and accepts1600 CTs despite a1632 completion claim.
+  Gate4 accepts one manifest row and ignores content, cohort linkage and WEAK eligibility.
+  Gate5 requires only1500 pair rows plus a toy kinetics check; zero registrations,
+  DVFs, synthetic volumes and evaluated results can all pass.
+  Controlled actual-main probe with injected function returns and temporary output
+  produced ALL GATES PASSED with failed CT geometry, a one-row manifest and zero P10
+  generated/evaluated outputs. This probes gate logic, not real asset existence.
+  Action: exact expected subject sets, readable/valid geometry/content, complete current
+  row provenance, eligible labels and per-worker/cohort completion must be enforced.
+
+F10 [P2] Missing/corrupt Stage 1 CTs silently become blank-air training examples.
+  Source: project10/training/train_stage1_autoencoder.py:175-180.
+  Every loading exception substitutes -1000HU. Probe nonexistent CT yields a valid
+  [1,8,8,8] tensor with unique normalized value-.5. Failures can contaminate training
+  and improve apparent reconstruction on trivial blank validation data.
+  Action: preflight cohort integrity and fail or explicitly exclude/count corrupt inputs
+  before fixed splits; record every exclusion.
+
+F11 [P2] Sampler fallback and schedule provenance permit mismatched generation.
+  Sources: project10/evaluation/sample_multiphase_diffusion.py:150-179,479;
+  project10/training/train_stage2_synthesis.py:132-151,294,435.
+  Broad preprocessing fallback replaces affine with diagonal spacing. Forced-fallback
+  probe changes a valid CT origin100/200/300mm to0/0/0. Nondefault --timesteps is not
+  checkpointed while sampler always uses1000. These are conditional code defects;
+  this audit did not establish which historical runs used fallback/nondefault settings.
+  Action: preserve transformed geometry or fail; checkpoint and validate full diffusion
+  schedule, preprocessing and architecture configuration.
+
+F12 [P2] Statistical inference treats repeated patients as independent scan rows.
+  Source: code/evaluation/statistical_significance_test.py:49-59,63-95,145-152.
+  Bootstrap draws individual rows; paired tests do not account for sibling phases;
+  repeated subject IDs can also create many-to-many merges without validation.
+  JHU's11 scans derive from5 patients and reused/propagated expert annotations.
+  No family-wise/FDR correction is applied to the organ/metric comparison family.
+  Action: matched patient-level cohorts, cluster bootstrap or patient summaries,
+  explicit unique pairing and multiplicity policy. N=1 results remain descriptive.
+
+F13 [P2] Segmentation splits and scaling evaluations do not establish independence.
+  Sources: training/train_mednext.py:334-348; train_swin_unetr.py:273-287;
+  train_mednext_phase2.py:556-570; evaluation/eval_scaling_checkpoints.py:60-79;
+  training/run_scaling_sweep.py:411-418,575-580.
+  Segmentation folds split scans, not patient groups. Scaling posthoc evaluator takes
+  CLEAN/training-eligible cases without excluding checkpoint training patients; its
+  default labels are consensus pseudo-GT. Scaling runner independently samples training
+  and accepts gold-standard validation without excluding overlap, then selects the best
+  checkpoint on that validation. This is not an untouched external test.
+  Action: saved patient identity and fold manifests; remove overlap at every stage;
+  separate tuning/selection from final evaluation. Actual historical overlap is unverified.
+
+F14 [P2] Scaling expert-label conversion has independent schema/coordinate defects.
+  Sources: training/run_scaling_sweep.py:176-207,723-745.
+  Its remapper assumes5=ileum and6=colon, but local JHU headers say5=colon and6=rectum.
+  It merges colon into bowel and promotes rectum to colon when applied to JHU labels.
+  NRRD conversion copies LPS directions/origin into a NIfTI affine without LPS->RAS.
+  Probe LPS origin100/200/300 yields NIfTI origin+100/+200/+300 instead of-100/-200/+300.
+  4D files are collapsed by segment index without using per-segment header semantics.
+  Action: use verified header label definitions and coordinate conversion for this path;
+  compare converted masks to the established SimpleITK expert evaluator.
+
+F15 [P2] Ignored/absent organ policies and partial checkpoint loads bias comparisons.
+  Sources: train_mednext_phase2.py:768-773;
+  run_scaling_sweep.py:302-324; eval_scaling_checkpoints.py:95-97,119-137.
+  Phase2 validation turns255 ignored voxels into background but does not mask predictions.
+  Scaling deliberately returns1.0 for empty/empty organs; JHU/ensemble returnNaN.
+  Probe all-empty four-organ tensors -> Dice[1,1,1,1], HD95 allNaN. Different endpoints
+  are not directly comparable; missing-organ HD95 exclusions need failure-rate reporting.
+  Scaling checkpoint loading uses strict=False, ignores missing keys and reuses a model;
+  incomplete checkpoints may leave uninitialized or previous-model parameter values.
+  Action: valid-voxel masks in metrics, explicit organ eligibility/failure counts and
+  strict architecture/key compatibility before accepting any checkpoint result.
+
+F16 [P2] Manuscript/report generators can certify incomplete or unrelated evidence.
+  Sources: manuscript/compile_manuscript_tables.py:90-104,348-362;
+  evaluation/verify_production_results.py:310-315,373-374,391-393.
+  Table1's TotalSeg comparator is hardcoded and explicitly unverified literature data,
+  not a measured control on the499-scan cohort. Missing tables silently skip; verifier
+  accepts two files>500bytes. Temporary actual-compiler probe with only JHU inputs
+  yields Table2 only (MD630/TeX642bytes), yet compilation verification returnsTrue.
+  Report prose hardcodes903 quarantined and3CLEAN+185WEAK, and says weights/volumes
+  verified even after overall verification fails.
+  Action: require every requested table, verified sources and current cohort/version;
+  compute all text/counts from checked records; remove untraceable numerical baselines.
+
+F17 [P2] Automated tests can overwrite the tracked production audit trail.
+  Source: tests/test_audit_remediation_regressions.py:1756-1765.
+  Test calls actual verifier main while mocking only manuscript compilation, so report
+  writer overwrites docs/PRODUCTION_VERIFICATION_REPORT_2026-11-02.md. Observed during
+  this full suite; original report restored and generated output retained as evidence.
+  Action: temporary output roots or mocked writer; assert no changes outside test storage.
+
+F18 [P2] Paired synthesis cohort lacks evidence of temporal/examination matching.
+  Sources: docs/manifests/multiphase_pairs.csv;
+  project10/datasets/discover_multiphase_cohort.py:185-204.
+  All1545 archived rows have missing source and target examination dates and same_day=False.
+  False here means unverified, not proof of different-day acquisition. Discovery chooses
+  the latest available NCCT and all noncontrast-target rows for a patient by default;
+  same-day filtering is optional. Patient identity alone cannot establish that observed
+  differences are solely contrast dynamics rather than anatomy/pathology over time.
+  Action: recover examination-level identity/timing or explicitly qualify longitudinal
+  pairs, stratify/exclude uncertain matches and review registration independently.
+
+F19 [P3] Some ensemble physical metrics assume fixed voxel spacing.
+  Source: evaluate_multi_model_ensemble.py:555-560 and metric default arguments.
+  HD95/volume/surface calls use default1.5/1.5/2mm rather than reference-header spacing.
+  This is correct only when the actual accepted reference grid has that spacing.
+  Action: pass validated reference spacing and retain it in metric provenance.
+
+METHODS AND INTERPRETATION LIMITS
+
+- Frozen-segmenter agreement in run_clinical_turing_test.py:145-152 passes eligible
+  cases at meanDice>=.70 with any eligible organ. It is neither a human reader Turing
+  experiment nor independent anatomy, lesion or clinical-interchangeability validation.
+  Report detection/eligibility counts per organ alongside agreement and failed cases.
+- Diversity weights use binary foreground overlap, not independent accuracy; ECE is
+  measured against the same ensemble consensus. These are internal consistency measures,
+  not expert calibration or guaranteed label correctness. Betti0 counts components,
+  not all topology or anatomical correctness. Thresholds need independent adjudication.
+- A synthetic lesion containment check can show zero edits outside a known lesion
+  mask; it cannot verify every production lesion, correct host-organ placement, clinical
+  enhancement distributions, realistic margins, or downstream benefit.
+- Cross-phase propagated JHU labels are imperfect references and repeated measurements.
+  Patient-specific motion/deformation and propagation rules need adjudicated validation.
+- README still describes SPADE-Diffusion/VQ-VAE, while production SHOWCASE documents a
+  deterministic continuous AE (use_vq=False). Report exact executed configuration.
+- requirements.txt/setup.py give broad lower bounds and differing SciPy constraints;
+  a passing current local environment is not a reproducible historical HPC environment.
+  Save exact package/CUDA/container versions with each result.
+
+VERIFIED IMPROVEMENTS THAT REMAIN VALID
+
+- Current synthesis evaluator missing fake-directory and missing real-directory probes
+  each exit1 with no report; empty fake directories are rejected. Launcher propagates
+  evaluator failure. Earlier zero-exit/missing-input finding is resolved in current code.
+- Clinical/stress empty-empty Dice returnsNaN. New ensemble foreground gate rejects
+  completely empty consensus; archive now quarantines all903 zero-component records.
+  These do not repair the residual partial-empty aggregation inconsistency in F03.
+- Stage2 itself splits patients and validates supported target crops; AE hash and anatomy
+  schema checks protect resume/sampling. F05 concerns lost support upstream, and F07 the
+  separately trained encoder's exposure to held-out patients.
+- JHU CPU entry delegates to the shared evaluator; its label semantics agree with all
+  six local headers:2stomach,3duodenum,4intestine,5colon,6rectum where present.
+  JHU evaluation checks physical size/spacing/origin/direction and resamples in physical
+  coordinates. Current local headers are axis-aligned; possible oblique-header handling
+  is a future limit, not a demonstrated error in these six headers.
+- Legacy showcase panels for Cases1-3 are explicitly qualified as historical; this is
+  appropriate and does not retroactively validate them as current quantitative results.
+
+PRIORITIZED RECOVERY AND ACCEPTANCE GATES
+
+1. Supervision integrity: fix F01/F02/F04 and version all masks/outputs/rows together.
+   Acceptance: actual production-path schema probes, equal-shape displaced/rotated grid
+   tests, cropped-mask cases and changed-input resume all succeed or reject explicitly.
+2. Cohort integrity: reconcile F03/F07/F13/F18 with source volumes and patient/exam IDs.
+   Acceptance: immutable patient splits, explicit exclusions, current hashed manifests,
+   no patient overlap across AE/diffusion/segmenter test boundaries, current triage replay.
+3. Synthesis task: fix F05/F06/F10/F11 before regenerating P10 results.
+   Acceptance: warped observed support verified end to end; no blank replacements;
+   phase selection demonstrated on matched independent patients; geometry/config match.
+4. Independent measurements: regenerate current JHU and synthesis outputs using matched
+   cohorts, exact checkpoint/input/output hashes, observed support and consistent metrics.
+   Include per-organ failure/eligibility, patient-level uncertainty, paired controls,
+   phase strata and lesion/anatomy review. Assess registration quality separately.
+5. Claims and audit trail: close F08/F09/F12/F15/F16/F17; generate every narrative/table
+   from verified current data and maintain dated reports. Missing/corrupt/wrong-subject,
+   partial-worker, stale-version and incomplete-table probes must all fail closed.
+6. Only after those gates, assess whether retraining improves a fixed independent test
+   set. Until then, describe existing outputs as exploratory/historical and retain their
+   measured failures. A better presentation or postprocessing alone cannot prove the
+   claimed methodological benefit.
+
+EVIDENCE AND SOURCES
+
+Sibling folder audit_evidence_2026-11-02/ contains this run's pytest, sanity and lint
+logs, archive replay script/table/log and test-generated production report.
+The replay CSV is diagnostic only and must not replace the production audit manifest.
+
+External primary references consulted for method/schema checks (2026-11-02):
+- Official TotalSegmentator class definitions, total and total_v1 schemas:
+  https://github.com/wasserth/TotalSegmentator/blob/master/totalsegmentator/map_to_binary.py
+- Metrics Reloaded: Recommendations for image analysis validation (author manuscript),
+  including repeated patient/hierarchical data and matching metrics to endpoints:
+  https://arxiv.org/html/2206.01653v7
+  Published version: https://doi.org/10.1038/s41592-023-02151-z
+These support schema and validation principles, not this project's measured outcomes.
+
+Audit boundary: this is a fresh local source/artifact audit plus controlled probes.
+Raw production metrics, current checkpoint fingerprints, cluster completion status and
+scientific replication remain unverified. No source fixes or production jobs were made.
