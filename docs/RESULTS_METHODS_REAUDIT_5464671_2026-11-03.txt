@@ -1,0 +1,147 @@
+MP-FACTORY: NEXT RESULTS/METHODS AUDIT
+Date: 2026-11-03 (America/Los_Angeles)
+Audited HEAD: 5464671 (full SHA recorded in evidence summary)
+Compared with: 513cb60 and audit commit cb23a4d
+
+ASSESSMENT AND FRESH VERIFICATION
+
+Most preceding execution and metadata defects have working repairs. The audit is
+still open: Swin Phase 1 has a new startup failure, scaling model metadata/evaluation
+configuration disagree, and production verification accepts inadequate run proof
+and nonfinite compressed registration/DVF payloads. Archive-level eligibility is
+now numerically reconciled; this is a verified improvement, distinct from fresh
+source-volume/checkpoint validation, which remains unavailable locally.
+
+- Full configured suite: 166 passed in 31.59s, exit 0.
+- All 90 tracked Python files parse; all 76 shell/job files pass bash -n.
+- Pyflakes: 181 diagnostics, including undefined NUM_CLASSES at
+  code/training/train_swin_unetr.py:322. Lint is not clean.
+- Sanity checker: 31 checks, 13 PASS/17 WARN/0 FAIL/1 INFO; exit 0. This is not a production
+  validation pass, because missing production assets remain warnings.
+- Clean main checkout matched origin/main after fetch. Actual CLI, producer/
+  consumer, scanner and one-epoch control-flow probes used temporary data.
+- One-epoch scaling used a substituted tiny Conv3d network; an independent probe
+  inspected the real local MedNeXt factory. No production-model performance claim
+  follows from the orchestration checks. No cluster/GPU training, production
+  inference or historical cohort regeneration was performed.
+- Only audit documentation and evidence are committed/pushed; source is unchanged.
+
+CONFIRMED REMAINING FINDINGS
+
+1. [P1] Swin Phase 1 crashes while building the new training manifest.
+   code/training/train_swin_unetr.py:322 records num_classes=NUM_CLASSES, but the
+   module defines no NUM_CLASSES. Actual CLI on ten valid temporary scans with
+   zero epochs exits1 with NameError before model initialization or training.
+   Define/reuse the actual class-count configuration and verify the entry point
+   through manifest construction and network setup; the current full suite misses it.
+
+2. [P2] Scaling configuration metadata does not describe the actual model/evaluator.
+   run_scaling_sweep.py:435-437 preferentially instantiates local MedNeXtB. The real
+   local factory fixes kernel 7 (training/mednext.py:243) and receives 5 output classes.
+   Emitted metadata at run_scaling_sweep.py:675-676 declares kernel 3/num_classes 4;
+   an allowed UNet fallback is still labeled MedNeXt-B. Actual factory inspection
+   confirmed local module, 7-cube convolution kernels and 5 output channels.
+   eval_scaling_checkpoints.py:397-402 unconditionally builds the separate nnU-Net
+   MedNeXt implementation with kernel 3 rather than the declared/executed factory.
+   Strict weight loading may reject incompatible weights; this does not silently
+   establish valid scores. Production checkpoint reload was not tested because
+   the local nnU-Net MedNeXt dependency is absent.
+   Configuration validation at:275-281 checks only whether a key exists. Actual
+   probe accepts architecture=null with valid membership and matching checkpoint
+   SHA. Hash binding is repaired; meaningful configuration compatibility is not.
+   Derive metadata from the instantiated network and construct/validate the matching
+   evaluation architecture, channels, classes, preprocessing and factory version.
+
+3. [P1/P2] Run-proof validation accepts empty or unrelated evidence content.
+   verify_production_results.py:596-616 marks a run verified if a matching-ID JSON
+   merely contains items or total_files, or one arbitrary .meta.json matches run_id.
+   Actual scanner accepts {run_id:UNPROVEN_RUN,items:[]} and a sidecar containing
+   only that run ID, without assignments, hashes, completion state or row coverage.
+   Separately, a real evaluate_synthesis.main one-pair output passed the current
+   verifier correctly; replacing its proper manifest with matching-run empty items
+   still yielded cohort_lineage_ok=True. This isolates the content-validation gap.
+   These probes verify the lineage flag, not every production gate/threshold.
+   Reuse the evaluator's complete cohort/worker verification: exact subjects and
+   assignments, successful complete metadata, current fake/real/support hashes and
+   checkpoint/config lineage. A matching run-name string is not execution proof.
+
+4. [P2] Gzip registration/DVF checks do not establish payload integrity or finiteness.
+   verify_production_results.py:472-482,528-538 reads the trailer's uncompressed size
+   field and compares expected length; parsed CRC is unused. It does not decompress
+   the registration/DVF voxel payload, validate CRC or inspect finite values.
+   Actual scanner with matching filenames and valid compressed NIfTI registrations
+   and DVFs containing NaNs returns cohort_lineage_ok=True, including fixtures whose
+   counts satisfy the registration/DVF/synthesis/evaluation thresholds.
+   A real evaluator-to-verifier probe likewise still passes after replacing the
+   previously scored registered reference with a NaN-containing file: current
+   metric input hashes are not checked (also item 3).
+   Stream/decompress and validate all required voxel data, geometry and finite
+   displacement values, and revalidate current input/output identities. Trailer
+   size alone proves neither corruption detection nor scientific usability.
+
+ARCHIVE RECONCILIATION: CLOSED ARITHMETIC GAP, OPEN PRODUCTION EVIDENCE
+
+The saved ensemble archive now contains 1598 REJECT / 34 WEAK / 0 CLEAN, and the new
+docs/manifests/dataset_manifest_valid.csv contains exactly those 34 WEAK subject IDs.
+Exclusions JSON records 154 unique subjects with coherent reason counts: 1 missing
+coarse annotation, 32 zero-foreground, 121 low-Dice/absent-organ reconciliation. Report
+now uses 34 rather than 151/187/188. Do not continue reporting the old count mismatch.
+
+Comparison to 513cb60 shows all original per-organ measurements preserved, with
+global consensus Dice 729 rows, global inter-model Dice 721 rows and triage 157 rows
+changed. No new per-row image/run provenance columns were added. This verifies
+historical-statistic reconciliation, not a demonstrated new source-volume evaluation.
+All 34 declared label paths and current production checkpoints/metrics remain unavailable
+locally. Fresh volume identities/hashes, executed metric policy and affected-training
+lineage are still required to independently validate the current 34-case pool and
+historical model claims. Missing local assets do not imply remote absence.
+
+All 1545 archived source/target examination dates remain missing; contemporaneous
+clinical pairing and historical checkpoint patient exposure remain unverified.
+Report/showcase scientific claims should retain these boundaries and consistent
+cohort/metric descriptions rather than infer result validity from local tests alone.
+
+VERIFIED REPAIRS SINCE 513cb60
+
+- A normal one-epoch scaling orchestration returns successfully and emits a real
+  best checkpoint and training manifest accepted by the consumer. Appending bytes
+  to the checkpoint triggers SHA authentication failure.
+- Bound negative/default-fold manifests now pass. Missing hashes and blank
+  membership IDs now reject. Configuration validation remains item 2.
+- Actual N=1/requestedN=2 now agrees in folder, manifest, epoch JSON, checkpoint
+  metadata and generated summary; progress-writing source uses actual training N.
+- Physical binary-organ alignment and cached merged-output validation retain their
+  preceding repairs. Replaced mask output regenerates correctly.
+- Production verifier accepts only current v4 metric contract; mixed v3/v4 now fails.
+  Missing run evidence now fails; inadequate evidence content remains item 3.
+- Truncated synthetic voxel payload now fails; full synthetic reads/finiteness are
+  checked. Compressed registration/DVF checks remain item 4.
+- json import/exclusion loading is repaired; malformed JSON now raises rather than
+  silently hiding the error. The new exclusion accounting is present and coherent.
+- Ensemble merge now unconditionally requires subject_id/status and rejects blank
+  subjects plus missing mandatory provenance unless explicitly overridden.
+- Existing phase lookup/conflict rejection, DDP collective validation/master-only
+  saving, empty-validation guards, support-presence merge and statistical fixes
+  have unchanged P10 source since 513cb60. Prior DDP/phase runtime checks were not
+  rerun in this pass; this pass exercised evaluator-to-verifier behavior. No new
+  P10 training/sampler finding was identified.
+
+ADDITIONAL MERGE BOUNDARY
+
+The ensemble merger's expected_cases option remains a lower-bound row count rather
+than an exact expected-subject/worker contract. It can merge failed status records;
+successful process exit must not itself be interpreted as successful cohort evaluation.
+Parent probes record missing-subject rejection and retained failed-row reporting.
+Use explicit completion/coverage proof when promoting a merge to training or a
+scientific benchmark; preserve error rows separately as audit evidence where needed.
+
+NEXT ACCEPTANCE GATE
+
+Repair the Swin entry point, make model configuration truthful and executable by
+its evaluator, then validate complete current run evidence and compressed payloads.
+Run a producer-to-consumer model/checkpoint/manifest test with the actual selected
+architecture. Archive-level reconciliation is complete; source-volume verification
+and downstream training/result lineage remain the independent evidence gate.
+
+Evidence: audit_evidence_5464671_2026-11-03/ includes full-suite/lint/sanity, P9/P10/
+scanner transcripts, archive replay and merge behavior probes. Source was not edited.

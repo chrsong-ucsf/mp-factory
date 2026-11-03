@@ -1,0 +1,14 @@
+{"probe": "missing_subject", "exit": 1, "published": false}
+Found 1 chunk file(s):
+  /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpitp44e8k/missing_subject/chunk_0.csv: 1 rows
+ERROR: Ensemble merge requires mandatory column 'subject_id', but it is missing from the merged schema.
+
+
+{"probe": "mixed_status", "exit": 0, "published": true}
+Found 1 chunk file(s):
+  /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpitp44e8k/mixed_status/chunk_0.csv: 1 rows
+
+Merged 1 chunks -> 1 total rows -> /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpitp44e8k/mixed_status/merged.csv
+  ERROR: missing input: 1 (100.0%)
+
+[DATASET SPLITS] Skipped (--splits_dir none).

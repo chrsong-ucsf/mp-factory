@@ -1,0 +1,11 @@
+reaggregated
+NOISE_REJECT    1598
+WEAK_COARSE       34
+Name: count, dtype: int64
+reaggregated  NOISE_REJECT  WEAK_COARSE
+old
+NOISE_REJECT          1598            0
+WEAK_COARSE              0           34
+Empty DataFrame
+Columns: [subject_id, old, reaggregated, old_dice, new_dice, old_inter, new_inter]
+Index: []

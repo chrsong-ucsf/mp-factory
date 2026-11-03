@@ -1,0 +1,43 @@
+Actual synthetic scanner probes HEAD5464671. Temporary files only; not genuine production measurements.
+{
+  "no_run_evidence_now_rejected": true,
+  "empty_items_manifest_and_NaN_registered_DVF_payloads_accepted": {
+    "pairs_count": 1545,
+    "patients_count": 438,
+    "reg_vols": 1500,
+    "reg_dvfs": 1500,
+    "synth_vols": 1000,
+    "n_evaluated": 250,
+    "mean_pearson_r": 0.2,
+    "kinetics_ok": true,
+    "cohort_lineage_ok": true
+  },
+  "only_matching_runid_sidecar_no_hashes_completion_accepted": true,
+  "mixed_versions_now_rejected": true,
+  "truncated_synthetic_payload_now_rejected": true
+}
+
+Archive and manifest reconciliation (metadata-only; source-volume measurements not available locally):
+{
+  "archive_triage": {
+    "NOISE_REJECT": 1598,
+    "WEAK_COARSE": 34
+  },
+  "only_changed_columns_vs_513cb60": {
+    "mean_consensus_dice": 729,
+    "mean_inter_model_dice": 721,
+    "triage_category": 157,
+    "action": 1601
+  },
+  "new_columns": [],
+  "manifest_rows": 34,
+  "manifest_matches_all_current_weak_subjects": true,
+  "manifest_local_label_files_present": 0,
+  "exclusions_total": 154,
+  "exclusions_subjects_unique": 154,
+  "exclusions_reasons": {
+    "missing_coarse_annotations": 1,
+    "zero_foreground_anatomy": 32,
+    "low_consensus_dice_absent_organ_reconciliation": 121
+  }
+}

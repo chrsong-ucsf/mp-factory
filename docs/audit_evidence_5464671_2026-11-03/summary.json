@@ -1,0 +1,32 @@
+{
+  "audited_commit": "5464671c22a4961d77cc336a415e5a0d5d553fbd",
+  "pytest": {
+    "passed": 166,
+    "elapsed_seconds": 31.59
+  },
+  "python_parse": {
+    "files": 90,
+    "errors": 0
+  },
+  "shell_syntax": {
+    "files": 76,
+    "errors": 0
+  },
+  "pyflakes": {
+    "diagnostics": 181,
+    "undefined_names": [
+      "code/training/train_swin_unetr.py:322:24: undefined name 'NUM_CLASSES'"
+    ]
+  },
+  "sanity": {
+    "checks": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "production_reexecution": false,
+  "source_changes": false,
+  "p10_ddp_runtime_rerun": false,
+  "scope": "Local tests, syntax, static inspection and temporary synthetic probes; no production result validation."
+}

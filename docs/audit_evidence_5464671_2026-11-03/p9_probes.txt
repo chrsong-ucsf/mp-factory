@@ -1,0 +1,88 @@
+HEAD 5464671c22a4961d77cc336a415e5a0d5d553fbd
+Temporary root /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-5464671-p9-723e6bij
+SWIN_ACTUAL_CLI ['/opt/anaconda3/bin/python', 'code/training/train_swin_unetr.py', '--data_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-5464671-p9-723e6bij/data', '--out_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-5464671-p9-723e6bij/swin', '--epochs', '0']
+EXIT 1
+Using compute device: cpu | Total GPU Cores Detected: 0
+Discovered 10 scanning pairs for training/validation.
+[Standard 80/20 Patient Split] Train scans: 8 (8 pts) | Full Val pool: 2 (2 pts)
+
+Traceback (most recent call last):
+  File "/Users/chrissong/research_su26/02_Projects/mp-factory/code/training/train_swin_unetr.py", line 494, in <module>
+    main()
+  File "/Users/chrissong/research_su26/02_Projects/mp-factory/code/training/train_swin_unetr.py", line 322, in main
+    "num_classes": NUM_CLASSES,
+                   ^^^^^^^^^^^
+NameError: name 'NUM_CLASSES' is not defined
+
+ONE_EPOCH_ACTUAL_SWEEP_TINY_NETWORK
+  Validation: patient-grouped 20%% split (1 scans across 1 pts)
+
+============================================================
+  Scaling Sweep: N=1 (requested=2) | seed=42 | train=1 | val=1 | loss=asymmetric
+============================================================
+/opt/anaconda3/lib/python3.12/site-packages/monai/utils/deprecate_utils.py:320: FutureWarning: monai.transforms.spatial.dictionary Orientationd.__init__:labels: Current default value of argument `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` was changed in version None from `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` to `labels=None`. Default value changed to None meaning that the transform now uses the 'space' of a meta-tensor, if applicable, to determine appropriate axis labels.
+  warn_deprecated(argname, msg, warning_category)
+/opt/anaconda3/lib/python3.12/site-packages/monai/data/meta_tensor.py:154: UserWarning: Setting affine, but the applied meta contains an affine. This will be overwritten.
+  warnings.warn("Setting affine, but the applied meta contains an affine. This will be overwritten.")
+  Epoch   1/1 | loss=3.4050 | mean_dice=0.1873 | mean_hd95=18.06
+  Saved metrics → /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-5464671-p9-723e6bij/sweep/N0001/seed42/epoch_metrics.json
+  Saved metrics → /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-5464671-p9-723e6bij/sweep/N0001/seed42/epoch_metrics.csv
+  Best val Dice (N=1, requested=2, seed=42): 0.1873
+
+RETURN ('/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-5464671-p9-723e6bij/sweep/N0001/seed42/epoch_metrics.json', 0.18726591765880585)
+EMITTED_MANIFEST {"n_cases": 1, "n_requested": 2, "n_train_scans": 1, "n_train_patients": 1, "n_val_scans": 1, "n_val_patients": 1, "seed": 42, "architecture": "MedNeXt-B", "model_id": "B", "kernel_size": 3, "num_classes": 4, "roi_size": [32, 32, 32], "data_fingerprint": "0ad3bcebe80c50391f2ba45b660084140c568483f3cc8f09961524bf3cac216f", "train_patients": ["CV_1000"], "val_patients": ["CV_1001"], "train_cases": ["CV_1000_P0"], "val_cases": ["CV_1001_P0"], "checkpoint_sha256": "8f96f66017d93599ffecc12b9274febd92abd722edc884e5aebcc031b24a5e6e", "checkpoint_file": "best_checkpoint.pt"}
+EPOCH_JSON_N (1, 2, 1)
+REAL_EMITTED_BOUND_MANIFEST_ACCEPTED /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-5464671-p9-723e6bij/sweep/N0001/seed42/train_manifest.json
+ACTUAL_SUMMARY [
+  {
+    "n_cases": 1,
+    "n_train_scans": 1,
+    "n_requested": 2,
+    "n_train_patients": 1,
+    "num_seeds": 1,
+    "seeds": [
+      42
+    ],
+    "mean_best_val_dice": 0.187266,
+    "std_best_val_dice": null,
+    "mean_best_val_hd95": 18.0624,
+    "std_best_val_hd95": null,
+    "mean_best_val_true_dice": null,
+    "std_best_val_true_dice": null,
+    "per_seed_results": [
+      {
+        "seed": 42,
+        "n_train_scans": 1,
+        "n_requested": 2,
+        "n_train_patients": 1,
+        "best_epoch": 1,
+        "best_val_mean_dice": 0.187266,
+        "best_val_mean_hd95": 18.0624,
+        "best_val_true_dice": null,
+        "best_dice_stomach": 0.187266,
+        "best_dice_duodenum": NaN,
+        "best_dice_small_bowel": NaN,
+        "best_dice_colon": NaN,
+        "best_hd95_stomach": 18.0624,
+        "best_hd95_duodenum": NaN,
+        "best_hd95_small_bowel": NaN,
+        "best_hd95_colon": NaN
+      }
+    ],
+    "mean_dice_stomach": 0.187266,
+    "std_dice_stomach": null,
+    "mean_dice_duodenum": NaN,
+    "std_dice_duodenum": null,
+    "mean_dice_small_bowel": NaN,
+    "std_dice_small_bowel": null,
+    "mean_dice_colon": NaN,
+    "std_dice_colon": null
+  }
+]
+TAMPER_REJECTED ValueError: Checkpoint authentication failed for /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-5464671-p9-723e6bij/sweep/N0001/seed42/best_checkpoint.pt: actual SHA-256 191ec5d2b774e2f4c05365bed2975c38322fbbec1a9a3272dd3852ee329cd51b does not match manifest recorded hash 8f96f66017d93599ffecc12b9274febd92abd722edc884e5aebcc031b24a5e6e. Checkpoint contents have been altered or replaced.
+NULL_CONFIG_ACCEPTED /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-5464671-p9-723e6bij/null_config_manifest.json
+DEFAULT_NEGATIVE_FOLD_ACCEPTED /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-5464671-p9-723e6bij/fold_-1_manifest.json
+REAL_LOCAL_FACTORY code.training.mednext
+REAL_LOCAL_CONV_KERNELS [(1, 1, 1), (2, 2, 2), (7, 7, 7)]
+REAL_LOCAL_OUTPUT_CLASSES 5
+SCALING_DECLARED_KERNEL3_CLASSES4 from source manifest fields

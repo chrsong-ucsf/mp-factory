@@ -1,0 +1,78 @@
+
+######################################################################
+      MASSIVE PROCESSING FACTORY — FULL PROJECT SANITY AUDIT
+      Date: 2026-11-03 12:05:32
+######################################################################
+
+======================================================================
+  1. RAW DATASETS & GROUND TRUTH INTEGRITY
+======================================================================
+  [93m[WARN][0m CancerVerse_dbox subject count: 0 (expected >= 1,600)
+  [92m[PASS][0m JHU Radiologist Ground Truth: 6 expert masks verified (.seg.nrrd)
+
+======================================================================
+  2. MODEL CHECKPOINTS & ARTIFACTS
+======================================================================
+  [93m[WARN][0m Phase 1 MedNeXt-B: 0 checkpoints
+  [93m[WARN][0m Phase 2 MedNeXt-B (Distilled): 0 checkpoints
+  [93m[WARN][0m Phase 3 MedNeXt-B (Distilled): 0 checkpoints
+  [93m[WARN][0m Phase 3 Swin-UNETR (Distilled): 0 checkpoints
+  [94m[INFO][0m Phase 3+ Pool873 MedNeXt Checkpoints: 0 currently checkpointed
+
+======================================================================
+  3. PHASE 3 BATCH SEGMENTATIONS (1,632 SCANS)
+======================================================================
+  [93m[WARN][0m MedNeXt Phase 3 Batch: 0 segs, 0 npz (expected 1,632)
+  [93m[WARN][0m Swin-UNETR Phase 3 Batch: 0 segs (expected 1,632)
+  [92m[PASS][0m MedNeXt Prediction Sample Validation: No files to sample
+
+======================================================================
+  4. MULTI-MODEL ENSEMBLE CONSENSUS & DATA CLEANSING
+======================================================================
+  [93m[WARN][0m Consensus Pseudo-GT Masks: 0 / 1,632 (100%)
+  [93m[WARN][0m Spatial Predictive Uncertainty Maps: 0 / 1,632 (100%)
+  [93m[WARN][0m Autolabeled Boundary Masks (255 ignore): 0 / 465 (99.4%)
+  [92m[PASS][0m Ensemble Audit Summary CSV: 1,632 audited cases | Categories: {'NOISE_REJECT': 1598, 'WEAK_COARSE': 34}
+  [93m[WARN][0m dataset_manifest_valid.csv not yet generated in dataset_splits_phase3
+
+======================================================================
+  5. PROJECT 10 CONTRAST SYNTHESIS & TUMOR KINETICS
+======================================================================
+  [92m[PASS][0m Multi-Phase Cohort Discovery: 1,545 paired CTs across 438 patients
+  [93m[WARN][0m Deformable B-Spline Registration: 0 volumes & 0 DVFs
+  [93m[WARN][0m Synthesized Contrast Volumes: 0 3D volumes
+  [93m[WARN][0m Missing consolidated synthesis_metrics.csv
+  [92m[PASS][0m Tumor Enhancement Kinetics Curves: /Users/chrissong/research_su26/02_Projects/mp-factory/docs/figures/project10_tumor_kinetics_curves.png
+
+======================================================================
+  6. SHOWCASE VISUALIZATIONS & 3D MESH DELIVERABLES
+======================================================================
+  [93m[WARN][0m Interactive 3D HTML Viewers: 0 showcase viewers
+  [93m[WARN][0m 3D Organ Surface Meshes (.obj): 0 meshes
+  [93m[WARN][0m Organ Volumetric Metrics: /Users/chrissong/research_su26/02_Projects/mp-factory/results/showcase_phase3/organ_volumetric_metrics.csv
+
+======================================================================
+  7. LOG EXCEPTION & ERROR SCAN
+======================================================================
+  [92m[PASS][0m Log Scan: 0 fatal exceptions detected across the 0 most recent logs
+
+======================================================================
+  8. SHOWCASE SANITY REVIEW REMEDIATION AUDIT
+======================================================================
+  [92m[PASS][0m Tumor Kinetics Containment: Exactly 0.0 HU bleed outside lesion geometry
+  [92m[PASS][0m Empty-Mask Gating: compute_binary_dice correctly returns NaN on absent organs (no false 1.0 inflation)
+  [92m[PASS][0m JHU Evaluation Definitions: Verified NRRD label definitions (4=small_bowel) without synthetic z-mid bisection
+  [92m[PASS][0m Multi-Phase Diffusion: Static check confirmed --ncct_dir parameter and FileNotFoundError exception handling in source
+  [92m[PASS][0m Showcase Turing Figure inventory: project10_clinical_turing_comparison.png present on disk (365,695 bytes)
+  [92m[PASS][0m Showcase Tumor Kinetics Figure inventory: project10_4d_tumor_hemodynamics_showcase.png present on disk (252,656 bytes)
+  [92m[PASS][0m SHOWCASE.md Documentation: Inventory confirmed zero local cluster links and presence of empty-mask gating documentation
+
+======================================================================
+  FINAL SANITY CHECK SUMMARY
+======================================================================
+  Total Checks Conducted : 31
+  Passed Checks          : 13
+  Warnings (Non-Fatal)   : 17
+  Critical Failures      : 0
+  System Health Score    : 41.9%
+======================================================================

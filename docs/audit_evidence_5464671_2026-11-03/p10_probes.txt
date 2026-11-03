@@ -1,0 +1,19 @@
+{
+  "actual_evaluator_contract": {
+    "pairs_count": 1,
+    "patients_count": 1,
+    "reg_vols": 1,
+    "reg_dvfs": 1,
+    "synth_vols": 1,
+    "n_evaluated": 1,
+    "mean_pearson_r": 1.0,
+    "kinetics_ok": true,
+    "cohort_lineage_ok": true
+  },
+  "empty_manifest_accepted": true,
+  "nonfinite_registered_payload_accepted": true,
+  "head": "5464671",
+  "scope": "Actual evaluator and verifier synthetic one-pair contract. No production cohort or full pytest.",
+  "unchanged_p10_source_since": "513cb60",
+  "retained_validation_phase_fixes": "No changes under code/project10; prior real Gloo DDP and actual main conflicting-phase probes remain applicable."
+}
