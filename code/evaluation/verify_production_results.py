@@ -225,17 +225,40 @@ def verify_ensemble_and_manifests():
     manifest_csv = RESULTS_DIR / "dataset_splits_phase3" / "dataset_manifest_valid.csv"
     manifest_rows = 0
     manifest_valid = True
+    manifest_errors = []
     if manifest_csv.exists():
         mdf = pd.read_csv(manifest_csv)
         manifest_rows = len(mdf)
-        for _, mrow in mdf.head(10).iterrows():
-            ct_p = mrow.get("image", mrow.get("ct_path"))
-            lbl_p = mrow.get("label", mrow.get("label_path"))
-            if not ct_p or not lbl_p or not os.path.exists(ct_p) or not os.path.exists(lbl_p):
-                manifest_valid = False
-                break
+        if manifest_rows == 0:
+            manifest_valid = False
+            manifest_errors.append("Manifest is empty (0 rows)")
+        else:
+            for idx, mrow in mdf.iterrows():
+                ct_p = str(mrow.get("image", mrow.get("ct_path", "")))
+                lbl_p = str(mrow.get("label", mrow.get("label_path", "")))
+                if not ct_p or not lbl_p or not os.path.exists(ct_p) or not os.path.exists(lbl_p):
+                    manifest_valid = False
+                    manifest_errors.append(f"Row {idx}: missing path on disk ({ct_p} or {lbl_p})")
+                    break
+                try:
+                    ct_nii = nib.load(ct_p)
+                    lbl_nii = nib.load(lbl_p)
+                    if len(ct_nii.shape) != 3 or len(lbl_nii.shape) != 3:
+                        manifest_valid = False
+                        manifest_errors.append(f"Row {idx}: volume is not 3D ({ct_nii.shape} or {lbl_nii.shape})")
+                        break
+                    lbl_arr = np.asanyarray(lbl_nii.dataobj)
+                    if not np.any(lbl_arr > 0):
+                        manifest_valid = False
+                        manifest_errors.append(f"Row {idx}: clean label has zero foreground voxels")
+                        break
+                except Exception as ex:
+                    manifest_valid = False
+                    manifest_errors.append(f"Row {idx}: corrupt/unreadable volume ({ex})")
+                    break
     else:
         manifest_valid = False
+        manifest_errors.append(f"Manifest file not found: {manifest_csv}")
 
     print(f"  - Consensus Pseudo-GT Masks : {len(cons_files):,} / 1,632")
     print(f"  - Spatial Uncertainty Maps  : {len(unc_files):,} / 1,632")
@@ -297,11 +320,38 @@ def verify_project10_synthesis_and_kinetics():
         print(f"  [WARN] Kinetics dynamic verification failed: {e}")
         kinetics_ok = False
 
+    # Cohort matching & lineage verification (F08)
+    expected_pair_names = set()
+    for _, row in df_pairs.iterrows():
+        s_p0 = str(row.get("subject_p0", "")).strip()
+        s_tgt = str(row.get("subject_target", "")).strip()
+        if s_p0 and s_tgt:
+            expected_pair_names.add(f"{s_p0}--{s_tgt}")
+            expected_pair_names.add(s_tgt)
+
+    reg_stems = {Path(p).name.replace("_reg.nii.gz", "").replace(".nii.gz", "") for p in reg_vols}
+    matched_registrations = len(reg_stems.intersection(expected_pair_names)) if expected_pair_names else 0
+
+    cohort_lineage_ok = True
+    if len(reg_vols) > 0 and len(expected_pair_names) > 0:
+        if matched_registrations < min(len(reg_vols), 1500):
+            cohort_lineage_ok = False
+
+    if metrics_csv.exists() and n_eval > 0:
+        if "Subject" in df_metrics.columns:
+            eval_stems = {str(s).replace("_synthetic_contrast.nii.gz", "").replace("_reg.nii.gz", "").replace(".nii.gz", "") for s in df_metrics["Subject"]}
+            matched_evals = len(eval_stems.intersection(expected_pair_names)) if expected_pair_names else 0
+            if matched_evals < min(n_eval, 250):
+                cohort_lineage_ok = False
+        if "run_id" in df_metrics.columns and df_metrics["run_id"].isna().any():
+            cohort_lineage_ok = False
+
     print(f"  - Multi-Phase Pairs         : {n_pairs:,} CTs across {n_patients} unique patients")
-    print(f"  - Deformable Registrations  : {len(reg_vols):,} volumes & {len(reg_dvfs):,} DVFs")
+    print(f"  - Deformable Registrations  : {len(reg_vols):,} volumes & {len(reg_dvfs):,} DVFs (Matched: {matched_registrations})")
     print(f"  - Synthesized Volumes       : {len(synth_vols):,} 3D volumes")
     print(f"  - Evaluated Synthesis Scans : {n_eval:,} | Mean Pearson R: {mean_r:.4f}")
     print(f"  - Dynamic Kinetics Test     : {'PASS (0.0 HU bleed)' if kinetics_ok else 'FAIL'}")
+    print(f"  - Cohort Lineage Integrity  : {'PASS' if cohort_lineage_ok else 'FAIL'}")
 
     return {
         "pairs_count": n_pairs,
@@ -312,6 +362,7 @@ def verify_project10_synthesis_and_kinetics():
         "n_evaluated": n_eval,
         "mean_pearson_r": mean_r,
         "kinetics_ok": kinetics_ok,
+        "cohort_lineage_ok": cohort_lineage_ok,
     }
 
 
@@ -464,7 +515,8 @@ def main(argv=None):
               p10_info["reg_vols"] == p10_info["reg_dvfs"] and
               p10_info["synth_vols"] >= 1000 and
               p10_info["n_evaluated"] >= 250 and
-              p10_info["kinetics_ok"])
+              p10_info["kinetics_ok"] and
+              p10_info.get("cohort_lineage_ok", True))
 
     gates = {
         "Gate 1": {

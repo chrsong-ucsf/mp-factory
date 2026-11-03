@@ -108,6 +108,14 @@ DEFAULT_ROI_SIZE = (96, 96, 96)
 NUM_CLASSES = 4  # stomach, duodenum, small bowel, colon (label map 1-4)
 ORGAN_NAMES = ["stomach", "duodenum", "small_bowel", "colon"]
 
+JHU_SCAN_TO_PATIENT_MAP = {
+    "BDMAP_00242113": "PATIENT_BDMAP_P1", "BDMAP_00242114": "PATIENT_BDMAP_P1",
+    "BDMAP_00242115": "PATIENT_BDMAP_P1", "BDMAP_00242116": "PATIENT_BDMAP_P1",
+    "BDMAP_00242131": "PATIENT_BDMAP_P2", "BDMAP_00242132": "PATIENT_BDMAP_P2", "BDMAP_00242133": "PATIENT_BDMAP_P2",
+    "BDMAP_00242134": "PATIENT_BDMAP_P3", "BDMAP_00242135": "PATIENT_BDMAP_P4", "BDMAP_00242136": "PATIENT_BDMAP_P4",
+    "BDMAP_00394224": "PATIENT_BDMAP_P5",
+}
+
 
 # ---------------------------------------------------------------------------
 # Data helpers
@@ -124,27 +132,88 @@ def determine_mask_schema(mask_path, data_dir, mask_dir=None):
 
     # Canonical 5-class GI masks or single organ masks (where 1=stomach, 2=duo, 3=sb, 4=colon)
     base_name = os.path.basename(mask_path).lower()
-    if base_name in ("gi_mask.nii.gz", "stomach.nii.gz", "duodenum.nii.gz", "small_bowel.nii.gz", "colon.nii.gz"):
+    if base_name in ("gi_mask.nii.gz", "gi_mask_merged.nii.gz", "stomach.nii.gz", "duodenum.nii.gz", "small_bowel.nii.gz", "colon.nii.gz"):
         return "gi_5class"
 
     if any(k in p_lower for k in ("autolabel", "consensus", "canonical", "gi_5class")):
         return "gi_5class"
 
-    # Raw BDMAP multi-organ annotations (where 1=esophagus, 2=stomach, 3=duo, 4=sb, 5=sb, 6=colon)
-    # Check bdmap before generic totalseg so totalseg_gi_masks_bdmap matches bdmap
-    if "totalseg_gi_masks_bdmap" in m_lower or "totalseg_gi_masks_bdmap" in p_lower or "totalseg_gi_masks_bdmap" in d_lower:
-        return "bdmap"
-    if ("bdmap" in m_lower or "bdmap" in d_lower) and "gi_mask" not in p_lower:
-        return "bdmap"
-
-    # Raw TotalSegmentator multi-organ masks
+    # Raw TotalSegmentator multi-organ masks (including TotalSeg run on BDMAP cohorts, e.g. totalseg_gi_masks_bdmap)
+    # Check totalseg before bdmap because totalseg_gi_masks_bdmap was produced by TotalSegmentator (ml=True)
     if "totalseg" in p_lower or "totalseg" in m_lower or "totalseg" in d_lower:
         if "v1" in p_lower or "v1" in m_lower or "total_v1" in p_lower:
             return "totalseg_v1"
         return "totalseg_v2"
+
+    # Raw BDMAP multi-organ annotations (where 1=esophagus, 2=stomach, 3=duo, 4=sb, 5=sb, 6=colon)
+    if ("bdmap" in m_lower or "bdmap" in d_lower) and "gi_mask" not in p_lower:
         return "bdmap"
 
     return "gi_5class"
+
+
+def assemble_or_get_mask(mask_dir, patient_id, ct_path):
+    """Returns path to combined multi-organ mask, merging individual organ masks from segmentations/ if needed."""
+    mask_path = os.path.join(mask_dir, patient_id, "gi_mask.nii.gz")
+    if os.path.exists(mask_path):
+        return mask_path
+
+    merged_cached = os.path.join(mask_dir, patient_id, "gi_mask_merged.nii.gz")
+    if os.path.exists(merged_cached):
+        return merged_cached
+
+    seg_dir = os.path.join(mask_dir, patient_id, "segmentations")
+    if os.path.isdir(seg_dir):
+        organ_map = {
+            1: ["stomach.nii.gz", "stomach.nii"],
+            2: ["duodenum.nii.gz", "duodenum.nii"],
+            3: ["small_bowel.nii.gz", "small_intestine.nii.gz", "small_bowel.nii"],
+            4: ["colon.nii.gz", "colon.nii", "large_bowel.nii.gz"]
+        }
+        found_organs = {}
+        for organ_idx, organ_files in organ_map.items():
+            for of in organ_files:
+                op = os.path.join(seg_dir, of)
+                if os.path.exists(op):
+                    found_organs[organ_idx] = op
+                    break
+
+        if found_organs:
+            try:
+                ct_nii = nib.load(ct_path)
+                shape = ct_nii.shape[:3]
+                merged_data = np.zeros(shape, dtype=np.uint8)
+
+                for organ_idx, op in sorted(found_organs.items()):
+                    o_nii = nib.load(op)
+                    o_arr = np.asanyarray(o_nii.dataobj)
+                    if o_arr.shape[:3] != shape or not np.allclose(o_nii.affine, ct_nii.affine, atol=1e-3):
+                        import nibabel.processing as nip
+                        o_nii_res = nip.resample_from_to(o_nii, ct_nii, order=0)
+                        o_arr = np.asanyarray(o_nii_res.dataobj)
+                    mask_vox = (o_arr > 0)
+                    merged_data[mask_vox] = organ_idx
+
+                try:
+                    merged_nii = nib.Nifti1Image(merged_data, ct_nii.affine, ct_nii.header)
+                    nib.save(merged_nii, merged_cached)
+                    return merged_cached
+                except Exception:
+                    import tempfile
+                    td = tempfile.gettempdir()
+                    tmp_merged = os.path.join(td, f"{patient_id}_gi_mask_merged.nii.gz")
+                    merged_nii = nib.Nifti1Image(merged_data, ct_nii.affine, ct_nii.header)
+                    nib.save(merged_nii, tmp_merged)
+                    return tmp_merged
+            except Exception:
+                if 1 in found_organs:
+                    return found_organs[1]
+
+    stomach_p = os.path.join(mask_dir, patient_id, "segmentations", "stomach.nii.gz")
+    if os.path.exists(stomach_p):
+        return stomach_p
+
+    return None
 
 
 def find_cases(data_dir, mask_dir):
@@ -154,10 +223,8 @@ def find_cases(data_dir, mask_dir):
     # Layout 1: data_dir/BDMAP_*/ct.nii.gz + mask_dir/BDMAP_*/gi_mask.nii.gz
     for ct_path in sorted(glob.glob(os.path.join(data_dir, "BDMAP_*", "ct.nii.gz"))):
         patient_id = os.path.basename(os.path.dirname(ct_path))
-        mask_path = os.path.join(mask_dir, patient_id, "gi_mask.nii.gz")
-        if not os.path.exists(mask_path):
-            mask_path = os.path.join(mask_dir, patient_id, "segmentations", "stomach.nii.gz")
-        if os.path.exists(ct_path) and os.path.exists(mask_path):
+        mask_path = assemble_or_get_mask(mask_dir, patient_id, ct_path)
+        if mask_path and os.path.exists(mask_path):
             schema = determine_mask_schema(mask_path, data_dir, mask_dir)
             cases.append({"image": ct_path, "label": mask_path, "name": patient_id, "schema": schema})
 
@@ -454,24 +521,64 @@ def run_single_sweep(
         print(f"  [N={n_cases}] Only {len(all_cases)} cases available; using all.")
         n_cases = len(all_cases)
 
-    cohort = rng.sample(all_cases, n_cases)
-
     # Use gold-standard cases as the static validation set when available.
-    # This anchors all sweep metrics to expert-verified ground truth rather
-    # than a random 20% slice of pseudo-labels.
+    # Strictly ensure training cohort does NOT include any gold standard validation cases or their sibling phases!
     if gold_standard_cases:
-        train_cases = cohort          # all N cases go to training
+        gold_patients = set()
+        for gc in gold_standard_cases:
+            p_name = gc.get("name", "")
+            pid = JHU_SCAN_TO_PATIENT_MAP.get(p_name, p_name.split("_")[0] if "_" in p_name else p_name)
+            gold_patients.add(pid)
+            gold_patients.add(p_name)
+
+        eligible_train_cases = []
+        for c in all_cases:
+            c_name = c.get("name", "")
+            c_pid = JHU_SCAN_TO_PATIENT_MAP.get(c_name, c_name.split("_")[0] if "_" in c_name else c_name)
+            if c_pid not in gold_patients and c_name not in gold_patients:
+                eligible_train_cases.append(c)
+
+        actual_n = min(n_cases, len(eligible_train_cases))
+        train_cases = rng.sample(eligible_train_cases, actual_n)
         val_cases   = gold_standard_cases
         n_train     = len(train_cases)
         n_val       = len(val_cases)
-        print(f"  Validation: static gold-standard ({n_val} cases)")
+        print(f"  Validation: static gold-standard ({n_val} cases; excluded {len(all_cases)-len(eligible_train_cases)} training overlap scans)")
     else:
-        # Fallback: 80/20 train/val split (minimum 1 val case)
-        n_val   = max(1, int(0.2 * n_cases))
-        n_train = n_cases - n_val
-        train_cases = cohort[:n_train]
-        val_cases   = cohort[n_train:]
-        print(f"  Validation: random 20%% split ({n_val} cases)")
+        # Patient-grouped 80/20 train/val split
+        pt_map = {}
+        for c in all_cases:
+            c_name = c.get("name", "")
+            c_pid = JHU_SCAN_TO_PATIENT_MAP.get(c_name, c_name.split("_")[0] if "_" in c_name else c_name)
+            pt_map.setdefault(c_pid, []).append(c)
+
+        pts = sorted(list(pt_map.keys()))
+        rng.shuffle(pts)
+        n_val_pt = max(1, int(0.2 * len(pts)))
+        val_pts = set(pts[:n_val_pt])
+        train_pts = set(pts[n_val_pt:])
+        if not train_pts and len(pts) > 1:
+            train_pts = {pts[-1]}
+            val_pts.remove(pts[-1])
+
+        all_train_cases = [c for p in train_pts for c in pt_map[p]]
+        val_cases       = [c for p in val_pts for c in pt_map[p]]
+        actual_n = min(n_cases, len(all_train_cases))
+        train_cases = rng.sample(all_train_cases, actual_n)
+        n_train     = len(train_cases)
+        n_val       = len(val_cases)
+        print(f"  Validation: patient-grouped 20%% split ({n_val} scans across {len(val_pts)} pts)")
+
+    # Save training membership manifest into run_dir
+    manifest_info = {
+        "n_cases": n_cases,
+        "seed": seed,
+        "train_patients": sorted(list({JHU_SCAN_TO_PATIENT_MAP.get(c.get('name',''), c.get('name','').split('_')[0]) for c in train_cases})),
+        "train_cases": [c.get("name", "") for c in train_cases],
+        "val_cases": [c.get("name", "") for c in val_cases],
+    }
+    with open(os.path.join(run_dir, "train_manifest.json"), "w") as f:
+        json.dump(manifest_info, f, indent=2)
 
     print(f"\n{'='*60}")
     print(f"  Scaling Sweep: N={n_cases} | seed={seed} | train={n_train} | val={n_val} | loss={loss_name}")

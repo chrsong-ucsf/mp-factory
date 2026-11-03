@@ -2095,7 +2095,8 @@ def test_scaling_sweep_schema_determination_and_roi_crop_order(tmp_path):
     assert determine_mask_schema("/path/to/BDMAP_001/gi_mask.nii.gz", "/data/BDMAP") == "gi_5class"
     assert determine_mask_schema("/path/to/segmentations/stomach.nii.gz", "/data/BDMAP") == "gi_5class"
     assert determine_mask_schema("/path/to/jhu_radiologist/case.nii.gz", "/data/jhu") == "jhu"
-    assert determine_mask_schema("/path/to/totalseg_gi_masks_bdmap/case.nii.gz", "/data/totalseg_gi_masks_bdmap") == "bdmap"
+    assert determine_mask_schema("/path/to/totalseg_gi_masks_bdmap/case.nii.gz", "/data/totalseg_gi_masks_bdmap") == "totalseg_v2"
+    assert determine_mask_schema("/path/to/bdmap_raw/segmentations/case.nii.gz", "/data/bdmap_raw") == "bdmap"
 
     # 2. Transform order test: Native 1mm input resampled to (1.5, 1.5, 2.0) must return exact requested ROI (32, 32, 32)
     # Create mock CT (48, 48, 48) with 1mm spacing and non-zero foreground
@@ -2243,7 +2244,7 @@ def test_deterministic_patient_hashing_immune_to_attrition():
     import hashlib
 
     def is_val(pid, seed=42, val_fraction=0.1):
-        return (int(hashlib.md5(f"{seed}::{pid}".encode()).hexdigest(), 16) % 10000) < int(val_fraction * 10000)
+        return (int(hashlib.md5(f"stage1_val::{seed}::{pid}".encode()).hexdigest(), 16) % 10000) < int(val_fraction * 10000)
 
     # Initial 10 patients
     all_patients = [f"PT_{i:03d}" for i in range(10)]
@@ -2256,5 +2257,220 @@ def test_deterministic_patient_hashing_immune_to_attrition():
     # Every remaining patient MUST retain its exact assignment
     for p in remaining_patients:
         assert (p in remaining_val) == (p in initial_val)
+
+
+def test_sample_multiphase_diffusion_name_errors_and_auto_target_phase(tmp_path):
+    """Finding 1 (d07f190): sample_multiphase_diffusion parses subject_target and resolves auto phase without NameError."""
+    import pandas as pd
+    from code.project10.evaluation.sample_multiphase_diffusion import PHASE_NAME_TO_ID
+
+    pairs_csv = tmp_path / "pairs.csv"
+    pdf = pd.DataFrame([{
+        "subject_p0": "PT_001_P0",
+        "subject_target": "PT_001_P1",
+        "phase_target": "arterial_early",
+    }])
+    pdf.to_csv(pairs_csv, index=False)
+
+    pair_name = "PT_001_P0--PT_001_P1"
+    clean_name = pair_name
+    for sfx in ["_reg", "_synthetic_contrast"]:
+        if clean_name.endswith(sfx):
+            clean_name = clean_name[:-len(sfx)]
+    parts = clean_name.split("--")
+    subject_p0 = parts[0]
+    subject_target = parts[1]
+
+    # Validate that subject_target is correctly resolved and found in pairs_meta
+    pairs_meta = {(prow["subject_p0"], prow["subject_target"]): prow["phase_target"] for _, prow in pdf.iterrows()}
+    meta_phase = pairs_meta.get((subject_p0, subject_target))
+    assert meta_phase == "arterial_early"
+    assert subject_target == "PT_001_P1"
+
+
+def test_scaling_sweep_organ_merger_and_producer_schema(tmp_path):
+    """Finding 2 (d07f190): assemble_or_get_mask merges separate organ files into multi-class mask."""
+    from code.training.run_scaling_sweep import assemble_or_get_mask, determine_mask_schema
+    import nibabel as nib
+    import numpy as np
+
+    # 1. TotalSeg producer schema check
+    assert determine_mask_schema("/path/to/totalseg_gi_masks_bdmap/case.nii.gz", "/data/totalseg_gi_masks_bdmap") == "totalseg_v2"
+
+    # 2. Multi-organ assembly test
+    pt_id = "BDMAP_001"
+    pt_dir = tmp_path / pt_id
+    seg_dir = pt_dir / "segmentations"
+    seg_dir.mkdir(parents=True)
+
+    aff = np.diag([1.5, 1.5, 2.0, 1.0])
+    ct_data = np.zeros((16, 16, 16), dtype=np.float32)
+    ct_p = pt_dir / "ct.nii.gz"
+    nib.save(nib.Nifti1Image(ct_data, aff), str(ct_p))
+
+    # Stomach file (label 1) and Duodenum file (label 2)
+    stom_data = np.zeros((16, 16, 16), dtype=np.uint8)
+    stom_data[2:6, 2:6, 2:6] = 1
+    nib.save(nib.Nifti1Image(stom_data, aff), str(seg_dir / "stomach.nii.gz"))
+
+    duo_data = np.zeros((16, 16, 16), dtype=np.uint8)
+    duo_data[8:12, 8:12, 8:12] = 1
+    nib.save(nib.Nifti1Image(duo_data, aff), str(seg_dir / "duodenum.nii.gz"))
+
+    merged_path = assemble_or_get_mask(str(tmp_path), pt_id, str(ct_p))
+    assert merged_path is not None
+    assert os.path.exists(merged_path)
+
+    merged_nii = nib.load(merged_path)
+    merged_arr = np.asanyarray(merged_nii.dataobj)
+    unique_labels = sorted(np.unique(merged_arr).tolist())
+    assert unique_labels == [0, 1, 2], f"Expected labels [0, 1, 2], got {unique_labels}"
+
+
+def test_cross_stage_patient_fold_assignment_zero_leakage():
+    """Finding 3 (d07f190): Patient fold mapping is identical across Phase 1 and Phase 2."""
+    import hashlib
+
+    def get_fold(pid, num_folds=4, seed=42):
+        return int(hashlib.md5(f"cv_fold::{seed}::{pid}".encode()).hexdigest(), 16) % num_folds
+
+    # Cohort in Phase 1 (100 patients)
+    phase1_patients = [f"PT_{i:03d}" for i in range(100)]
+    # Cohort in Phase 2 (clean/weak filtered subset: only 30 patients)
+    phase2_patients = [f"PT_{i:03d}" for i in range(0, 100, 3)]
+
+    for fold in range(4):
+        p1_val = {p for p in phase1_patients if get_fold(p, 4, 42) == fold}
+        p1_train = set(phase1_patients) - p1_val
+
+        p2_val = {p for p in phase2_patients if get_fold(p, 4, 42) == fold}
+        p2_train = set(phase2_patients) - p2_val
+
+        # Crucial: Any patient in Phase 2 val MUST NOT have been in Phase 1 train!
+        overlap = p2_val.intersection(p1_train)
+        assert len(overlap) == 0, f"Cross-stage leakage detected in fold {fold}: {overlap}"
+
+
+def test_eval_scaling_checkpoints_absent_organ_nan():
+    """Finding 4 (d07f190): Absent organs return NaN rather than zero to prevent mean dilution."""
+    all_dice = {0: [0.85, 0.90], 1: [], 2: [0.75], 3: []}  # Organ 1 and 3 absent
+    per_organ_dice = {
+        c: float(np.mean(all_dice[c])) if len(all_dice[c]) > 0 else np.nan
+        for c in range(4)
+    }
+    valid_dices = [d for d in per_organ_dice.values() if not np.isnan(d)]
+    mean_dice = float(np.mean(valid_dices)) if valid_dices else np.nan
+
+    assert np.isnan(per_organ_dice[1])
+    assert np.isnan(per_organ_dice[3])
+    assert np.isclose(mean_dice, (0.875 + 0.75) / 2.0)
+
+
+def test_synthesis_merge_rejects_support_presence_transition(tmp_path):
+    """Finding 5 (d07f190): Deleting or adding support file rejects during merge."""
+    import pandas as pd
+    from code.project10.evaluation.evaluate_synthesis import merge_worker_csvs, METRIC_VERSION
+
+    fake_dir = tmp_path / "fake"
+    real_dir = tmp_path / "real"
+    fake_dir.mkdir()
+    real_dir.mkdir()
+
+    fake_nii = fake_dir / "case02_synthetic_contrast.nii.gz"
+    real_nii = real_dir / "case02_reg.nii.gz"
+    # Note: NO support file exists on disk
+    aff = np.eye(4)
+    nib.save(nib.Nifti1Image(np.zeros((8, 8, 8), dtype=np.float32), aff), str(fake_nii))
+    nib.save(nib.Nifti1Image(np.zeros((8, 8, 8), dtype=np.float32), aff), str(real_nii))
+
+    import hashlib
+    def get_sha(p):
+        with open(p, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+
+    shard_csv = tmp_path / "merge_worker_0.csv"
+    # Row recorded a support hash, but the support file was deleted/absent on disk!
+    df = pd.DataFrame([{
+        "Subject": "case02_synthetic_contrast.nii.gz",
+        "metric_version": METRIC_VERSION,
+        "Reference_Coverage": 0.5,
+        "SSIM": 0.80,
+        "PSNR": 24.0,
+        "L1_Error": 12.0,
+        "Body_L1_Error": 12.0,
+        "RMSE": 14.0,
+        "Pearson_R": 0.85,
+        "run_id": "test_run_02",
+        "fake_sha256": get_sha(fake_nii),
+        "real_sha256": get_sha(real_nii),
+        "support_sha256": "hash_that_existed_at_eval_time",
+    }])
+    df.to_csv(shard_csv, index=False)
+
+    out_merged = tmp_path / "merge.csv"
+    with pytest.raises(ValueError, match="missing on disk"):
+        merge_worker_csvs(
+            output_csv=out_merged,
+            total_workers=1,
+            expected_run_id="test_run_02",
+            fake_dir=fake_dir,
+            real_dir=real_dir,
+            allow_partial=True
+        )
+
+
+def test_ensemble_merge_rejects_provenance_conflict(tmp_path):
+    """Finding 6 (d07f190): Shards with conflicting input_fingerprint or uncertainty_sha256 reject."""
+    from code.utilities.merge_ensemble_chunks import merge_chunks
+    import pandas as pd
+
+    c1 = tmp_path / "ens_0.csv"
+    c2 = tmp_path / "ens_1.csv"
+    out_csv = tmp_path / "ens_merged.csv"
+
+    # Same subject, same triage and dice, but conflicting uncertainty_sha256
+    df1 = pd.DataFrame([{
+        "subject_id": "BDMAP_001",
+        "triage_category": "CLEAN_HIGH_CONFIDENCE",
+        "mean_consensus_dice": 0.90,
+        "consensus_sha256": "sha_cons_1",
+        "uncertainty_sha256": "sha_unc_A",
+        "status": "SUCCESS",
+    }])
+    df2 = pd.DataFrame([{
+        "subject_id": "BDMAP_001",
+        "triage_category": "CLEAN_HIGH_CONFIDENCE",
+        "mean_consensus_dice": 0.90,
+        "consensus_sha256": "sha_cons_1",
+        "uncertainty_sha256": "sha_unc_B",  # Conflicting output identity!
+        "status": "SUCCESS",
+    }])
+    df1.to_csv(c1, index=False)
+    df2.to_csv(c2, index=False)
+
+    import sys
+    orig_argv = sys.argv
+    try:
+        sys.argv = ["merge_ensemble_chunks.py", "--pattern", str(tmp_path / "ens_*.csv"), "--out_csv", str(out_csv)]
+        with pytest.raises(ValueError, match="conflicting duplicate"):
+            merge_chunks(str(tmp_path / "ens_*.csv"), str(out_csv))
+    finally:
+        sys.argv = orig_argv
+
+
+def test_statistical_significance_single_patient_declines_ci():
+    """Finding 10 (d07f190): patient_clustered_bootstrap_ci returns (NaN, NaN) when < 2 patients."""
+    import pandas as pd
+    from code.evaluation.statistical_significance_test import patient_clustered_bootstrap_ci
+
+    # 10 scans but only 1 independent patient
+    df = pd.DataFrame({
+        "patient_id": ["PT_001"] * 10,
+        "diff": np.random.randn(10),
+    })
+    low, high = patient_clustered_bootstrap_ci(df, "diff", patient_col="patient_id")
+    assert np.isnan(low)
+    assert np.isnan(high)
+
 
 

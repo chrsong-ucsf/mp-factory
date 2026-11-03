@@ -61,9 +61,10 @@ def bootstrap_ci(diff, n_boot=1000, ci=95):
 
 
 def patient_clustered_bootstrap_ci(df, diff_col, patient_col="patient_id", n_boot=1000, ci=95):
-    """Cluster bootstrap: resample unique patient clusters with replacement (F12)."""
+    """Cluster bootstrap: resample unique patient clusters with replacement (F12).
+    Declines population uncertainty estimation if < 2 independent patients exist."""
     if patient_col not in df.columns or df[patient_col].nunique() < 2:
-        return bootstrap_ci(df[diff_col].values, n_boot=n_boot, ci=ci)
+        return (np.nan, np.nan)
 
     patients = df[patient_col].unique()
     n_pts = len(patients)
@@ -201,14 +202,17 @@ def evaluate_pairs(df, model_a_col, model_b_col, label_name, patient_col=None):
         )
     )
 
+    mean_diff_patient = float(np.mean(a_test - b_test)) if len(a_test) > 0 else np.nan
+
     return {
         "comparison": label_name,
         "n_samples": n,
         "n_patients": n_pts,
-        "n_patients": valid[patient_col].nunique() if (patient_col and patient_col in valid.columns) else n,
         "mean_model_a": mean_a,
         "mean_model_b": mean_b,
         "mean_diff": mean_diff,
+        "mean_diff_scan": mean_diff,
+        "mean_diff_patient": mean_diff_patient,
         "median_diff": median_diff,
         "ci_95_low": ci_low,
         "ci_95_high": ci_high,
@@ -251,12 +255,30 @@ def main():
     if os.path.exists(CSV_JHU):
         df_jhu = pd.read_csv(CSV_JHU)
         print(f"Loaded {len(df_jhu)} evaluations from {os.path.basename(CSV_JHU)}")
+        # Reject conflicting duplicate subject evaluations
+        for m_name in ["MedNeXt", "TotalSegmentator"]:
+            m_df = df_jhu[df_jhu["model_name"] == m_name]
+            dups = m_df[m_df.duplicated(subset=["subject_id"], keep=False)]
+            if not dups.empty:
+                for sid, grp in dups.groupby("subject_id"):
+                    for col in ["mean_dice", "stomach_dice", "duodenum_dice"]:
+                        if col in grp.columns:
+                            vals = grp[col].dropna().unique()
+                            if len(vals) > 1 and not np.allclose(vals, vals[0], atol=1e-5):
+                                raise ValueError(f"Conflicting duplicate records for {m_name} subject '{sid}': {vals.tolist()}")
+
         med = df_jhu[df_jhu["model_name"] == "MedNeXt"].drop_duplicates(subset=["subject_id"])
         tot = df_jhu[df_jhu["model_name"] == "TotalSegmentator"].drop_duplicates(subset=["subject_id"])
         
         # Merge on subject_id to align paired comparisons (strictly 1-to-1)
         merged = pd.merge(med, tot, on="subject_id", suffixes=("_mednext", "_totalseg"))
-        merged["patient_id"] = merged["subject_id"].apply(extract_patient_id)
+        # Preserve authoritative patient_id if present
+        if "patient_id" in merged.columns and merged["patient_id"].notna().any():
+            pass
+        elif "patient_id_mednext" in merged.columns and merged["patient_id_mednext"].notna().any():
+            merged["patient_id"] = merged["patient_id_mednext"]
+        else:
+            merged["patient_id"] = merged["subject_id"].apply(extract_patient_id)
         if len(merged) > 0:
             for o in ["stomach_dice", "duodenum_dice", "mean_dice", "mean_hd95"]:
                 res = evaluate_pairs(merged, f"{o}_mednext", f"{o}_totalseg", f"MedNeXt vs TotalSeg on JHU Expert ({o})", patient_col="patient_id")

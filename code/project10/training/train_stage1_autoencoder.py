@@ -155,16 +155,11 @@ class MultiPhaseVolumeDataset(Dataset):
             all_paths = pd.concat([paths_p0, paths_tgt], ignore_index=True).drop_duplicates("ct_path").reset_index(drop=True)
             
             unique_pts = np.sort(all_paths["patient_id"].astype(str).unique())
-            # Deterministic patient hashing ensures zero cross-stage patient leakage under attrition (F07/F13)
+            # Deterministic immutable patient hashing ensures zero cross-stage patient leakage under attrition (F07/F13)
             val_pts_set = {
                 p for p in unique_pts
-                if (int(hashlib.md5(f"{seed}::{p}".encode()).hexdigest(), 16) % 10000) < int(val_fraction * 10000)
+                if (int(hashlib.md5(f"stage1_val::{seed}::{p}".encode()).hexdigest(), 16) % 10000) < int(val_fraction * 10000)
             }
-            if len(unique_pts) > 1:
-                if not val_pts_set:
-                    val_pts_set = {unique_pts[0]}
-                elif len(val_pts_set) == len(unique_pts):
-                    val_pts_set.remove(unique_pts[-1])
             train_pts_set = set(unique_pts) - val_pts_set
             
             if split == "val":

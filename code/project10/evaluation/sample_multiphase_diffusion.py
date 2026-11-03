@@ -23,6 +23,7 @@ from typing import Optional, Tuple, List, Dict, Union
 
 import nibabel as nib
 import numpy as np
+import pandas as pd
 import SimpleITK as sitk
 import torch
 import torch.nn.functional as F
@@ -433,20 +434,23 @@ def main():
 
     # Load authoritative pairs manifest for target acquisition phase mapping (F06)
     pairs_meta = {}
-    if args.pairs_csv and os.path.exists(args.pairs_csv):
+    if args.pairs_csv:
+        if not os.path.exists(args.pairs_csv):
+            raise FileNotFoundError(f"Specified --pairs_csv manifest not found: {args.pairs_csv}")
         try:
             pdf = pd.read_csv(args.pairs_csv, dtype=str)
             for _, prow in pdf.iterrows():
                 s_p0 = str(prow.get("subject_p0", "")).strip()
                 s_tgt = str(prow.get("subject_target", "")).strip()
-                p_tgt = prow.get("phase_target", prow.get("phase_target_raw", "")).strip()
+                p_tgt = str(prow.get("phase_target", prow.get("phase_target_raw", ""))).strip()
                 if s_p0 and s_tgt:
                     pairs_meta[(s_p0, s_tgt)] = p_tgt
                     pairs_meta[f"{s_p0}--{s_tgt}"] = p_tgt
                     pairs_meta[f"{s_p0}_{s_tgt}"] = p_tgt
+                    pairs_meta[s_tgt] = p_tgt
             log.info(f"Loaded {len(pairs_meta)} pair phase mappings from {args.pairs_csv}")
         except Exception as pe:
-            log.warning(f"Could not load phase pairs from {args.pairs_csv}: {pe}")
+            raise ValueError(f"Failed to load required pairs manifest from {args.pairs_csv}: {pe}")
 
     # 1. Load Stage 1 Autoencoder
     log.info(f"Loading Stage 1 Autoencoder from: {args.ae_checkpoint}")
@@ -550,8 +554,22 @@ def main():
         out_path = os.path.join(args.out_dir, f"{pair_name}_synthetic_contrast.nii.gz")
         prov_path = os.path.join(args.out_dir, f"{pair_name}_provenance.json")
 
-        # Extract subject ID for anatomy conditioning and true NCCT resolution
-        subject_p0 = pair_name.split("--")[0]
+        # Extract subject ID and target ID for anatomy conditioning, true NCCT, and phase lookup
+        clean_name = pair_name
+        for sfx in ["_reg", "_synthetic_contrast"]:
+            if clean_name.endswith(sfx):
+                clean_name = clean_name[:-len(sfx)]
+        if "--" in clean_name:
+            parts = clean_name.split("--")
+            subject_p0 = parts[0]
+            subject_target = parts[1]
+        elif "_" in clean_name:
+            parts = clean_name.split("_")
+            subject_p0 = parts[0]
+            subject_target = "_".join(parts[1:])
+        else:
+            subject_p0 = clean_name
+            subject_target = clean_name
 
         # Resolve true native NCCT scan first to verify input provenance
         ncct_input_file = None
@@ -609,7 +627,12 @@ def main():
             target_phase_id = PHASE_NAME_TO_ID[phase_key]
         else:
             # 1. Authoritative lookup from pairs manifest
-            meta_phase = pairs_meta.get((subject_p0, subject_target), pairs_meta.get(pair_name))
+            meta_phase = (
+                pairs_meta.get((subject_p0, subject_target))
+                or pairs_meta.get(pair_name)
+                or pairs_meta.get(clean_name)
+                or pairs_meta.get(subject_target)
+            )
             if meta_phase:
                 m_lower = str(meta_phase).lower()
                 if "early_art" in m_lower or "arterial_early" in m_lower or "p1" in m_lower:

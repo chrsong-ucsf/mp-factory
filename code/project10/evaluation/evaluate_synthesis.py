@@ -631,12 +631,25 @@ def merge_worker_csvs(
                         "Input reference file contents have changed; re-evaluation is required."
                     )
             supp_cand = Path(str(r_cand).replace(".nii.gz", "_support.nii.gz"))
-            if supp_cand.exists() and "support_sha256" in row and pd.notna(row["support_sha256"]):
-                curr_s_sha = compute_file_sha256(supp_cand)
-                if str(row["support_sha256"]) != curr_s_sha:
+            has_supp_file = supp_cand.exists()
+            rec_supp_sha = str(row["support_sha256"]).strip() if ("support_sha256" in row and pd.notna(row["support_sha256"])) else ""
+            if rec_supp_sha:
+                if not has_supp_file:
                     raise ValueError(
-                        f"Row for subject '{subj}' has stale support_sha256 ({row['support_sha256']} != current {curr_s_sha}). "
+                        f"Row for subject '{subj}' recorded support mask ({rec_supp_sha[:10]}...), but support file '{supp_cand}' is now missing on disk. "
+                        "Support mask presence has changed; re-evaluation is required."
+                    )
+                curr_s_sha = compute_file_sha256(supp_cand)
+                if rec_supp_sha != curr_s_sha:
+                    raise ValueError(
+                        f"Row for subject '{subj}' has stale support_sha256 ({rec_supp_sha} != current {curr_s_sha}). "
                         "Input support file contents have changed; re-evaluation is required."
+                    )
+            else:
+                if has_supp_file:
+                    raise ValueError(
+                        f"Row for subject '{subj}' was evaluated without support mask (fallback support), but support file '{supp_cand}' now exists on disk. "
+                        "Support mask presence has changed; re-evaluation is required."
                     )
 
     merged_df = merged_df.sort_values("Subject")

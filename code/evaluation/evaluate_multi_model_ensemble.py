@@ -903,11 +903,12 @@ def main():
                         curr_sha = hashlib.sha256(f_c.read()).hexdigest()
                     if curr_sha != str(row['consensus_sha256']):
                         continue
+                    if 'uncertainty_sha256' not in row or pd.isna(row['uncertainty_sha256']):
+                        continue
                     with open(u_path, 'rb') as f_u:
                         curr_u_sha = hashlib.sha256(f_u.read()).hexdigest()
-                    if 'uncertainty_sha256' in row and pd.notna(row['uncertainty_sha256']):
-                        if curr_u_sha != str(row['uncertainty_sha256']):
-                            continue
+                    if curr_u_sha != str(row['uncertainty_sha256']):
+                        continue
 
                     already_processed.add(sub)
                     results.append(row.to_dict())

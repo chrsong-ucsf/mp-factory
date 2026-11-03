@@ -9,6 +9,7 @@ import os
 import sys
 import glob
 import csv
+import json
 import argparse
 import numpy as np
 import pandas as pd
@@ -163,10 +164,11 @@ def evaluate_checkpoint(model, ckpt_path, cases, val_tf, roi_size, device):
                     all_dice[c].append(dice)
 
     per_organ_dice = {
-        ORGAN_NAMES[c]: float(np.mean(all_dice[c])) if len(all_dice[c]) > 0 else 0.0
+        ORGAN_NAMES[c]: float(np.mean(all_dice[c])) if len(all_dice[c]) > 0 else np.nan
         for c in range(4)
     }
-    mean_dice = float(np.mean(list(per_organ_dice.values())))
+    valid_organ_dices = [d for d in per_organ_dice.values() if not np.isnan(d)]
+    mean_dice = float(np.mean(valid_organ_dices)) if valid_organ_dices else np.nan
 
     return {
         "mean_dice": mean_dice,
@@ -260,8 +262,29 @@ def main():
         n_folder = parts[0] if len(parts) > 0 else "unknown"
         seed_folder = parts[1] if len(parts) > 1 else "unknown"
 
-        print(f"Evaluating [{n_folder} | {seed_folder}] -> {ckpt} ...")
-        res = evaluate_checkpoint(model, ckpt, val_cases, val_tf, tuple(args.roi_size), device)
+        # Ensure per-checkpoint training membership exclusion
+        ckpt_dir = os.path.dirname(ckpt)
+        ckpt_manifest = os.path.join(ckpt_dir, "train_manifest.json")
+        ckpt_excludes = set(exclude_subs)
+        if os.path.exists(ckpt_manifest):
+            try:
+                with open(ckpt_manifest, "r") as mf:
+                    minfo = json.load(mf)
+                    for c_name in minfo.get("train_cases", []) + minfo.get("train_scans", []) + minfo.get("train_patients", []):
+                        ckpt_excludes.add(str(c_name))
+            except Exception as me:
+                print(f"Warning: Could not read {ckpt_manifest}: {me}")
+
+        curr_val_cases = [c for c in val_cases if c.get("name", "") not in ckpt_excludes]
+        if not curr_val_cases:
+            curr_val_cases = find_validation_cases(
+                args.data_dir, args.ensemble_out_dir, args.audit_csv,
+                gold_standard_dir=args.gold_standard_dir, max_cases=args.num_val_cases,
+                exclude_subjects=ckpt_excludes,
+            )
+
+        print(f"Evaluating [{n_folder} | {seed_folder}] on {len(curr_val_cases)} cases -> {ckpt} ...")
+        res = evaluate_checkpoint(model, ckpt, curr_val_cases, val_tf, tuple(args.roi_size), device)
         print(f"  -> Mean Dice: {res['mean_dice']:.4f}")
         for organ, d in res["per_organ_dice"].items():
             print(f"     {organ:12s}: {d:.4f}")

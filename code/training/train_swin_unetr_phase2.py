@@ -19,6 +19,8 @@ Key features:
 import os
 import sys
 import argparse
+import hashlib
+import json
 import random as _rnd
 import numpy as np
 import pandas as pd
@@ -376,23 +378,35 @@ def main():
         patient_map.setdefault(pid, []).append(i)
 
     unique_patients = np.sort(list(patient_map.keys()))
-    rng = np.random.RandomState(args.seed)
-    shuffled_patients = rng.permutation(unique_patients)
-
+    # Deterministic patient fold assignment ensures identical cross-validation folds across training stages (F07/F13)
     if args.fold >= 0:
-        patient_folds = np.array_split(shuffled_patients, args.num_folds)
-        val_patients = set(patient_folds[args.fold])
-        train_patients = set(np.setdiff1d(shuffled_patients, patient_folds[args.fold]))
+        val_patients = {
+            pid for pid in unique_patients
+            if (int(hashlib.md5(f"cv_fold::{42}::{pid}".encode()).hexdigest(), 16) % args.num_folds) == args.fold
+        }
+        train_patients = set(unique_patients) - val_patients
         train_files = [data_pairs[idx] for pid in train_patients for idx in patient_map[pid]]
         val_files   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
         print(f"[Fold {args.fold}/{args.num_folds} Patient Split] Train: {len(train_files)} ({len(train_patients)} pts) | Val: {len(val_files)} ({len(val_patients)} pts)")
     else:
-        n_val_pt = max(1, int(0.2 * len(shuffled_patients)))
-        val_patients = set(shuffled_patients[:n_val_pt])
-        train_patients = set(shuffled_patients[n_val_pt:])
+        val_patients = {
+            pid for pid in unique_patients
+            if (int(hashlib.md5(f"val_split::{42}::{pid}".encode()).hexdigest(), 16) % 10000) < 2000
+        }
+        train_patients = set(unique_patients) - val_patients
         train_files = [data_pairs[idx] for pid in train_patients for idx in patient_map[pid]]
         val_files   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
         print(f"[Patient 80/20 Split] Train: {len(train_files)} ({len(train_patients)} pts) | Val: {len(val_files)} ({len(val_patients)} pts)")
+
+    os.makedirs(args.out_dir, exist_ok=True)
+    with open(os.path.join(args.out_dir, f"fold_{args.fold}_manifest.json"), "w") as f:
+        json.dump({
+            "fold": args.fold, "num_folds": args.num_folds,
+            "train_patients": sorted(list(train_patients)),
+            "val_patients": sorted(list(val_patients)),
+            "train_scans": [p.get("name", p.get("subject_id", "")) for p in train_files],
+            "val_scans": [p.get("name", p.get("subject_id", "")) for p in val_files],
+        }, f, indent=2)
 
     # Fast validation subsample (50 scans max) to keep epoch pace fast
     if len(val_files) > 50:

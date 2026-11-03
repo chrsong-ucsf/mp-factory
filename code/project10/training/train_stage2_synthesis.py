@@ -382,16 +382,11 @@ def main() -> None:
         patient_series = pd.Series([f"pt_{i}" for i in range(n_total)])
 
     unique_pts = np.sort(patient_series.unique())
-    # Deterministic patient hashing ensures zero cross-stage patient leakage under attrition (F07/F13)
+    # Deterministic immutable patient hashing ensures zero cross-stage patient leakage under attrition (F07/F13)
     val_pts_set = {
         p for p in unique_pts
-        if (int(hashlib.md5(f"42::{p}".encode()).hexdigest(), 16) % 10000) < int(0.1 * 10000)
+        if (int(hashlib.md5(f"stage1_val::42::{p}".encode()).hexdigest(), 16) % 10000) < int(0.1 * 10000)
     }
-    if len(unique_pts) > 1:
-        if not val_pts_set:
-            val_pts_set = {unique_pts[0]}
-        elif len(val_pts_set) == len(unique_pts):
-            val_pts_set.remove(unique_pts[-1])
     train_pts_set = set(unique_pts) - val_pts_set
 
     train_indices = [i for i, pid in enumerate(patient_series) if pid in train_pts_set]
