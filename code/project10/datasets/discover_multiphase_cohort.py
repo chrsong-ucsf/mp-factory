@@ -194,28 +194,33 @@ def build_manifest(
         tgt_rows = grp[grp["phase_bucket"] != "P0_ncct"]
 
         for _, tgt in tgt_rows.iterrows():
-            same_day = (
-                (src["exam_date_norm"] is not None)
-                and (tgt["exam_date_norm"] is not None)
-                and (src["exam_date_norm"] == tgt["exam_date_norm"])
-            )
+            has_p0_date = pd.notna(src["exam_date_norm"]) and str(src["exam_date_norm"]).strip() != ""
+            has_tgt_date = pd.notna(tgt["exam_date_norm"]) and str(tgt["exam_date_norm"]).strip() != ""
+
+            if has_p0_date and has_tgt_date:
+                same_day = (src["exam_date_norm"] == tgt["exam_date_norm"])
+                temporal_status = "verified_same_day" if same_day else "verified_longitudinal"
+            else:
+                same_day = False
+                temporal_status = "unverified_date_missing"
 
             if same_day_only and not same_day:
                 continue
 
             pair_rows.append(
                 {
-                    "patient_id":          patient_id,
-                    "subject_p0":          src["CancerVerse ID"],
-                    "subject_target":      tgt["CancerVerse ID"],
-                    "phase_source":        src["phase_bucket"],
-                    "phase_target":        tgt["phase_bucket"],
-                    "phase_target_raw":    tgt["phase"],
-                    "exam_date_p0":        src["exam_date_norm"],
-                    "exam_date_target":    tgt["exam_date_norm"],
-                    "same_day":            same_day,
-                    "ct_path_p0":          src["ct_path"],
-                    "ct_path_target":      tgt["ct_path"],
+                    "patient_id":             patient_id,
+                    "subject_p0":             src["CancerVerse ID"],
+                    "subject_target":         tgt["CancerVerse ID"],
+                    "phase_source":           src["phase_bucket"],
+                    "phase_target":           tgt["phase_bucket"],
+                    "phase_target_raw":       tgt["phase"],
+                    "exam_date_p0":           src["exam_date_norm"],
+                    "exam_date_target":       tgt["exam_date_norm"],
+                    "same_day":               same_day,
+                    "temporal_match_status":  temporal_status,
+                    "ct_path_p0":             src["ct_path"],
+                    "ct_path_target":         tgt["ct_path"],
                 }
             )
 

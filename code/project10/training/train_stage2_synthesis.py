@@ -137,6 +137,7 @@ def stage2_checkpoint_payload(
     best_val_loss: float,
     ae_checkpoint_sha256: str,
     conditioning: dict,
+    timesteps: int = 1000,
 ) -> dict:
     """Build complete checkpoint payload with training state and provenance."""
     raw_model = model.module if hasattr(model, "module") else model
@@ -148,6 +149,7 @@ def stage2_checkpoint_payload(
         "best_val_loss": best_val_loss,
         "ae_checkpoint_sha256": ae_checkpoint_sha256,
         "conditioning": conditioning,
+        "timesteps": timesteps,
     }
 
 
@@ -475,8 +477,12 @@ def main() -> None:
             noise = torch.randn_like(z_target)
             z_t = diffusion.q_sample(z_target, t, noise)
 
+            phase_id = batch.get("phase_id", None)
+            if phase_id is not None:
+                phase_id = phase_id.to(device)
+
             with autocast():
-                eps_pred = model(z_t, t, z_ncct, mask_down)
+                eps_pred = model(z_t, t, z_ncct, mask_down, phase_labels=phase_id)
                 if "target_support" in batch:
                     supp = batch["target_support"]
                     if not supp.all():
@@ -519,8 +525,12 @@ def main() -> None:
                     noise = torch.randn_like(z_target)
                     z_t = diffusion.q_sample(z_target, t, noise)
 
+                    val_phase_id = batch.get("phase_id", None)
+                    if val_phase_id is not None:
+                        val_phase_id = val_phase_id.to(device)
+
                     with autocast():
-                        eps_pred = model(z_t, t, z_ncct, mask_down)
+                        eps_pred = model(z_t, t, z_ncct, mask_down, phase_labels=val_phase_id)
                         if "target_support" in batch:
                             supp = batch["target_support"]
                             if not supp.all():
@@ -546,6 +556,7 @@ def main() -> None:
                     best_val_loss=best_val_loss,
                     ae_checkpoint_sha256=ae_sha,
                     conditioning=conditioning,
+                    timesteps=args.timesteps,
                 )
                 torch.save(payload, best_path)
                 log.info(f"  [Epoch {epoch+1:03d}] New best val_loss={val_loss:.5f} -> saved {best_path}")
@@ -579,6 +590,7 @@ def main() -> None:
                 best_val_loss=best_val_loss,
                 ae_checkpoint_sha256=ae_sha,
                 conditioning=conditioning,
+                timesteps=args.timesteps,
             )
             torch.save(payload, last_path)
 

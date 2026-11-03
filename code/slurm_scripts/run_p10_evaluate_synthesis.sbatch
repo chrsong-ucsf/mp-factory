@@ -3,6 +3,7 @@
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/p10_eval_synth_%A_%a.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/p10_eval_synth_%A_%a.err
 #SBATCH --partition=cpu
+#SBATCH --qos=cpu
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00

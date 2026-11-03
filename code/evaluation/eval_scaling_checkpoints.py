@@ -93,6 +93,8 @@ def evaluate_checkpoint(model, ckpt_path, cases, val_tf, roi_size, device):
         sd = ckpt
     clean_sd = {k.replace("module.", ""): v for k, v in sd.items()}
     missing, unexpected = model.load_state_dict(clean_sd, strict=False)
+    if missing:
+        raise RuntimeError(f"Strict loading failed — missing checkpoint keys: {missing[:5]}")
     if unexpected:
         print(f"  [WARN] Unexpected keys in checkpoint: {unexpected[:3]}")
     model = model.to(device).eval()
@@ -116,18 +118,18 @@ def evaluate_checkpoint(model, ckpt_path, cases, val_tf, roi_size, device):
                 out = out[0]
             preds = torch.argmax(out, dim=1, keepdim=True)
 
-            # Clean ignore index if any
-            lbls_clean = lbls.clone()
-            lbls_clean[lbls_clean == 255] = 0
+            # Mask out ignore index (255) from both predictions and targets (F15)
+            valid_mask = (lbls[:, 0, ...] != 255)
 
             for c in range(4):
                 organ_idx = c + 1
-                p = (preds[:, 0, ...] == organ_idx).float()
-                g = (lbls_clean[:, 0, ...] == organ_idx).float()
-                inter = (p * g).sum().item()
-                union = p.sum().item() + g.sum().item()
-                if union > 0:
-                    dice = (2.0 * inter) / (union + 1e-6)
+                p = ((preds[:, 0, ...] == organ_idx) & valid_mask).float()
+                g = ((lbls[:, 0, ...] == organ_idx) & valid_mask).float()
+                p_sum = p.sum().item()
+                g_sum = g.sum().item()
+                if p_sum > 0 or g_sum > 0:
+                    inter = (p * g).sum().item()
+                    dice = (2.0 * inter) / (p_sum + g_sum + 1e-6)
                     all_dice[c].append(dice)
 
     per_organ_dice = {

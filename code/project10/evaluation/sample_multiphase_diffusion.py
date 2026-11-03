@@ -176,7 +176,18 @@ def preprocess_ct(ct_path: str, target_shape=(128, 128, 128), spacing_mm=1.5):
         cy = max(0, (arr.shape[1] - target_shape[1]) // 2)
         cz = max(0, (arr.shape[2] - target_shape[2]) // 2)
         vol[sx : sx + min_x, sy : sy + min_y, sz : sz + min_z] = arr[cx : cx + min_x, cy : cy + min_y, cz : cz + min_z]
-        affine = np.diag([spacing_mm, spacing_mm, spacing_mm, 1.0])
+        
+        # Preserve true world coordinate affine in RAS
+        dir_mat = np.array(resampled.GetDirection()).reshape(3, 3)
+        spacing_diag = np.diag(new_spacing)
+        rot_spacing = dir_mat @ spacing_diag
+        crop_origin_vox = np.array([cx - sx, cy - sy, cz - sz], dtype=float)
+        crop_origin_world = np.array(resampled.GetOrigin()) + dir_mat @ (crop_origin_vox * np.array(new_spacing))
+        affine_lps = np.eye(4)
+        affine_lps[:3, :3] = rot_spacing
+        affine_lps[:3, 3] = crop_origin_world
+        lps_to_ras = np.diag([-1.0, -1.0, 1.0, 1.0])
+        affine = lps_to_ras @ affine_lps
 
     t_vol = torch.from_numpy(vol).unsqueeze(0).unsqueeze(0).float()
     return normalise_hu(t_vol), affine
@@ -476,7 +487,8 @@ def main():
     model.load_state_dict(state_dict_diff)
     model.eval()
 
-    sampler = DDIMSampler(timesteps=1000).to(device)
+    trained_timesteps = ckpt_diff.get("timesteps", 1000) if isinstance(ckpt_diff, dict) else 1000
+    sampler = DDIMSampler(timesteps=trained_timesteps).to(device)
 
     # 3. Inference Loop
     attempted_count = 0

@@ -36,17 +36,16 @@ from monai.transforms import (
 )
 from monai.data import Dataset, DataLoader, decollate_batch
 
+_eval_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "evaluation")
+if _eval_dir not in sys.path:
+    sys.path.insert(0, _eval_dir)
+from schema_mapping import normalize_to_gi_classes
+
 class RemapGILabelTargets(MapTransform):
     """
     Guarantees all loaded labels strictly map to the 5-class target:
-        0: Background
-        1: Stomach
-        2: Duodenum
-        3: Small Bowel (Jejunum + Ileum)
-        4: Colon
-        255: IGNORE_INDEX
-    Remaps TotalSegmentator label 20 -> 3 (Small Bowel), 18 -> 1, 19 -> 2, 57 -> 4.
-    Remaps BDMAP labels 2 -> 1, 3 -> 2, 4/5 -> 3, 6 -> 4.
+        0: Background, 1: Stomach, 2: Duodenum, 3: Small Bowel, 4: Colon, 255: IGNORE_INDEX
+    Uses centralized schema_mapping.py canonical conversion.
     """
     def __init__(self, keys=["label"]):
         super().__init__(keys)
@@ -56,32 +55,17 @@ class RemapGILabelTargets(MapTransform):
         for key in self.keys:
             if key in d:
                 lbl = d[key]
-                cond = (lbl > 4) & (lbl != 255)
-                has_large = cond.any().item() if torch.is_tensor(lbl) else cond.any()
-                if has_large:
-                    out = torch.zeros_like(lbl) if torch.is_tensor(lbl) else np.zeros_like(lbl)
-                    out[lbl == 255] = 255
-
-                    has_ts = ((lbl == 18) | (lbl == 19) | (lbl == 20)).any()
-                    if (has_ts.item() if torch.is_tensor(has_ts) else has_ts):
-                        out[(lbl == 18) | (lbl == 50) | (lbl == 55)] = 1
-                        out[(lbl == 19) | (lbl == 51) | (lbl == 56)] = 2
-                        out[(lbl == 20) | (lbl == 52)] = 3
-                        out[(lbl == 57) | (lbl == 53) | (lbl == 58) | (lbl == 5) | (lbl == 6)] = 4
-                    else:
-                        out[lbl == 2] = 1
-                        out[lbl == 3] = 2
-                        out[(lbl == 4) | (lbl == 5)] = 3
-                        out[lbl == 6] = 4
-
-                    for c in [1, 2, 3, 4]:
-                        unassigned = (lbl == c) & (out == 0)
-                        out[unassigned] = c
-
-                    from monai.data import MetaTensor
-                    if isinstance(lbl, MetaTensor):
-                        out = MetaTensor(out, affine=lbl.affine, meta=getattr(lbl, "meta", None))
-                    d[key] = out
+                is_torch = torch.is_tensor(lbl)
+                arr = lbl.cpu().numpy() if is_torch else np.asanyarray(lbl)
+                remapped = normalize_to_gi_classes(arr, preserve_ignore_index=True)
+                from monai.data import MetaTensor
+                if isinstance(lbl, MetaTensor):
+                    tensor_data = torch.from_numpy(remapped).to(lbl.device) if is_torch else remapped
+                    d[key] = MetaTensor(tensor_data, affine=lbl.affine, meta=getattr(lbl, "meta", None))
+                elif is_torch:
+                    d[key] = torch.from_numpy(remapped).to(lbl.device)
+                else:
+                    d[key] = remapped
         return d
 
 ORGAN_ALIASES = {

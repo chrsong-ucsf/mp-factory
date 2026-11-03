@@ -173,38 +173,25 @@ def create_dummy_cohort(tmp_dir, n_cases=50):
 # Training utilities
 # ---------------------------------------------------------------------------
 
+_eval_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "evaluation")
+if _eval_dir not in sys.path:
+    sys.path.insert(0, _eval_dir)
+from schema_mapping import normalize_to_gi_classes
+
 def remap_gi_labels(lbl):
     """
-    Remaps BDMAP / AbdomenAtlas GI labels to 4-class scaling baseline:
-      2 (stomach)      -> 1
-      3 (duodenum)     -> 2
-      4 (jejunum)      -> 3
-      5 (ileum)        -> 3 (smush jejunum+ileum -> small_bowel)
-      6 (colon)        -> 4
-      0, 1 (esophagus) -> 0
+    Remaps loaded labels to 4-class GI targets using canonical schema_mapping.
+    Correctly distinguishes BDMAP vs JHU Expert labels (F14).
     """
-    is_bdmap = False
-    if torch.is_tensor(lbl):
-        is_bdmap = (lbl > 4).any().item()
-    else:
-        is_bdmap = (lbl > 4).any()
-
-    if is_bdmap:
-        if torch.is_tensor(lbl):
-            out = torch.zeros_like(lbl)
-            out[lbl == 2] = 1
-            out[lbl == 3] = 2
-            out[(lbl == 4) | (lbl == 5)] = 3
-            out[lbl == 6] = 4
-            return out
-        else:
-            out = np.zeros_like(lbl)
-            out[lbl == 2] = 1
-            out[lbl == 3] = 2
-            out[(lbl == 4) | (lbl == 5)] = 3
-            out[lbl == 6] = 4
-            return out
-    return lbl
+    is_torch = torch.is_tensor(lbl)
+    arr = lbl.cpu().numpy() if is_torch else np.asanyarray(lbl)
+    remapped = normalize_to_gi_classes(arr)
+    if is_torch:
+        from monai.data import MetaTensor
+        if isinstance(lbl, MetaTensor):
+            return MetaTensor(torch.from_numpy(remapped).to(lbl.device), affine=lbl.affine, meta=getattr(lbl, "meta", None))
+        return torch.from_numpy(remapped).to(lbl.device)
+    return remapped
 
 
 def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
@@ -299,20 +286,18 @@ def _compute_hd95_numpy(pred_np: np.ndarray, gt_np: np.ndarray,
     return max(float(np.percentile(d_p2g, 95)), float(np.percentile(d_g2p, 95)))
 
 
-def compute_dice_hd95(pred_one_hot, label_one_hot, num_classes):
+def compute_dice_hd95(pred_one_hot, label_one_hot, num_classes, voxel_spacing=(1.5, 1.5, 2.0)):
     """Returns per-class Dice and HD95 lists.
 
     Dice:
-      both-empty -> 1.0 (agreement on absence, *always* included in averages)
+      both-empty -> NaN (absent organ excluded to prevent score inflation, F15)
       one-empty  -> 0.0
       standard   -> 2|intersection| / (|pred| + |gt|)
 
     HD95 uses morphological surface extraction + KDTree (O(N log N), spacing-aware).
-    The training pipeline resamples all volumes to (1.5, 1.5, 2.0) mm via Spacingd.
     """
     dice_vals, hd95_vals = [], []
-    # Training Spacingd pixdim — used to convert voxel coords to physical mm
-    spacing = (1.5, 1.5, 2.0)
+    spacing = voxel_spacing
 
     for c in range(num_classes):
         p = pred_one_hot[:, c:c+1, ...]
@@ -321,7 +306,7 @@ def compute_dice_hd95(pred_one_hot, label_one_hot, num_classes):
         g_sum = g.sum()
 
         if g_sum == 0 and p_sum == 0:
-            dice_vals.append(1.0)
+            dice_vals.append(float("nan"))
         elif g_sum == 0 or p_sum == 0:
             dice_vals.append(0.0)
         else:
@@ -720,31 +705,10 @@ def load_gold_standard_nrrd_cases(
         out_label_path = os.path.join(tmp_nifti_dir, f"{stem}_gs_label.nii.gz")
         if not os.path.exists(out_label_path):
             try:
-                data, header = nrrd.read(nrrd_path)
-                # pynrrd returns shape (X, Y, Z) or (N_segments, X, Y, Z) for multi-label segs.
-                # For a multi-segment Slicer file the first axis is the segment index.
-                if data.ndim == 4:
-                    # Collapse N-channel one-hot to a label map (1-indexed by segment order)
-                    label_vol = np.zeros(data.shape[1:], dtype=np.uint8)
-                    for seg_idx in range(data.shape[0]):
-                        label_vol[data[seg_idx] > 0] = seg_idx + 1
-                elif data.ndim == 3:
-                    label_vol = data.astype(np.uint8)
-                else:
-                    print(f"  Warning: unexpected nrrd shape {data.shape} for {stem} — skipping.")
-                    continue
-
-                # Build affine from nrrd header (space directions + origin)
-                directions = np.array(header.get("space directions", np.eye(3)), dtype=float)
-                origin     = np.array(header.get("space origin",     np.zeros(3)), dtype=float)
-                affine = np.eye(4)
-                affine[:3, :3] = directions.T
-                affine[:3,  3] = origin
-
-                nib.save(
-                    nib.Nifti1Image(label_vol, affine),
-                    out_label_path,
-                )
+                import SimpleITK as sitk
+                itk_img = sitk.ReadImage(nrrd_path)
+                # SimpleITK automatically converts LPS directions and origin to NIfTI RAS headers (F14)
+                sitk.WriteImage(itk_img, out_label_path)
             except Exception as exc:
                 print(f"  Warning: failed to convert {nrrd_path} → NIfTI ({exc}) — skipping.")
                 continue

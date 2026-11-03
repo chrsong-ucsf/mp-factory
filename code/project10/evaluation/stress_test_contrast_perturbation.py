@@ -231,12 +231,39 @@ def generate_markdown_report(df: pd.DataFrame, out_md: str):
             f"| **{name}** | {cond['category']} | {cond['hu_shift']:+.0f} HU | {cond['noise_sigma']:.0f} HU | **{mean_dice}** | {s_dice} | {d_dice} | {sb_dice} | {c_dice} | **{pass_rate}** |"
         )
 
-    md_lines.extend([
-        "\n### Key Takeaways from Stress Testing:\n",
-        "1. **Anatomical Boundary Stability**: Even under severe Gaussian noise (σ = 30 HU, simulating ultra-low-dose CT), the organ morphology retains high consistency with minimal boundary erosion.",
-        "2. **HU Shift Resilience**: Systematic shifts of ±20 HU show >95% mask retention, demonstrating that contrast uptake is structural rather than an artifact of rigid intensity thresholds.",
-        "3. **Zero Hallucination Confirmed**: Disconnected false-positive components in non-visceral abdominal cavities remain negligible under dual stress (combined +20 HU and σ = 20 HU noise).\n",
-    ])
+    # Derive observations strictly from measured metrics (F08)
+    md_lines.append("\n### Measured Output Segmentation Consistency Findings:\n")
+    if not summary_df.empty:
+        shift_rows = summary_df[summary_df["category"] == "Systematic HU Shift"]
+        noise_rows = summary_df[summary_df["category"] == "High Gaussian Noise"]
+        dual_rows = summary_df[summary_df["category"] == "Combined (Dual Stress)"]
+
+        min_dice_all = summary_df["mean_dice"].min()
+        mean_dice_all = summary_df["mean_dice"].mean()
+
+        md_lines.append(
+            f"1. **Measured Mean Output-Image Segmentation Consistency**: Overall mean Dice across tested perturbations is {mean_dice_all:.3f} (min: {min_dice_all:.3f})."
+        )
+
+        if not shift_rows.empty:
+            shift_min = shift_rows["mean_dice"].min()
+            md_lines.append(
+                f"2. **Systematic HU Shift Consistency**: Evaluated across ±20 HU shifts; minimum observed segmentation Dice: {shift_min:.3f}."
+            )
+
+        if not noise_rows.empty:
+            noise_min = noise_rows["mean_dice"].min()
+            md_lines.append(
+                f"3. **Gaussian Noise Sensitivity**: Evaluated up to σ = 30 HU; minimum observed segmentation Dice: {noise_min:.3f}."
+            )
+
+        if not dual_rows.empty:
+            dual_min = dual_rows["mean_dice"].min()
+            md_lines.append(
+                f"4. **Combined Dual Stress**: Evaluated under simultaneous HU shift and noise; minimum observed segmentation Dice: {dual_min:.3f}."
+            )
+    else:
+        md_lines.append("No summary data available to derive empirical conclusions.")
 
     os.makedirs(os.path.dirname(out_md), exist_ok=True)
     with open(out_md, "w") as f:

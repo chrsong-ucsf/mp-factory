@@ -144,26 +144,43 @@ class MultiPhaseVolumeDataset(Dataset):
         seed: int = 42,
     ):
         df = pd.read_csv(pairs_csv)
-        # Collect unique CT paths from both P0 and target columns
-        paths_p0  = df[["subject_p0",     "ct_path_p0"]].rename(
-            columns={"subject_p0": "subject_id", "ct_path_p0": "ct_path"})
-        paths_tgt = df[["subject_target", "ct_path_target"]].rename(
-            columns={"subject_target": "subject_id", "ct_path_target": "ct_path"})
-        all_paths = pd.concat([paths_p0, paths_tgt], ignore_index=True)
-        all_paths = all_paths.drop_duplicates("ct_path").reset_index(drop=True)
-
-        rng = np.random.default_rng(seed)
-        indices = rng.permutation(len(all_paths))
-        n_val = max(1, int(len(indices) * val_fraction))
-        if split == "val":
-            indices = indices[:n_val]
+        
+        # Group by patient_id to strictly prevent phase/patient leakage (F07)
+        if "patient_id" in df.columns:
+            paths_p0 = df[["patient_id", "subject_p0", "ct_path_p0"]].rename(
+                columns={"subject_p0": "subject_id", "ct_path_p0": "ct_path"})
+            paths_tgt = df[["patient_id", "subject_target", "ct_path_target"]].rename(
+                columns={"subject_target": "subject_id", "ct_path_target": "ct_path"})
+            all_paths = pd.concat([paths_p0, paths_tgt], ignore_index=True).drop_duplicates("ct_path").reset_index(drop=True)
+            
+            unique_pts = np.sort(all_paths["patient_id"].astype(str).unique())
+            rng = np.random.default_rng(seed)
+            shuffled_pts = rng.permutation(unique_pts)
+            n_val_pts = max(1, int(len(shuffled_pts) * val_fraction))
+            val_pts_set = set(shuffled_pts[:n_val_pts])
+            train_pts_set = set(shuffled_pts[n_val_pts:])
+            
+            if split == "val":
+                self.records = all_paths[all_paths["patient_id"].astype(str).isin(val_pts_set)].reset_index(drop=True)
+            else:
+                self.records = all_paths[all_paths["patient_id"].astype(str).isin(train_pts_set)].reset_index(drop=True)
         else:
-            indices = indices[n_val:]
+            paths_p0  = df[["subject_p0", "ct_path_p0"]].rename(
+                columns={"subject_p0": "subject_id", "ct_path_p0": "ct_path"})
+            paths_tgt = df[["subject_target", "ct_path_target"]].rename(
+                columns={"subject_target": "subject_id", "ct_path_target": "ct_path"})
+            all_paths = pd.concat([paths_p0, paths_tgt], ignore_index=True).drop_duplicates("ct_path").reset_index(drop=True)
+            rng = np.random.default_rng(seed)
+            indices = rng.permutation(len(all_paths))
+            n_val = max(1, int(len(indices) * val_fraction))
+            if split == "val":
+                self.records = all_paths.iloc[indices[:n_val]].reset_index(drop=True)
+            else:
+                self.records = all_paths.iloc[indices[n_val:]].reset_index(drop=True)
 
-        self.records = all_paths.iloc[indices].reset_index(drop=True)
         self.target_shape = target_shape
         self.spacing_mm   = spacing_mm
-        log.info(f"  {split} set: {len(self.records)} volumes")
+        log.info(f"  {split} set: {len(self.records)} volumes across {self.records['patient_id'].nunique() if 'patient_id' in self.records.columns else len(self.records)} patients")
 
     def __len__(self) -> int:
         return len(self.records)
@@ -172,12 +189,12 @@ class MultiPhaseVolumeDataset(Dataset):
         row = self.records.iloc[idx]
         ct_path = row["ct_path"]
 
-        try:
-            vol = _resample_to_isotropic(ct_path, self.spacing_mm)
-            vol = _center_crop_pad(vol, self.target_shape)
-        except Exception as e:
-            log.warning(f"Failed to load {ct_path}: {e}. Returning blank volume.")
-            vol = np.full(self.target_shape, -1000.0, dtype=np.float32)
+        # Fail closed on missing/corrupt CTs (F10)
+        if not os.path.isfile(str(ct_path)):
+            raise FileNotFoundError(f"CT volume not found: {ct_path} for subject {row['subject_id']}")
+        
+        vol = _resample_to_isotropic(ct_path, self.spacing_mm)
+        vol = _center_crop_pad(vol, self.target_shape)
 
         # Add channel dim; normalise
         vol_t = torch.from_numpy(vol).unsqueeze(0).float()      # (1, H, W, D)

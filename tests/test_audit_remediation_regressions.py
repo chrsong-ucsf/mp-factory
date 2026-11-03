@@ -1753,15 +1753,16 @@ def test_evaluate_subject_zero_foreground_quarantined_to_noise_reject():
         assert res["mean_consensus_dice"] == 0.0
 
 
-def test_verify_production_results_strict_boolean_gate_enforcement():
+def test_verify_production_results_strict_boolean_gate_enforcement(tmp_path):
     """Finding 2 (602a7ea): verify_production_results exits non-zero if any gate fails."""
     import code.evaluation.verify_production_results as vpr
     from unittest.mock import patch
 
+    test_report = tmp_path / "test_report.md"
     # Mock compile_and_verify_manuscript_tables to return False
     with patch("code.evaluation.verify_production_results.compile_and_verify_manuscript_tables", return_value=(False, "")):
         with pytest.raises(SystemExit) as exc_info:
-            vpr.main([])
+            vpr.main(["--report_path", str(test_report)])
         assert exc_info.value.code == 1
 
 
@@ -1813,3 +1814,105 @@ def test_train_mednext_phase2_rejects_empty_foreground_supervision():
             gold_standard_dir=None
         )
         assert len(pairs) == 0, f"Expected 0 usable pairs for empty foreground label, got {len(pairs)}"
+
+
+def test_schema_mapping_canonical_totalseg_v1_and_v2():
+    """F01 Regression: TotalSegmentator v1 and v2 schemas map strictly to GI classes (0..4)."""
+    import numpy as np
+    from code.evaluation.schema_mapping import normalize_to_gi_classes, detect_schema
+
+    # TotalSeg v2 probe: 6=stomach, 19=duodenum, 18=small_bowel, 20=colon
+    ts_v2 = np.array([0, 6, 19, 18, 20], dtype=np.uint8)
+    assert detect_schema(ts_v2, model_name="TotalSegmentator") == "totalseg_v2"
+    out_v2 = normalize_to_gi_classes(ts_v2, schema="totalseg_v2")
+    assert np.array_equal(out_v2, np.array([0, 1, 2, 3, 4], dtype=np.uint8))
+
+    # TotalSeg v1 probe: 6=stomach, 56=duodenum, 55=small_bowel, 57=colon
+    ts_v1 = np.array([0, 6, 56, 55, 57], dtype=np.uint8)
+    assert detect_schema(ts_v1, model_name="totalseg") == "totalseg_v1"
+    out_v1 = normalize_to_gi_classes(ts_v1, schema="totalseg_v1")
+    assert np.array_equal(out_v1, np.array([0, 1, 2, 3, 4], dtype=np.uint8))
+
+    # BDMAP probe: 2=stomach, 3=duodenum, 4=sb, 5=sb, 6=colon
+    bdmap = np.array([0, 2, 3, 4, 5, 6], dtype=np.uint8)
+    out_bd = normalize_to_gi_classes(bdmap, schema="bdmap")
+    assert np.array_equal(out_bd, np.array([0, 1, 2, 3, 3, 4], dtype=np.uint8))
+
+    # JHU Expert probe: 2=stomach, 3=duodenum, 4=sb, 5=colon, 6=rectum (merged to colon)
+    jhu = np.array([0, 2, 3, 4, 5, 6], dtype=np.uint8)
+    out_jhu = normalize_to_gi_classes(jhu, schema="jhu")
+    assert np.array_equal(out_jhu, np.array([0, 1, 2, 3, 4, 4], dtype=np.uint8))
+
+
+def test_physical_coordinate_alignment_displaced_grid_probe():
+    """F02 Regression: Physically displaced masks (100mm offset) yield 0 overlap rather than 1.0."""
+    import numpy as np
+    from code.evaluation.schema_mapping import check_physical_overlap, resample_label_to_reference
+
+    shape = (16, 16, 16)
+    aff_a = np.eye(4)
+    aff_b = np.eye(4)
+    aff_b[0, 3] = 100.0  # 100mm displacement along X
+
+    arr_a = np.ones(shape, dtype=np.uint8)
+    arr_b = np.ones(shape, dtype=np.uint8)
+
+    # Physical overlap check must return False
+    assert not check_physical_overlap(shape, aff_a, shape, aff_b)
+
+    # Resampling displaced mask b to reference a must return all zeros
+    resampled = resample_label_to_reference(arr_b, aff_b, aff_a, shape)
+    assert np.count_nonzero(resampled) == 0
+
+
+def test_synthesis_net_target_phase_conditioning():
+    """F06 Regression: AnatomyConditionalSynthesisNet supports target phase class conditioning."""
+    import torch
+    from code.project10.models.synthesis_net import AnatomyConditionalSynthesisNet
+
+    model = AnatomyConditionalSynthesisNet(
+        spatial_dims=3,
+        latent_channels=4,
+        label_nc=5,
+        num_phases=5,
+        channels=(32, 64, 64),
+        attention_levels=(False, False, True),
+        num_res_blocks=1,
+        num_head_channels=8,
+    )
+
+    x = torch.randn(2, 4, 8, 8, 8)
+    t = torch.tensor([10, 50], dtype=torch.long)
+    src = torch.randn(2, 4, 8, 8, 8)
+    anatomy = torch.randn(2, 5, 8, 8, 8)
+    phase_labels = torch.tensor([1, 3], dtype=torch.long)  # arterial vs venous
+
+    out = model(x=x, timesteps=t, source_latent=src, anatomy_mask=anatomy, phase_labels=phase_labels)
+    assert out.shape == x.shape
+
+
+def test_stage1_dataset_patient_grouping_and_fail_closed(tmp_path):
+    """F07 & F10 Regression: Stage 1 groups by patient_id and fails closed on missing CTs."""
+    import pandas as pd
+    import pytest
+    from code.project10.training.train_stage1_autoencoder import MultiPhaseVolumeDataset
+
+    csv_path = tmp_path / "pairs.csv"
+    df = pd.DataFrame([
+        {"patient_id": "PT_001", "subject_p0": "PT_001_P0", "ct_path_p0": str(tmp_path / "pt1_p0.nii.gz"),
+         "subject_target": "PT_001_P1", "ct_path_target": str(tmp_path / "pt1_p1.nii.gz")},
+        {"patient_id": "PT_002", "subject_p0": "PT_002_P0", "ct_path_p0": str(tmp_path / "pt2_p0.nii.gz"),
+         "subject_target": "PT_002_P1", "ct_path_target": str(tmp_path / "pt2_p1.nii.gz")},
+    ])
+    df.to_csv(csv_path, index=False)
+
+    ds_train = MultiPhaseVolumeDataset(pairs_csv=str(csv_path), split="train", val_fraction=0.5, seed=42)
+    ds_val = MultiPhaseVolumeDataset(pairs_csv=str(csv_path), split="val", val_fraction=0.5, seed=42)
+
+    train_pts = set(ds_train.records["patient_id"])
+    val_pts = set(ds_val.records["patient_id"])
+    assert len(train_pts.intersection(val_pts)) == 0  # Zero patient leakage
+
+    # Missing CT file must raise FileNotFoundError (F10)
+    with pytest.raises(FileNotFoundError):
+        _ = ds_train[0]

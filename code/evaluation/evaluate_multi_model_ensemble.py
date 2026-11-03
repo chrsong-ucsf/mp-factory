@@ -54,26 +54,37 @@ ORGAN_MAP = {
     4: 'colon'
 }
 
+import hashlib
+import sys
+_eval_dir = os.path.dirname(os.path.abspath(__file__))
+if _eval_dir not in sys.path:
+    sys.path.insert(0, _eval_dir)
+from schema_mapping import (
+    normalize_to_gi_classes,
+    resample_label_to_reference,
+    check_physical_overlap,
+    GI_IGNORE_INDEX,
+)
+
+
+def compute_input_fingerprint(subject_id: str, model_files: list, schema_version: str = "gi_v2") -> str:
+    """Cryptographic hash binding subject ID, schema version, and input file properties."""
+    h = hashlib.sha256()
+    h.update(f"{subject_id}|{schema_version}|".encode("utf-8"))
+    for p in sorted(model_files):
+        if os.path.exists(p):
+            h.update(f"{p}:{os.path.getsize(p)}:{os.path.getmtime(p)}|".encode("utf-8"))
+        else:
+            h.update(f"{p}:missing|".encode("utf-8"))
+    return h.hexdigest()
+
 
 def normalize_prediction_mask(mask: np.ndarray, model_name: str) -> np.ndarray:
     """
     Normalizes a model prediction mask into standard 4-class GI labels:
       1: stomach, 2: duodenum, 3: small_bowel, 4: colon
     """
-    m_lower = model_name.lower()
-    if 'totalseg' in m_lower or 'totalsegmentator' in m_lower:
-        out = np.zeros_like(mask, dtype=np.uint8)
-        out[mask == 6] = 1   # stomach
-        out[mask == 18] = 3  # small bowel
-        out[mask == 19] = 2  # duodenum
-        out[mask == 20] = 4  # colon
-        return out
-    elif any(k in m_lower for k in ['mednext', 'swin', 'ensemble', 'consensus']):
-        return mask.copy()
-    else:
-        if np.any(mask > 4):
-            raise ValueError(f"Unknown full body schema for model name: {model_name}")
-        return mask.copy()
+    return normalize_to_gi_classes(mask, model_name=model_name)
 
 # ---------------------------------------------------------------------------
 # Automated Data-Cleansing Triage Thresholds (strict, no radiologist-in-loop)
@@ -154,21 +165,32 @@ def compute_betti_0(binary_mask):
     return int(num_features)
 
 
-def compute_hd95_fast(gt_mask, pred_mask, voxel_spacing=(1.5, 1.5, 2.0)):
-    """Fast EDT-based 95th Percentile Hausdorff Distance."""
+def get_border_and_edt(mask, voxel_spacing):
+    """Compute surface border and Euclidean Distance Transform (sampling=voxel_spacing)."""
+    if not np.any(mask):
+        return None, None
+    border = mask ^ binary_erosion(mask)
+    if not np.any(border):
+        return None, None
+    dt = distance_transform_edt(~border, sampling=voxel_spacing)
+    return border, dt
+
+
+def compute_hd95_fast(gt_mask, pred_mask, voxel_spacing=(1.5, 1.5, 2.0),
+                      gt_border=None, dt_gt=None, pred_border=None, dt_pred=None):
+    """Fast EDT-based 95th Percentile Hausdorff Distance with optional precomputed EDTs."""
     if not np.any(gt_mask) or not np.any(pred_mask):
         return np.nan
     if np.array_equal(gt_mask, pred_mask):
         return 0.0
 
-    gt_border = gt_mask ^ binary_erosion(gt_mask)
-    pred_border = pred_mask ^ binary_erosion(pred_mask)
+    if gt_border is None or dt_gt is None:
+        gt_border, dt_gt = get_border_and_edt(gt_mask, voxel_spacing)
+    if pred_border is None or dt_pred is None:
+        pred_border, dt_pred = get_border_and_edt(pred_mask, voxel_spacing)
 
-    if not np.any(gt_border) or not np.any(pred_border):
+    if gt_border is None or dt_gt is None or pred_border is None or dt_pred is None:
         return np.nan
-
-    dt_gt = distance_transform_edt(~gt_border, sampling=voxel_spacing)
-    dt_pred = distance_transform_edt(~pred_border, sampling=voxel_spacing)
 
     hd_gt_to_pred = dt_pred[gt_border]
     hd_pred_to_gt = dt_gt[pred_border]
@@ -198,13 +220,13 @@ def adjusted_rand_score_fast(labels_true, labels_pred):
     contingency = np.zeros((n_classes_true, n_classes_pred), dtype=np.int64)
     np.add.at(contingency, (idx_true, idx_pred), 1)
 
-    sum_comb_c = np.sum(contingency * (contingency - 1) // 2)
+    sum_comb_c = float(np.sum(contingency * (contingency - 1) // 2))
     sum_a = np.sum(contingency, axis=1)
     sum_b = np.sum(contingency, axis=0)
-    sum_comb_a = np.sum(sum_a * (sum_a - 1) // 2)
-    sum_comb_b = np.sum(sum_b * (sum_b - 1) // 2)
+    sum_comb_a = float(np.sum(sum_a * (sum_a - 1) // 2))
+    sum_comb_b = float(np.sum(sum_b * (sum_b - 1) // 2))
 
-    total_pairs = n * (n - 1) // 2
+    total_pairs = float(n * (n - 1) // 2)
     if total_pairs == 0:
         return 1.0
 
@@ -260,21 +282,21 @@ def compute_volumetric_metrics(gt_mask, pred_mask, voxel_spacing=(1.5, 1.5, 2.0)
     return voe, rvd, v_gt, v_pred
 
 
-def compute_surface_metrics(gt_mask, pred_mask, voxel_spacing=(1.5, 1.5, 2.0), tolerance_mm=2.0):
-    """Compute Average Surface Distance (ASD) and Normalized Surface Distance (NSD)."""
+def compute_surface_metrics(gt_mask, pred_mask, voxel_spacing=(1.5, 1.5, 2.0), tolerance_mm=2.0,
+                            gt_border=None, dt_gt=None, pred_border=None, dt_pred=None):
+    """Compute Average Surface Distance (ASD) and Normalized Surface Distance (NSD) with optional precomputed EDTs."""
     if not np.any(gt_mask) or not np.any(pred_mask):
         return np.nan, np.nan
     if np.array_equal(gt_mask, pred_mask):
         return 0.0, 1.0
 
-    gt_border = gt_mask ^ binary_erosion(gt_mask)
-    pred_border = pred_mask ^ binary_erosion(pred_mask)
+    if gt_border is None or dt_gt is None:
+        gt_border, dt_gt = get_border_and_edt(gt_mask, voxel_spacing)
+    if pred_border is None or dt_pred is None:
+        pred_border, dt_pred = get_border_and_edt(pred_mask, voxel_spacing)
 
-    if not np.any(gt_border) or not np.any(pred_border):
+    if gt_border is None or dt_gt is None or pred_border is None or dt_pred is None:
         return np.nan, np.nan
-
-    dt_gt = distance_transform_edt(~gt_border, sampling=voxel_spacing)
-    dt_pred = distance_transform_edt(~pred_border, sampling=voxel_spacing)
 
     dist_gt_to_pred = dt_pred[gt_border]
     dist_pred_to_gt = dt_gt[pred_border]
@@ -382,95 +404,50 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
 
     consensus_path = os.path.join(out_dir, f"{subject_id}_consensus.nii.gz")
     uncertainty_path = os.path.join(out_dir, f"{subject_id}_uncertainty.nii.gz")
-    skip_saving = os.path.exists(consensus_path) and os.path.exists(uncertainty_path)
 
     try:
-        loaded_masks = []   # list of np.uint8 arrays in reference (model_files[0]) voxel grid
-        loaded_niis  = []   # parallel list of nibabel NIfTI images (original, for resampling)
+        loaded_masks = []   # list of np.uint8 arrays in reference voxel grid
+        loaded_niis  = []   # parallel list of nibabel NIfTI images
         affine       = None
-        ref_nii      = None  # reference voxel grid = first model file (MedNeXt)
+        ref_nii      = None  # reference voxel grid = first model file
+        ref_affine   = None
+        ref_shape    = None
+        ref_spacing  = (1.5, 1.5, 2.0)
 
         for idx, fpath in enumerate(model_files):
             nii = nib.load(fpath)
             arr = np.asanyarray(nii.dataobj).squeeze()
             if arr.ndim == 4:
                 arr = arr[0]
+            elif arr.ndim == 2:
+                arr = arr[:, :, np.newaxis]
+            elif arr.ndim > 3:
+                arr = arr.squeeze()
 
-            is_totalseg = int(arr.max()) > 4
-
-            if is_totalseg:
-                # --- TotalSegmentator full-body label remapping ---
-                # Labels confirmed from diagnostic overlap test:
-                #   18 = stomach,  19 = duodenum,  20 = small_bowel
-                #   5/6 = colon variants,  50-58 = alternate TotalSeg version
-                totalseg_map = {
-                    18: 1, 50: 1, 55: 1,   # stomach
-                    19: 2, 51: 2, 56: 2,   # duodenum
-                    20: 3, 52: 3, 57: 3,   # small bowel
-                     5: 4,  6: 4, 53: 4, 58: 4  # colon
-                }
-                remapped = np.zeros_like(arr, dtype=np.uint8)
-                for ts_id, gi_id in totalseg_map.items():
-                    remapped[arr == ts_id] = gi_id
-
-                if ref_nii is not None:
-                    # Affine-aware resample: project TotalSeg full-body volume into
-                    # MedNeXt's GI-crop voxel grid using world coordinates.
-                    try:
-                        from nilearn.image import resample_to_img
-                        remapped_nii = nib.Nifti1Image(remapped.astype(np.float32), nii.affine, nii.header)
-                        resampled_nii = resample_to_img(remapped_nii, ref_nii,
-                                                        interpolation='nearest', copy=False)
-                        arr = np.asanyarray(resampled_nii.dataobj).squeeze().astype(np.uint8)
-                    except ImportError:
-                        # Fallback: scipy affine_transform using relative affines
-                        import scipy.ndimage as nd
-                        ref_shape = ref_nii.shape[:3]
-                        # Build transform: ref voxel -> world -> totalseg voxel
-                        ref2world = ref_nii.affine
-                        world2ts  = np.linalg.inv(nii.affine)
-                        combined  = world2ts @ ref2world
-                        A = combined[:3, :3]  # 3x3 rotation/scale
-                        b = combined[:3,  3]  # 3-vector offset
-                        arr = nd.affine_transform(remapped.astype(np.float32), A,
-                                                   offset=b, output_shape=ref_shape,
-                                                   order=0, cval=0).astype(np.uint8)
-                else:
-                    arr = remapped
-            else:
-                arr = arr.astype(np.uint8)
-                # Clamp any stray label values to [0..4]
-                arr = np.where((arr >= 0) & (arr < 5), arr, 0).astype(np.uint8)
-
-            if affine is None:
-                affine  = nii.affine
+            if ref_nii is None:
                 ref_nii = nii
+                ref_affine = nii.affine
+                ref_shape = arr.shape
+                affine = ref_affine
+                try:
+                    ref_spacing = tuple(float(s) for s in np.sqrt(np.sum(nii.affine[:3, :3] ** 2, axis=0)))
+                except Exception:
+                    ref_spacing = (1.5, 1.5, 2.0)
 
-            loaded_masks.append(arr)
+            m_name = model_names[idx] if idx < len(model_names) else ""
+
+            # 1. Canonical schema mapping (TotalSeg v1/v2, BDMAP, GI classes)
+            norm_arr = normalize_to_gi_classes(arr, model_name=m_name)
+
+            # 2. Physical world coordinate alignment
+            aligned_arr = resample_label_to_reference(
+                norm_arr, nii.affine, ref_affine, ref_shape
+            )
+
+            loaded_masks.append(aligned_arr)
             loaded_niis.append(nii)
 
-        # Ensure all masks are 3D
-        for idx in range(len(loaded_masks)):
-            if loaded_masks[idx].ndim == 2:
-                loaded_masks[idx] = loaded_masks[idx][:, :, np.newaxis]
-            elif loaded_masks[idx].ndim > 3:
-                loaded_masks[idx] = loaded_masks[idx].squeeze()
-
-        # Shape-align any remaining masks (non-TotalSeg models at different resolutions)
-        # using PyTorch nearest-neighbor interpolation for speed.
-        target_shape = loaded_masks[0].shape
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        resampled_masks = []
-        for arr in loaded_masks:
-            if arr.shape != target_shape:
-                t_arr = torch.tensor(arr, dtype=torch.float32, device=device)
-                while t_arr.ndim < 5:
-                    t_arr = t_arr.unsqueeze(0)
-                t_res = torch.nn.functional.interpolate(t_arr, size=target_shape, mode='nearest')
-                arr = t_res.view(target_shape).to(torch.uint8).cpu().numpy()
-            resampled_masks.append(arr)
-
-        model_masks = np.stack(resampled_masks, axis=0)  # (N_models, X, Y, Z)
+        model_masks = np.stack(loaded_masks, axis=0)  # (N_models, X, Y, Z)
 
         # 1. Diversity Weights
         weights = compute_diversity_weights(model_masks)
@@ -516,10 +493,19 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
         consensus_mask = consensus_mask_t.cpu().numpy()
         uncertainty_map = uncertainty_t.cpu().numpy()
 
-        if not skip_saving:
-            os.makedirs(out_dir, exist_ok=True)
-            nib.save(nib.Nifti1Image(consensus_mask, affine=affine), consensus_path)
-            nib.save(nib.Nifti1Image(uncertainty_map.astype(np.float32), affine=affine), uncertainty_path)
+        # Atomic saving with SHA256 validation
+        os.makedirs(out_dir, exist_ok=True)
+        tmp_cons = f"{consensus_path}.tmp.{os.getpid()}.nii.gz"
+        tmp_unc  = f"{uncertainty_path}.tmp.{os.getpid()}.nii.gz"
+        nib.save(nib.Nifti1Image(consensus_mask, affine=affine), tmp_cons)
+        nib.save(nib.Nifti1Image(uncertainty_map.astype(np.float32), affine=affine), tmp_unc)
+        os.replace(tmp_cons, consensus_path)
+        os.replace(tmp_unc, uncertainty_path)
+
+        with open(consensus_path, "rb") as f_c:
+            cons_sha = hashlib.sha256(f_c.read()).hexdigest()
+        res['consensus_sha256'] = cons_sha
+        res['input_fingerprint'] = compute_input_fingerprint(subject_id, model_files)
 
         res['mean_uncertainty'] = round(float(np.mean(uncertainty_map)), 4)
         res['max_uncertainty'] = round(float(np.max(uncertainty_map)), 4)
@@ -533,6 +519,7 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
         for organ_id, organ_name in ORGAN_MAP.items():
             cons_o = (consensus_mask == organ_id)
             betti_cons = compute_betti_0(cons_o)
+            cons_border, dt_cons = get_border_and_edt(cons_o, ref_spacing)
             res[f'{organ_name}_betti_consensus'] = betti_cons
 
             organ_dices = []
@@ -541,6 +528,7 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
 
             for i, name in enumerate(model_names):
                 m_o = (model_masks[i] == organ_id)
+                m_border, dt_m = get_border_and_edt(m_o, ref_spacing)
                 intersection = np.sum(cons_o & m_o)
                 total = np.sum(cons_o) + np.sum(m_o)
                 union = total - intersection
@@ -552,12 +540,16 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                     d = np.nan
                     iou = np.nan
 
-                hd95 = compute_hd95_fast(cons_o, m_o)
+                hd95 = compute_hd95_fast(cons_o, m_o, voxel_spacing=ref_spacing,
+                                         gt_border=cons_border, dt_gt=dt_cons,
+                                         pred_border=m_border, dt_pred=dt_m)
                 betti_m = compute_betti_0(m_o)
                 b_diff = abs(betti_cons - betti_m)
                 prec, sens, spec = compute_classification_metrics(cons_o, m_o)
-                voe, rvd, v_cons, v_m = compute_volumetric_metrics(cons_o, m_o)
-                asd, nsd = compute_surface_metrics(cons_o, m_o)
+                voe, rvd, v_cons, v_m = compute_volumetric_metrics(cons_o, m_o, voxel_spacing=ref_spacing)
+                asd, nsd = compute_surface_metrics(cons_o, m_o, voxel_spacing=ref_spacing,
+                                                   gt_border=cons_border, dt_gt=dt_cons,
+                                                   pred_border=m_border, dt_pred=dt_m)
                 composite = compute_composite_score(d, hd95)
 
                 res[f'{organ_name}_dice_{name}'] = round(float(d), 4) if not np.isnan(d) else np.nan
@@ -654,7 +646,14 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
     except Exception as e:
         res['status'] = f'ERROR: {str(e)}'
 
-    del loaded_masks, resampled_masks, model_masks
+    try:
+        del loaded_masks
+    except (NameError, UnboundLocalError):
+        pass
+    try:
+        del model_masks
+    except (NameError, UnboundLocalError):
+        pass
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -852,7 +851,7 @@ def main():
         print(f"GPU Worker [{args.chunk_idx}/{args.num_chunks}]: Assigned {len(chunk_subjects)} / {len(common_subjects)} total scans.")
         common_subjects = chunk_subjects
 
-    # 2. Smart Fast Resume Logic for this Worker's Partition
+    # 2. Cryptographically Bound Resume Logic for this Worker's Partition
     results = []
     already_processed = set()
     if os.path.exists(args.out_csv):
@@ -860,9 +859,28 @@ def main():
             existing_df = pd.read_csv(args.out_csv)
             if 'subject_id' in existing_df.columns and 'status' in existing_df.columns:
                 valid_rows = existing_df[existing_df['status'] == 'SUCCESS']
-                already_processed = set(valid_rows['subject_id'].astype(str))
-                results = valid_rows.to_dict('records')
-                print(f"Loaded {len(results):,} pre-existing completed subject records from {args.out_csv}.")
+                for _, row in valid_rows.iterrows():
+                    sub = str(row['subject_id'])
+                    c_path = os.path.join(args.out_dir, f"{sub}_consensus.nii.gz")
+                    u_path = os.path.join(args.out_dir, f"{sub}_uncertainty.nii.gz")
+                    if not (os.path.exists(c_path) and os.path.exists(u_path)):
+                        continue
+                    
+                    if sub in common_subjects:
+                        mfiles = [subject_maps[name][sub] for name in model_names]
+                        expected_fp = compute_input_fingerprint(sub, mfiles)
+                        if 'input_fingerprint' in row and pd.notna(row['input_fingerprint']):
+                            if str(row['input_fingerprint']) != expected_fp:
+                                continue
+                        if 'consensus_sha256' in row and pd.notna(row['consensus_sha256']):
+                            with open(c_path, 'rb') as f_c:
+                                curr_sha = hashlib.sha256(f_c.read()).hexdigest()
+                            if curr_sha != str(row['consensus_sha256']):
+                                continue
+
+                    already_processed.add(sub)
+                    results.append(row.to_dict())
+                print(f"Loaded {len(already_processed):,} cryptographically verified completed records from {args.out_csv}.")
         except Exception as e:
             print(f"Warning: Could not read existing CSV for resume: {e}")
 
@@ -893,26 +911,41 @@ def main():
                 if results:
                     pd.DataFrame(results).to_csv(args.out_csv, index=False)
     else:
-        # CPU execution: Use multiprocessing.Pool with maxtasksperchild=20.
-        # Automatically recycles worker processes every 20 tasks to prevent C-level
-        # memory leaks (nilearn/scipy/nibabel) and RAM fragmentation, ensuring
-        # Linux OOM killer never kills a worker process.
-        import multiprocessing as mp
-        tasks = [(sub_id, [subject_maps[name][sub_id] for name in model_names], model_names, args.out_dir) for sub_id in common_subjects]
-        
-        ctx = mp.get_context("spawn")
-        with ctx.Pool(processes=args.num_workers, maxtasksperchild=20) as pool:
+        # CPU execution: If num_workers <= 1, run sequentially to completely avoid
+        # any IPC/multiprocessing fork/futex contention.
+        if args.num_workers <= 1:
             completed = 0
-            for res in pool.imap_unordered(_eval_subject_wrapper, tasks, chunksize=1):
+            for sub_id in common_subjects:
                 completed += 1
-                if res.get('status') == 'SUCCESS':
+                mfiles = [subject_maps[name][sub_id] for name in model_names]
+                try:
+                    res = evaluate_subject(sub_id, mfiles, model_names, args.out_dir)
                     results.append(res)
-                else:
-                    print(f"  [ERROR] Subject {res.get('subject_id')} failed: {res.get('status')}", flush=True)
-                if completed % 50 == 0 or completed == total:
+                    print(f"[{completed}/{total}] CPU Evaluated subject {sub_id} (triage: {res.get('triage_category', 'UNKNOWN')})", flush=True)
+                except Exception as e:
+                    print(f"  [ERROR] Subject {sub_id} failed: {e}", flush=True)
+                    results.append({'subject_id': sub_id, 'status': f'ERROR: {str(e)}'})
+
+                if completed % 5 == 0 or completed == total:
                     print(f"[{completed}/{total}] CPU Progress: {completed/total*100:.1f}% complete", flush=True)
                     if results:
                         pd.DataFrame(results).to_csv(args.out_csv, index=False)
+        else:
+            import multiprocessing as mp
+            tasks = [(sub_id, [subject_maps[name][sub_id] for name in model_names], model_names, args.out_dir) for sub_id in common_subjects]
+            start_method = "fork" if hasattr(os, "fork") else "spawn"
+            ctx = mp.get_context(start_method)
+            with ctx.Pool(processes=args.num_workers) as pool:
+                completed = 0
+                for res in pool.imap_unordered(_eval_subject_wrapper, tasks, chunksize=1):
+                    completed += 1
+                    results.append(res)
+                    if res.get('status') != 'SUCCESS':
+                        print(f"  [ERROR] Subject {res.get('subject_id')} failed: {res.get('status')}", flush=True)
+                    if completed % 10 == 0 or completed == total:
+                        print(f"[{completed}/{total}] CPU Progress: {completed/total*100:.1f}% complete", flush=True)
+                        if results:
+                            pd.DataFrame(results).to_csv(args.out_csv, index=False)
 
     # Build final DataFrame and save final CSV
     df = pd.DataFrame(results)
@@ -926,7 +959,7 @@ def main():
     print("\n" + "=" * 70)
     print("      MULTI-MODEL DEEP ENSEMBLE & AUTOMATED DATA CLEANSING REPORT      ")
     print("=" * 70)
-    valid_df = df[df['status'] == 'SUCCESS']
+    valid_df = df[df['status'] == 'SUCCESS'] if 'status' in df.columns else pd.DataFrame()
     total_valid = len(valid_df)
 
     if total_valid > 0:

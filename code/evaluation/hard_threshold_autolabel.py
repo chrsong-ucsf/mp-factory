@@ -48,6 +48,16 @@ import argparse
 import gc
 import numpy as np
 import pandas as pd
+import nibabel as nib
+
+_eval_dir = os.path.dirname(os.path.abspath(__file__))
+if _eval_dir not in sys.path:
+    sys.path.insert(0, _eval_dir)
+from schema_mapping import (
+    normalize_to_gi_classes,
+    resample_label_to_reference,
+    GI_IGNORE_INDEX,
+)
 
 # NOTE: nibabel (and optionally nilearn) imported lazily inside
 # autolabel_subject so this module is importable (for unit tests) even where
@@ -150,37 +160,23 @@ def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir, overwrite=Fa
             result['status'] = 'SKIP: unknown label kind'
             return result
 
-        # If it's a combined mask, remap labels if present (TotalSegmentator or BDMAP).
+        # If it's a combined mask, remap labels using canonical schema mapping
         if label_kind == "combined":
-            if (human_arr > 4).any():
-                remapped = np.zeros_like(human_arr)
-                if ((human_arr == 18) | (human_arr == 19) | (human_arr == 20)).any():
-                    # TotalSegmentator mapping (label 20 -> 3 for small bowel)
-                    remapped[(human_arr == 18) | (human_arr == 50) | (human_arr == 55)] = 1
-                    remapped[(human_arr == 19) | (human_arr == 51) | (human_arr == 56)] = 2
-                    remapped[(human_arr == 20) | (human_arr == 52)] = 3
-                    remapped[(human_arr == 57) | (human_arr == 53) | (human_arr == 58) | (human_arr == 5) | (human_arr == 6)] = 4
-                else:
-                    # BDMAP / AbdomenAtlas mapping
-                    remapped[human_arr == 2] = 1
-                    remapped[human_arr == 3] = 2
-                    remapped[(human_arr == 4) | (human_arr == 5)] = 3
-                    remapped[human_arr == 6] = 4
-                human_arr = remapped
+            human_arr = normalize_to_gi_classes(human_arr)
 
         # Clamp to 0..4 range.
         human_arr = np.where((human_arr >= 1) & (human_arr <= 4), human_arr, 0).astype(np.uint8)
         human_nii = nib.Nifti1Image(human_arr, human_nii.affine, human_nii.header)
 
-        # ---- load consensus, resample to human grid ----
+        # ---- load consensus, resample to human grid with physical alignment ----
         cons_nii = nib.load(consensus_path)
         cons_arr = np.asanyarray(cons_nii.dataobj).astype(np.uint8)
 
-        if cons_arr.shape != human_arr.shape:
+        if cons_arr.shape != human_arr.shape or not np.allclose(cons_nii.affine, human_nii.affine, atol=1e-3):
             try:
-                import nibabel.processing as nip
-                cons_res = nip.resample_from_to(cons_nii, human_nii, order=0)
-                cons_arr = np.asanyarray(cons_res.dataobj).astype(np.uint8)
+                cons_arr = resample_label_to_reference(
+                    cons_arr, cons_nii.affine, human_nii.affine, human_arr.shape
+                )
             except Exception as res_err:
                 result['status'] = f'SKIP: resampling failed: {res_err}'
                 return result
@@ -293,8 +289,10 @@ def main():
     print(f"Total subjects        : {len(subjects)}")
     print(f"  Success             : {n_success}")
     print(f"  Failed / Skipped    : {len(subjects) - n_success}")
-    if n_success > 0:
-        print(f"  Mean pct ignore     : {df_out.loc[ok, 'pct_ignore'].mean():.2f} %")
+    if n_success > 0 and 'pct_ignore' in df_out.columns:
+        valid_pct = df_out.loc[ok, 'pct_ignore'].dropna()
+        if not valid_pct.empty:
+            print(f"  Mean pct ignore     : {valid_pct.mean():.2f} %")
     print(f"Autolabel output dir  : {args.out_dir}")
 
 

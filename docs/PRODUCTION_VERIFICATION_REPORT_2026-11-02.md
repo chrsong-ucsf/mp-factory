@@ -1,5 +1,5 @@
 # Production Verification & Forensic Audit Report
-**Audit Timestamp:** 2026-11-02 21:39:21 UTC
+**Audit Timestamp:** 2026-11-03 06:47:03 UTC
 **Overall Status:** `ALL VERIFICATION GATES PASSED`
 **Cluster Environment:** CBI HPC (`/mnt/scratch/user/chrsong/mp-factory`)
 **Audit Scope:** On-disk asset inventory, cryptographic checkpoint fingerprints, geometric header validation, and historical metric aggregation.
@@ -91,7 +91,7 @@ Full 64-character SHA-256 cryptographic digests and PyTorch loadability checks f
 - **Multi-Phase Pair Discovery:** **1,545 paired CTs** across **438 distinct patients** (`multiphase_pairs.csv`).
 - **Deformable B-Spline Registration:** **1,534** registered moving volumes and **1,534** displacement vector fields (DVFs).
 - **Synthesized 3D Contrast Volumes:** **1,067** volumes on disk.
-- **Aggregated Historical Benchmark:** **1,067 volumes** evaluated with reference-supported Pearson correlation (Mean R = **0.3430**).
+- **Aggregated Historical Benchmark:** **262 volumes** evaluated with reference-supported Pearson correlation (Mean R = **0.2475**).
 - **Dynamic Tumor Kinetics Containment:** PASS (Exactly 0.0 HU bleed outside lesion geometry)
 
 ---
@@ -105,11 +105,11 @@ Full 64-character SHA-256 cryptographic digests and PyTorch loadability checks f
 
 | Organ Target | TotalSegmentator v2 (Ref)* | Swin-UNETR | **MedNeXt-B (Phase 3 Ensemble)** |
 | :--- | :--- | :--- | :--- |
-| **Stomach** | 0.000 ± 0.000 | 0.000 ± 0.000 | **0.000 ± 0.000** |
-| **Duodenum** | 0.412 ± 0.185 | 0.000 ± 0.001 | **0.000 ± 0.000** |
-| **Small Bowel** | 0.584 ± 0.129 | 0.006 ± 0.011 | **0.011 ± 0.017** |
-| **Colon** | 0.641 ± 0.142 | 0.000 ± 0.000 | **0.000 ± 0.000** |
-| **Mean GI Dice** | 0.409 ± 0.114 | 0.001 ± 0.003 | **0.003 ± 0.004** |
+| **Stomach** | 0.000 ± 0.000 (Lit.) | 0.000 ± 0.000 | **0.000 ± 0.000** |
+| **Duodenum** | 0.412 ± 0.185 (Lit.) | 0.000 ± 0.001 | **0.000 ± 0.000** |
+| **Small Bowel** | 0.584 ± 0.129 (Lit.) | 0.006 ± 0.011 | **0.011 ± 0.017** |
+| **Colon** | 0.641 ± 0.142 (Lit.) | 0.000 ± 0.000 | **0.000 ± 0.000** |
+| **Mean GI Dice** | 0.409 ± 0.114 (Lit.) | 0.001 ± 0.003 | **0.003 ± 0.004** |
 
 *\*Note: TotalSegmentator v2 values reported as literature baseline reference on non-contrast abdominal CT (Wasserthal et al., Radiology: Artificial Intelligence 2023 [DOI: 10.1148/ryai.230024]); per-organ values are unverified literature reference values rather than measured on this specific 499-scan cohort.*
 
@@ -134,14 +134,14 @@ Full 64-character SHA-256 cryptographic digests and PyTorch loadability checks f
 
 ---
 
-### Table 3: Project 10 Multiphase Generative CT Synthesis Benchmarks (N = 1067 Scans)
+### Table 3: Project 10 Multiphase Generative CT Synthesis Benchmarks (N = 262 Scans)
 
 | Cohort Category | Scans (%) | Overall L1 (HU) | Body L1 (> -500 HU) | SSIM | PSNR | Pearson R | Cohort Partition Description / Observations |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **High-Fidelity Synthesis** | 321 (30.1%) | 251.6 HU | 539.8 HU | 0.499 | 23.7 dB | **0.481** | L1 < 500 HU cohort; higher structural correlation and windowed contrast fidelity |
-| **Air Background Offset** | 455 (42.6%) | 1143.5 HU | 1201.0 HU | -0.130 | 8.7 dB | **0.351** | 500-2000 HU cohort; background air outside patient body decoded to ~0 HU instead of -1000 HU |
-| **Diffusion Trajectory Saturation** | 291 (27.3%) | 2470.7 HU | 2470.8 HU | -0.457 | 1.7 dB | **0.178** | L1 > 2000 HU cohort; reverse diffusion trajectory saturation at intensity clipping limits |
-| **Consolidated Cohort** | 1067 (100.0%) | 1237.2 HU | 1348.4 HU | -0.030 | 11.2 dB | **0.343** | Overall population metrics across all 1,067 synthesized volumes |
+| **High-Fidelity Synthesis** | 64 (24.4%) | 374.0 HU | 428.3 HU | 0.097 | 15.8 dB | **0.358** | L1 < 500 HU cohort; higher structural correlation and windowed contrast fidelity |
+| **Air Background Offset** | 149 (56.9%) | 1067.3 HU | 1125.0 HU | -0.007 | 9.0 dB | **0.226** | 500-2000 HU cohort; background air outside patient body decoded to ~0 HU instead of -1000 HU |
+| **Diffusion Trajectory Saturation** | 49 (18.7%) | 2151.2 HU | 2151.2 HU | -0.094 | 2.8 dB | **0.168** | L1 > 2000 HU cohort; reverse diffusion trajectory saturation at intensity clipping limits |
+| **Consolidated Cohort** | 262 (100.0%) | 1100.7 HU | 1146.7 HU | 0.002 | 9.5 dB | **0.248** | Overall population metrics across all 1,067 synthesized volumes |
 
 ---
 

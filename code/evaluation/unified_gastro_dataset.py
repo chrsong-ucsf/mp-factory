@@ -42,6 +42,11 @@ from torch.utils.data import Dataset, DataLoader
 # NOTE: nibabel imported lazily inside _load_volume because the module-level
 # functions (build_manifest, __init__) can be unit-tested without nibabel.
 
+_eval_dir = os.path.dirname(os.path.abspath(__file__))
+if _eval_dir not in sys.path:
+    sys.path.insert(0, _eval_dir)
+from schema_mapping import normalize_to_gi_classes
+
 IGNORE_INDEX = 255  # matches train_mednext_phase2.py / hard_threshold_autolabel.py
 CATEGORY_CLEAN = "CLEAN_HIGH_CONFIDENCE"
 CATEGORY_WEAK  = "WEAK_COARSE"
@@ -61,8 +66,8 @@ def _scan_for_autolabel(autolabel_dir, subject_id):
 
 
 def _scan_for_teacher_label(teacher_dir, subject_id):
-    # TotalSegmentator style exports: *_gi_seg.nii.gz
-    for fpat in ["_gi_seg.nii.gz", "_seg.nii.gz"]:
+    # TotalSegmentator style exports: *_gi_mask.nii.gz, *_gi_seg.nii.gz
+    for fpat in ["_gi_mask.nii.gz", "_mask.nii.gz", "_gi_seg.nii.gz", "_seg.nii.gz"]:
         fname = os.path.join(teacher_dir, f"{subject_id}{fpat}")
         if os.path.isfile(fname):
             return fname
@@ -145,10 +150,12 @@ def build_manifest(
 
     # --- Teacher: TotalSegmentator auto-labels ---
     if teacher_dir and os.path.isdir(teacher_dir):
+        suffixes = ["_gi_mask.nii.gz", "_mask.nii.gz", "_gi_seg.nii.gz", "_seg.nii.gz"]
         for fn in sorted(os.listdir(teacher_dir)):
-            if not fn.endswith("_gi_seg.nii.gz") and not fn.endswith("_seg.nii.gz"):
+            matched_sfx = next((sfx for sfx in suffixes if fn.endswith(sfx)), None)
+            if not matched_sfx:
                 continue
-            sub_id = fn.replace("_gi_seg.nii.gz", "").replace("_seg.nii.gz", "")
+            sub_id = fn[:-len(matched_sfx)]
             # Avoid duplicating subjects already in CLEAN/WEAK
             if sub_id in set(r["subject_id"] for r in rows):
                 continue
@@ -156,7 +163,7 @@ def build_manifest(
             lbl_p = os.path.join(teacher_dir, fn) if os.path.isfile(os.path.join(teacher_dir, fn)) else None
             if ct_p and lbl_p and os.path.isfile(ct_p):
                 rows.append({"subject_id": sub_id, "ct_path": ct_p, "label_path": lbl_p,
-                             "category": "AUTO_TOTALESEARCHATOR"})
+                             "category": CATEGORY_TEACHER})
 
     return rows
 
@@ -187,19 +194,16 @@ def verify_dataset_integrity(manifest, n_workers=1, early_exit=True):
         if ec == 0 and (i % 10 == 0):
             try:
                 ct_nii = nib.load(ct)
-                ct_data = np.asanyarray(ct_nii.dataobj)
                 lbl_nii = nib.load(lbl)
+                if ct_nii.shape[:3] != lbl_nii.shape[:3]:
+                    msgs.append(f"shape mismatch CT {ct_nii.shape} vs label {lbl_nii.shape}")
+                    ec += 1
+                if len(ct_nii.shape) != 3:
+                    msgs.append(f"CT is not 3D (shape {ct_nii.shape})")
+                    ec += 1
                 lbl_data = np.asanyarray(lbl_nii.dataobj)
-                if ct_data.shape != lbl_data.shape:
-                    msgs.append(f"shape mismatch CT {ct_data.shape} vs label {lbl_data.shape}")
-                    ec += 1
-                if ct_data.ndim != 3:
-                    msgs.append(f"CT is not 3D (shape {ct_data.shape})")
-                    ec += 1
-                if lbl_data.ndim not in (3, 4):
-                    msgs.append(f"label is not 3D/4D (shape {lbl_data.shape})")
-                    ec += 1
-                if np.sum((lbl_data >= 1) & (lbl_data <= 4)) == 0:
+                norm_lbl = normalize_to_gi_classes(lbl_data)
+                if np.sum((norm_lbl >= 1) & (norm_lbl <= 4)) == 0:
                     msgs.append("label contains zero foreground GI voxels (all background)")
                     ec += 1
             except Exception as exc:
@@ -261,7 +265,7 @@ def main():
     n_indexed = len(manifest)
     print(f"  CLEAN_HIGH_CONFIDENCE  : {sum(1 for r in manifest if r['category']=='CLEAN_HIGH_CONFIDENCE')}")
     print(f"  WEAK_COARSE            : {sum(1 for r in manifest if r['category']=='WEAK_COARSE')}")
-    print(f"  AUTO_TOTALESEARCHATOR  : {sum(1 for r in manifest if r['category']=='AUTO_TOTALESEARCHATOR')}")
+    print(f"  AUTO_TOTALSEGMENTATOR  : {sum(1 for r in manifest if r['category']==CATEGORY_TEACHER)}")
 
     if args.verify:
         print("\n[VERIFY] Integrity check ...")

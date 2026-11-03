@@ -39,9 +39,14 @@ from monai.transforms import (
     ScaleIntensityRanged, SpatialPadd, CropForegroundd, RandCropByPosNegLabeld,
     RandRotated, RandFlipd, RandGaussianNoised,
     RandScaleIntensityd, RandShiftIntensityd, EnsureTyped, AsDiscrete,
-    MapTransform,
+    MapTransform, ResampleToMatchd,
 )
 from monai.data import Dataset, DataLoader, decollate_batch
+
+_eval_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "evaluation")
+if _eval_dir not in sys.path:
+    sys.path.insert(0, _eval_dir)
+from schema_mapping import normalize_to_gi_classes, GI_IGNORE_INDEX
 
 # Asymmetric PDCE Loss for recall-optimized training
 try:
@@ -203,33 +208,21 @@ def discover_phase2_dataset(
 # ---------------------------------------------------------------------------
 
 class FixLiarLabelAffined(MapTransform):
-    """Fix affine mismatch on CLEAN consensus labels before Spacingd."""
-    def __init__(self, keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)):
+    """
+    Backward-compatible wrapper for physical coordinate alignment.
+    Directly uses MONAI's ResampleToMatchd to project the label onto the image voxel grid
+    in physical world coordinates, preserving true anatomical bounds and orientation.
+    """
+    def __init__(self, keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0), mode="nearest"):
         super().__init__(keys)
-        self.image_key = image_key
-        self.target_spacing = target_spacing
+        self.resampler = ResampleToMatchd(keys=keys, key_dst=image_key, mode=mode, allow_missing_keys=True)
 
     def __call__(self, data):
-        d = dict(data)
-        img = d[self.image_key]
-        for key in self.keys:
-            if key in d:
-                lbl = d[key]
-                if lbl.shape != img.shape:
-                    from monai.transforms import Spacing
-                    spacer = Spacing(pixdim=self.target_spacing)
-                    img_spaced = spacer(img)
-                    from monai.data import MetaTensor
-                    if isinstance(lbl, MetaTensor):
-                        lbl.affine = img_spaced.affine
-                        if hasattr(lbl, "meta"):
-                            lbl.meta["affine"] = img_spaced.affine
-                    d[key] = lbl
-        return d
+        return self.resampler(data)
 
 
 class RemapGILabelTargets(MapTransform):
-    """Ensure labels map strictly to classes 0..4, preserving 255 (ignore)."""
+    """Ensure labels map strictly to classes 0..4, preserving 255 (ignore) via schema_mapping."""
     def __init__(self, keys=["label"]):
         super().__init__(keys)
 
@@ -238,31 +231,17 @@ class RemapGILabelTargets(MapTransform):
         for key in self.keys:
             if key in d:
                 lbl = d[key]
-                cond = (lbl > 4) & (lbl != IGNORE_INDEX)
-                has_large = cond.any().item() if torch.is_tensor(lbl) else cond.any()
-                if has_large:
-                    out = torch.zeros_like(lbl) if torch.is_tensor(lbl) else np.zeros_like(lbl)
-                    out[lbl == IGNORE_INDEX] = IGNORE_INDEX
-                    has_ts = ((lbl == 18) | (lbl == 19) | (lbl == 20)).any()
-                    if (has_ts.item() if torch.is_tensor(has_ts) else has_ts):
-                        out[(lbl == 18) | (lbl == 50) | (lbl == 55)] = 1
-                        out[(lbl == 19) | (lbl == 51) | (lbl == 56)] = 2
-                        out[(lbl == 20) | (lbl == 52)] = 3
-                        out[(lbl == 57) | (lbl == 53) | (lbl == 58) | (lbl == 5) | (lbl == 6)] = 4
-                    else:
-                        out[lbl == 2] = 1
-                        out[lbl == 3] = 2
-                        out[(lbl == 4) | (lbl == 5)] = 3
-                        out[lbl == 6] = 4
-
-                    for c in [1, 2, 3, 4]:
-                        unassigned = (lbl == c) & (out == 0)
-                        out[unassigned] = c
-
-                    from monai.data import MetaTensor
-                    if isinstance(lbl, MetaTensor):
-                        out = MetaTensor(out, affine=lbl.affine, meta=getattr(lbl, "meta", None))
-                    d[key] = out
+                is_torch = torch.is_tensor(lbl)
+                arr = lbl.cpu().numpy() if is_torch else np.asanyarray(lbl)
+                remapped = normalize_to_gi_classes(arr, preserve_ignore_index=True)
+                from monai.data import MetaTensor
+                if isinstance(lbl, MetaTensor):
+                    tensor_data = torch.from_numpy(remapped).to(lbl.device) if is_torch else remapped
+                    d[key] = MetaTensor(tensor_data, affine=lbl.affine, meta=getattr(lbl, "meta", None))
+                elif is_torch:
+                    d[key] = torch.from_numpy(remapped).to(lbl.device)
+                else:
+                    d[key] = remapped
         return d
 
 
@@ -272,7 +251,7 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        FixLiarLabelAffined(keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)),
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         CropForegroundd(keys=["image", "label"], source_key="image"),
@@ -298,7 +277,7 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        FixLiarLabelAffined(keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)),
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         EnsureTyped(keys=["image", "label"]),

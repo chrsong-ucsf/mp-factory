@@ -128,6 +128,22 @@ def resample_to_fixed(
     return resampler.Execute(moving)
 
 
+def resample_support_to_fixed(
+    moving: sitk.Image, fixed: sitk.Image, transform: sitk.Transform
+) -> sitk.Image:
+    """Apply transform to warp moving FOV support mask (1 inside moving FOV, 0 in out-of-bounds padding) (F05)."""
+    support = sitk.Image(moving.GetSize(), sitk.sitkUInt8)
+    support.CopyInformation(moving)
+    support = sitk.Add(support, 1)
+
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetReferenceImage(fixed)
+    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+    resampler.SetDefaultPixelValue(0)
+    resampler.SetTransform(transform)
+    return resampler.Execute(support)
+
+
 def rigid_registration(
     fixed: sitk.Image, moving: sitk.Image
 ) -> sitk.Euler3DTransform:
@@ -283,11 +299,17 @@ def register_pair(
 
     log.info("    Resampling moving to fixed grid...")
     registered = resample_to_fixed(moving, fixed, bspline_xfm)
+    warped_support = resample_support_to_fixed(moving, fixed, bspline_xfm)
 
     # Save registered volume
     os.makedirs(os.path.dirname(out_reg_path), exist_ok=True)
     sitk.WriteImage(sitk.Cast(registered, sitk.sitkFloat32), out_reg_path)
     log.info(f"    Saved registered volume -> {out_reg_path}")
+
+    # Save true observed support mask (F05)
+    out_supp_path = out_reg_path.replace(".nii.gz", "_support.nii.gz")
+    sitk.WriteImage(sitk.Cast(warped_support, sitk.sitkUInt8), out_supp_path)
+    log.info(f"    Saved observed target support -> {out_supp_path}")
 
     # Save displacement vector field
     sitk.WriteImage(dvf_image, out_dvf_path)

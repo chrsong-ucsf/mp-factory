@@ -42,6 +42,11 @@ from monai.transforms import (
 )
 from monai.data import Dataset, DataLoader, decollate_batch
 
+_eval_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "evaluation")
+if _eval_dir not in sys.path:
+    sys.path.insert(0, _eval_dir)
+from schema_mapping import normalize_to_gi_classes, GI_IGNORE_INDEX
+
 try:
     from nnunet_mednext import create_mednext_v1
 except ImportError:
@@ -267,43 +272,16 @@ from monai.transforms import MapTransform
 
 class FixLiarLabelAffined(MapTransform):
     """
-    CLEAN consensus labels (e.g. from Phase 1) were generated on a resampled 1.5x1.5x2.0 grid.
-    However, they were saved with the original CT's affine matrix (which has a smaller spacing like 0.68x0.68x1.5).
-    This "liar affine" causes ResampleToMatchd and Spacingd to anatomically misalign the label, shrinking
-    the foreground to a tiny corner (causing Dice=0).
-    
-    WEAK autolabels are still at the original CT spacing and shape, so their affine is correct.
-    
-    This transform detects CLEAN labels by checking if label.shape != image.shape (before any transforms).
-    If it's a CLEAN label, it replaces the label's affine with the correct 1.5x1.5x2.0 affine.
+    Backward-compatible wrapper for physical coordinate alignment.
+    Directly uses MONAI's ResampleToMatchd to project the label onto the image voxel grid
+    in physical world coordinates, preserving true anatomical bounds and orientation.
     """
-    def __init__(self, keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)):
+    def __init__(self, keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0), mode="nearest"):
         super().__init__(keys)
-        self.image_key = image_key
-        self.target_spacing = target_spacing
+        self.resampler = ResampleToMatchd(keys=keys, key_dst=image_key, mode=mode, allow_missing_keys=True)
 
     def __call__(self, data):
-        d = dict(data)
-        img = d[self.image_key]
-        for key in self.keys:
-            if key in d:
-                lbl = d[key]
-                # If shapes mismatch, it means label was ALREADY resampled by Phase 1,
-                # but it was saved with the original native affine.
-                if lbl.shape != img.shape:
-                    from monai.transforms import Spacing
-                    spacer = Spacing(pixdim=self.target_spacing)
-                    # We just need the affine, so we can pass a dummy tensor or the actual img
-                    img_spaced = spacer(img)
-                    
-                    from monai.data import MetaTensor
-                    if isinstance(lbl, MetaTensor):
-                        # MetaTensor allows updating the affine
-                        lbl.affine = img_spaced.affine
-                        if hasattr(lbl, "meta"):
-                            lbl.meta["affine"] = img_spaced.affine
-                    d[key] = lbl
-        return d
+        return self.resampler(data)
 
 
 class RemapGILabelTargets(MapTransform):
@@ -315,19 +293,7 @@ class RemapGILabelTargets(MapTransform):
         3: Small Bowel (Jejunum + Ileum)
         4: Colon
         255: IGNORE_INDEX (preserved for WEAK_COARSE boundary masking)
-
-    Handles:
-      - TotalSegmentator full-body / GI labels:
-          18, 50, 55 -> 1 (Stomach)
-          19, 51, 56 -> 2 (Duodenum)
-          20, 52     -> 3 (Small Bowel)  [TotalSeg label 20 -> label 3 fix]
-          57, 53, 58 -> 4 (Colon)
-          5, 6       -> 4 (Colon, when 18/19 present)
-      - BDMAP / AbdomenAtlas multi-organ labels:
-          2 -> 1 (Stomach)
-          3 -> 2 (Duodenum)
-          4, 5 -> 3 (Jejunum, Ileum -> Small Bowel)
-          6 -> 4 (Colon)
+    Uses centralized schema_mapping.py canonical conversion.
     """
     def __init__(self, keys=["label"]):
         super().__init__(keys)
@@ -337,33 +303,17 @@ class RemapGILabelTargets(MapTransform):
         for key in self.keys:
             if key in d:
                 lbl = d[key]
-                cond = (lbl > 4) & (lbl != IGNORE_INDEX)
-                has_large = cond.any().item() if torch.is_tensor(lbl) else cond.any()
-                if has_large:
-                    out = torch.zeros_like(lbl) if torch.is_tensor(lbl) else np.zeros_like(lbl)
-                    out[lbl == IGNORE_INDEX] = IGNORE_INDEX
-
-                    has_ts = ((lbl == 18) | (lbl == 19) | (lbl == 20)).any()
-                    if (has_ts.item() if torch.is_tensor(has_ts) else has_ts):
-                        out[(lbl == 18) | (lbl == 50) | (lbl == 55)] = 1
-                        out[(lbl == 19) | (lbl == 51) | (lbl == 56)] = 2
-                        out[(lbl == 20) | (lbl == 52)] = 3
-                        out[(lbl == 57) | (lbl == 53) | (lbl == 58) | (lbl == 5) | (lbl == 6)] = 4
-                    else:
-                        out[lbl == 2] = 1
-                        out[lbl == 3] = 2
-                        out[(lbl == 4) | (lbl == 5)] = 3
-                        out[lbl == 6] = 4
-
-                    # Carry over any already-valid 1..4 voxels not yet assigned
-                    for c in [1, 2, 3, 4]:
-                        unassigned = (lbl == c) & (out == 0)
-                        out[unassigned] = c
-
-                    from monai.data import MetaTensor
-                    if isinstance(lbl, MetaTensor):
-                        out = MetaTensor(out, affine=lbl.affine, meta=getattr(lbl, "meta", None))
-                    d[key] = out
+                is_torch = torch.is_tensor(lbl)
+                arr = lbl.cpu().numpy() if is_torch else np.asanyarray(lbl)
+                remapped = normalize_to_gi_classes(arr, preserve_ignore_index=True)
+                from monai.data import MetaTensor
+                if isinstance(lbl, MetaTensor):
+                    tensor_data = torch.from_numpy(remapped).to(lbl.device) if is_torch else remapped
+                    d[key] = MetaTensor(tensor_data, affine=lbl.affine, meta=getattr(lbl, "meta", None))
+                elif is_torch:
+                    d[key] = torch.from_numpy(remapped).to(lbl.device)
+                else:
+                    d[key] = remapped
         return d
 
 
@@ -379,8 +329,8 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        # Detect and fix Phase 1 "liar affines" on consensus labels before Spacingd mangles them
-        FixLiarLabelAffined(keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)),
+        # Physically align label to CT grid in world coordinates before Spacingd
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         CropForegroundd(keys=["image", "label"], source_key="image"),
@@ -406,8 +356,8 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        # Detect and fix Phase 1 "liar affines" on consensus labels before Spacingd mangles them
-        FixLiarLabelAffined(keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0)),
+        # Physically align label to CT grid in world coordinates before Spacingd
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         EnsureTyped(keys=["image", "label"]),
@@ -765,11 +715,18 @@ def main():
                                 mode="trilinear", align_corners=False,
                             )
 
-                        vl_clean = torch.where(vl == IGNORE_INDEX,
-                                               torch.zeros_like(vl), vl)
-                        vo_post = [post_pred(i) for i in decollate_batch(vo)]
-                        vl_post = [post_label(i) for i in decollate_batch(vl_clean)]
-                        dice_metric(y_pred=vo_post, y=vl_post)
+                        vmask = (vl != IGNORE_INDEX)
+                        vo_preds = [post_pred(i) for i in decollate_batch(vo)]
+                        vl_labels = [post_label(i) for i in decollate_batch(vl)]
+                        vmasks = [m for m in decollate_batch(vmask)]
+                        cleaned_preds = []
+                        cleaned_labels = []
+                        for p, l, m in zip(vo_preds, vl_labels, vmasks):
+                            if m.dim() < p.dim():
+                                m = m.unsqueeze(0)
+                            cleaned_preds.append(torch.where(m, p, torch.zeros_like(p)))
+                            cleaned_labels.append(torch.where(m, l, torch.zeros_like(l)))
+                        dice_metric(y_pred=cleaned_preds, y=cleaned_labels)
 
                 mean_val_dice = dice_metric.aggregate().item()
                 dice_metric.reset()

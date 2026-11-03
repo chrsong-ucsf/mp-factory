@@ -27,6 +27,7 @@ class AnatomyConditionalSynthesisNet(nn.Module):
         spatial_dims: int = 3,
         latent_channels: int = 4,
         label_nc: int = 5,
+        num_phases: int = 5,
         channels: tuple = (128, 256, 256),
         attention_levels: tuple = (False, True, True),
         num_res_blocks: int = 2,
@@ -38,6 +39,7 @@ class AnatomyConditionalSynthesisNet(nn.Module):
         self.spatial_dims = spatial_dims
         self.latent_channels = latent_channels
         self.label_nc = label_nc
+        self.num_phases = num_phases
         
         # The input to the UNet will be the concatenation of the noisy target latent 
         # and the source NCCT latent.
@@ -54,6 +56,7 @@ class AnatomyConditionalSynthesisNet(nn.Module):
             num_res_blocks=num_res_blocks,
             num_head_channels=num_head_channels,
             with_conditioning=with_conditioning,
+            num_class_embeds=self.num_phases,
         )
         
     def forward(
@@ -61,16 +64,18 @@ class AnatomyConditionalSynthesisNet(nn.Module):
         x: torch.Tensor, 
         timesteps: torch.Tensor, 
         source_latent: torch.Tensor, 
-        anatomy_mask: torch.Tensor
+        anatomy_mask: torch.Tensor,
+        phase_labels: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
-        Forward pass for the anatomy conditional diffusion network.
+        Forward pass for the anatomy conditional diffusion network with target phase conditioning (F06).
         
         Args:
             x (torch.Tensor): Noisy target phase latent [B, latent_channels, D, H, W].
             timesteps (torch.Tensor): Diffusion timesteps [B].
             source_latent (torch.Tensor): Source NCCT latent [B, latent_channels, D, H, W].
             anatomy_mask (torch.Tensor): SPADE condition mask (anatomy) [B, label_nc, D, H, W].
+            phase_labels (torch.Tensor, optional): Target phase class integer [B] (0..4).
             
         Returns:
             torch.Tensor: Denoised representation or predicted noise [B, latent_channels, D, H, W].
@@ -78,9 +83,8 @@ class AnatomyConditionalSynthesisNet(nn.Module):
         # Concatenate the noisy target and the source NCCT latent
         net_input = torch.cat([x, source_latent], dim=1)
         
-        # Forward through SPADE Diffusion Model UNet
-        # 'seg' parameter in SPADEDiffusionModelUNet is used for the spatial condition mask
-        return self.model(x=net_input, timesteps=timesteps, seg=anatomy_mask)
+        # Forward through SPADE Diffusion Model UNet with optional target phase conditioning
+        return self.model(x=net_input, timesteps=timesteps, seg=anatomy_mask, class_labels=phase_labels)
 
 if __name__ == "__main__":
     print("Running CLI Smoke Test for AnatomyConditionalSynthesisNet...")

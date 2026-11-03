@@ -302,7 +302,7 @@ def compile_and_verify_manuscript_tables():
     """Runs compile_manuscript_tables.py and verifies compiled deliverables."""
     print("\n[+] Compiling & Verifying Manuscript Tables...")
     script_path = BASE_DIR / "code" / "manuscript" / "compile_manuscript_tables.py"
-    proc = subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True)
+    proc = subprocess.run([sys.executable, str(script_path), "--strict"], capture_output=True, text=True)
     if proc.returncode != 0:
         print(f"  [FAIL] Compilation error:\n{proc.stderr}")
         return False, proc.stderr
@@ -311,15 +311,21 @@ def compile_and_verify_manuscript_tables():
     md_out = RESULTS_DIR / "manuscript" / "master_manuscript_tables.md"
     tex_ok = tex_out.exists() and tex_out.stat().st_size > 500
     md_ok = md_out.exists() and md_out.stat().st_size > 500
+    md_content = md_out.read_text() if md_ok else ""
 
-    success = tex_ok and md_ok
-    print(f"  [{'PASS' if success else 'FAIL'}] Tables compiled: Markdown ({md_out.stat().st_size if md_ok else 0:,} bytes), LaTeX ({tex_out.stat().st_size if tex_ok else 0:,} bytes)")
-    return success, md_out.read_text() if md_ok else ""
+    # Strict check: all four tables (Table 1 through Table 4) must be present in deliverable
+    all_tables_present = all(f"Table {i}" in md_content for i in range(1, 5)) if md_ok else False
+    success = tex_ok and md_ok and all_tables_present
+    print(f"  [{'PASS' if success else 'FAIL'}] Tables compiled: Markdown ({md_out.stat().st_size if md_ok else 0:,} bytes), LaTeX ({tex_out.stat().st_size if tex_ok else 0:,} bytes) | All 4 Tables Present: {'PASS' if all_tables_present else 'FAIL'}")
+    return success, md_content
 
 
-def generate_production_report(gates, ckpt_records, ds_info, seg_info, ens_info, p10_info, tables_md, overall_passed):
-    """Writes docs/PRODUCTION_VERIFICATION_REPORT_2026-11-02.md with explicit status."""
-    report_path = DOCS_DIR / "PRODUCTION_VERIFICATION_REPORT_2026-11-02.md"
+def generate_production_report(gates, ckpt_records, ds_info, seg_info, ens_info, p10_info, tables_md, overall_passed, report_path=None):
+    """Writes verification report with explicit status."""
+    if report_path is None:
+        report_path = DOCS_DIR / "PRODUCTION_VERIFICATION_REPORT_2026-11-02.md"
+    else:
+        report_path = Path(report_path)
     print(f"\n[+] Emitting Production Verification Report to {report_path}...")
 
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
@@ -403,6 +409,7 @@ def generate_production_report(gates, ckpt_records, ds_info, seg_info, ens_info,
 def main(argv=None):
     parser = argparse.ArgumentParser(description="MultiPhase-GI Production Verification Suite")
     parser.add_argument("--inventory_only", action="store_true", help="Report status without exiting non-zero on failure")
+    parser.add_argument("--report_path", type=str, default=None, help="Custom output path for the verification report")
     args = parser.parse_args(argv)
 
     print("=" * 70)
@@ -417,15 +424,20 @@ def main(argv=None):
     p10_info = verify_project10_synthesis_and_kinetics()
     tables_ok, tables_md = compile_and_verify_manuscript_tables()
 
-    # Define explicit boolean gates
+    # Define explicit boolean gates with strict criteria (F09)
     ckpt_ok = all(r["valid"] for r in ckpt_records) and len(ckpt_records) == 26
-    ds_ok = ds_info["ct_count"] >= 1600 and ds_info["jhu_count"] == 6 and ds_info["jhu_headers_valid"]
+    ds_ok = (ds_info["ct_count"] == 1632 and ds_info.get("ct_sample_ok", True) and
+             ds_info["jhu_count"] == 6 and ds_info["jhu_headers_valid"])
     seg_ok = seg_info["all_complete"] and seg_info["sample_ok"]
     ens_ok = (ens_info["consensus_count"] == 1632 and
               ens_info["uncertainty_count"] == 1632 and
               ens_info["zero_fg_clean"] == 0 and
-              ens_info["manifest_rows"] > 0)
-    p10_ok = p10_info["pairs_count"] >= 1500 and p10_info["kinetics_ok"]
+              ens_info["manifest_rows"] >= 34)
+    p10_ok = (p10_info["pairs_count"] >= 1500 and
+              p10_info["reg_vols"] > 0 and
+              p10_info["synth_vols"] > 0 and
+              p10_info["n_evaluated"] > 0 and
+              p10_info["kinetics_ok"])
 
     gates = {
         "Gate 1": {
@@ -469,7 +481,7 @@ def main(argv=None):
     overall_passed = all(g["passed"] for g in gates.values())
 
     report_path = generate_production_report(
-        gates, ckpt_records, ds_info, seg_info, ens_info, p10_info, tables_md, overall_passed
+        gates, ckpt_records, ds_info, seg_info, ens_info, p10_info, tables_md, overall_passed, report_path=args.report_path
     )
 
     print("\n" + "=" * 70)

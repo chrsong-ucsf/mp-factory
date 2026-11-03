@@ -60,10 +60,60 @@ def bootstrap_ci(diff, n_boot=1000, ci=95):
     return lower, upper
 
 
-def evaluate_pairs(df, model_a_col, model_b_col, label_name):
-    # Drop rows where either is NA
-    valid = df[[model_a_col, model_b_col]].dropna()
-    valid = valid[(valid[model_a_col] >= 0) & (valid[model_b_col] >= 0)]
+def patient_clustered_bootstrap_ci(df, diff_col, patient_col="patient_id", n_boot=1000, ci=95):
+    """Cluster bootstrap: resample unique patient clusters with replacement (F12)."""
+    if patient_col not in df.columns or df[patient_col].nunique() < 2:
+        return bootstrap_ci(df[diff_col].values, n_boot=n_boot, ci=ci)
+
+    patients = df[patient_col].unique()
+    n_pts = len(patients)
+    boot_means = []
+    rng = np.random.default_rng(42)
+    pt_to_diffs = {pt: df[df[patient_col] == pt][diff_col].values for pt in patients}
+
+    for _ in range(n_boot):
+        sampled_pts = rng.choice(patients, size=n_pts, replace=True)
+        sampled_diffs = np.concatenate([pt_to_diffs[pt] for pt in sampled_pts])
+        boot_means.append(np.mean(sampled_diffs))
+
+    lower = np.percentile(boot_means, (100 - ci) / 2)
+    upper = np.percentile(boot_means, 100 - (100 - ci) / 2)
+    return lower, upper
+
+
+def apply_fdr_correction(results_list, alpha=0.05):
+    """Applies Benjamini-Hochberg False Discovery Rate correction across the family of tests (F12)."""
+    p_vals = [r["p_value_wilcoxon"] for r in results_list if not np.isnan(r.get("p_value_wilcoxon", np.nan))]
+    if not p_vals:
+        return results_list
+    n = len(p_vals)
+    sorted_indices = np.argsort(p_vals)
+    sorted_p = np.array(p_vals)[sorted_indices]
+    q_vals = np.zeros(n)
+    q_vals[-1] = sorted_p[-1]
+    for i in range(n - 2, -1, -1):
+        q_vals[i] = min(sorted_p[i] * n / (i + 1), q_vals[i + 1])
+    q_vals = np.minimum(q_vals, 1.0)
+
+    adj_map = {sorted_indices[i]: q_vals[i] for i in range(n)}
+    for idx, r in enumerate(results_list):
+        if idx in adj_map:
+            r["q_value_fdr"] = float(adj_map[idx])
+            r["sig_fdr"] = (
+                "***" if adj_map[idx] < 0.001
+                else ("**" if adj_map[idx] < 0.01
+                else ("*" if adj_map[idx] < 0.05
+                else "ns"))
+            )
+    return results_list
+
+
+def evaluate_pairs(df, model_a_col, model_b_col, label_name, patient_col=None):
+    cols = [model_a_col, model_b_col]
+    if patient_col and patient_col in df.columns:
+        cols.append(patient_col)
+    valid = df[cols].dropna()
+    valid = valid[(valid[model_a_col] >= 0) & (valid[model_b_col] >= 0)].copy()
     
     a = valid[model_a_col].values
     b = valid[model_b_col].values
@@ -73,6 +123,7 @@ def evaluate_pairs(df, model_a_col, model_b_col, label_name):
         return None
 
     diff = a - b
+    valid["_diff"] = diff
     mean_a = np.mean(a)
     mean_b = np.mean(b)
     mean_diff = np.mean(diff)
@@ -90,25 +141,27 @@ def evaluate_pairs(df, model_a_col, model_b_col, label_name):
         w_stat, p_val_wilcoxon = np.nan, np.nan
 
     d = cohens_d(a, b)
-    ci_low, ci_high = bootstrap_ci(diff)
+    if patient_col and patient_col in valid.columns:
+        ci_low, ci_high = patient_clustered_bootstrap_ci(valid, "_diff", patient_col=patient_col)
+    else:
+        ci_low, ci_high = bootstrap_ci(diff)
 
     sig_str = "***" if p_val_wilcoxon < 0.001 else ("**" if p_val_wilcoxon < 0.01 else ("*" if p_val_wilcoxon < 0.05 else "ns"))
 
     return {
         "comparison": label_name,
         "n_samples": n,
+        "n_patients": valid[patient_col].nunique() if (patient_col and patient_col in valid.columns) else n,
         "mean_model_a": mean_a,
         "mean_model_b": mean_b,
         "mean_diff": mean_diff,
         "median_diff": median_diff,
         "ci_95_low": ci_low,
         "ci_95_high": ci_high,
-        "t_statistic": t_stat,
         "p_value_ttest": p_val_ttest,
-        "wilcoxon_stat": w_stat,
         "p_value_wilcoxon": p_val_wilcoxon,
         "cohens_d": d,
-        "significance": sig_str
+        "significance": sig_str,
     }
 
 
@@ -147,9 +200,11 @@ def main():
         
         # Merge on subject_id to align paired comparisons
         merged = pd.merge(med, tot, on="subject_id", suffixes=("_mednext", "_totalseg"))
+        if "patient_id" not in merged.columns and "subject_id" in merged.columns:
+            merged["patient_id"] = merged["subject_id"].astype(str).apply(lambda x: x.split("_")[0])
         if len(merged) > 0:
             for o in ["stomach_dice", "duodenum_dice", "mean_dice", "mean_hd95"]:
-                res = evaluate_pairs(merged, f"{o}_mednext", f"{o}_totalseg", f"MedNeXt vs TotalSeg on JHU Expert ({o})")
+                res = evaluate_pairs(merged, f"{o}_mednext", f"{o}_totalseg", f"MedNeXt vs TotalSeg on JHU Expert ({o})", patient_col="patient_id")
                 if res:
                     results.append(res)
     else:
@@ -159,6 +214,7 @@ def main():
         print("[!] No valid paired comparisons could be formed yet.")
         return
 
+    results = apply_fdr_correction(results)
     res_df = pd.DataFrame(results)
     os.makedirs(OUT_DIR, exist_ok=True)
     out_csv = os.path.join(OUT_DIR, "statistical_significance_report.csv")

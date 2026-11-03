@@ -203,16 +203,34 @@ class MultiphasePairedDataset(Dataset):
         try:
             target_itk = sitk.ReadImage(str(target_path))
 
-            # Verify physical overlap between target CT and reference NCCT
-            target_support = sitk.Image(target_itk.GetSize(), sitk.sitkUInt8)
-            target_support.CopyInformation(target_itk)
-            target_support = sitk.Add(target_support, 1)
+            # Verify physical overlap between target CT and reference NCCT (F05)
+            supp_path = str(target_path).replace(".nii.gz", "_support.nii.gz")
+            if os.path.isfile(supp_path):
+                raw_supp_itk = sitk.ReadImage(supp_path)
+            elif "ct_path_target" in row and os.path.isfile(str(row["ct_path_target"])):
+                moving_raw_itk = sitk.ReadImage(str(row["ct_path_target"]))
+                raw_supp_itk = sitk.Image(moving_raw_itk.GetSize(), sitk.sitkUInt8)
+                raw_supp_itk.CopyInformation(moving_raw_itk)
+                raw_supp_itk = sitk.Add(raw_supp_itk, 1)
+            else:
+                # Distinguish observed data from -1000.0 HU boundary padding
+                supp_np = (target_arr > -999.0).astype(np.uint8)
+                raw_supp_itk = sitk.GetImageFromArray(supp_np.transpose(2, 1, 0))
+                raw_supp_itk.CopyInformation(target_itk)
 
-            resampler_supp = sitk.ResampleImageFilter()
-            resampler_supp.SetReferenceImage(ncct_itk)
-            resampler_supp.SetInterpolator(sitk.sitkNearestNeighbor)
-            resampler_supp.SetDefaultPixelValue(0)
-            res_target_supp = resampler_supp.Execute(target_support)
+            # Ensure support image is on reference NCCT physical grid
+            if (raw_supp_itk.GetSize() == ncct_itk.GetSize()
+                and np.allclose(raw_supp_itk.GetSpacing(), ncct_itk.GetSpacing(), atol=1e-3)
+                and np.allclose(raw_supp_itk.GetOrigin(), ncct_itk.GetOrigin(), atol=1e-2)
+                and np.allclose(raw_supp_itk.GetDirection(), ncct_itk.GetDirection(), atol=1e-2)):
+                res_target_supp = raw_supp_itk
+            else:
+                resampler_supp = sitk.ResampleImageFilter()
+                resampler_supp.SetReferenceImage(ncct_itk)
+                resampler_supp.SetInterpolator(sitk.sitkNearestNeighbor)
+                resampler_supp.SetDefaultPixelValue(0)
+                res_target_supp = resampler_supp.Execute(raw_supp_itk)
+
             target_overlap_arr = sitk.GetArrayFromImage(res_target_supp)
             overlap_vox = int(np.count_nonzero(target_overlap_arr))
             overlap_frac = overlap_vox / float(target_overlap_arr.size) if target_overlap_arr.size > 0 else 0.0
@@ -336,12 +354,25 @@ class MultiphasePairedDataset(Dataset):
                     f"Training requires full observed target support to guarantee encoder latent dependency integrity."
                 )
 
+            phase_lower = str(phase_target).lower()
+            if any(k in phase_lower for k in ["early", "art"]) and "late" not in phase_lower:
+                phase_id = 1  # early arterial
+            elif "late" in phase_lower and "art" in phase_lower:
+                phase_id = 2  # late arterial
+            elif any(k in phase_lower for k in ["portal", "ven"]):
+                phase_id = 3  # venous / portal venous
+            elif "delay" in phase_lower:
+                phase_id = 4  # delayed
+            else:
+                phase_id = 0  # noncontrast / default
+
             return {
                 "ncct": ncct_tensor,
                 "target": target_tensor,
                 "mask": mask_tensor,
                 "target_support": (target_supp_tensor > 0.5),
                 "phase": phase_target,
+                "phase_id": torch.tensor(phase_id, dtype=torch.long),
                 "subject_id": subject_p0,
             }
         except ValueError:

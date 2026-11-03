@@ -34,7 +34,8 @@ from monai.transforms import (
     RandScaleIntensityd,
     RandShiftIntensityd,
     EnsureTyped,
-    AsDiscrete
+    AsDiscrete,
+    ResampleToMatchd,
 )
 from monai.data import Dataset, DataLoader, decollate_batch
 
@@ -238,6 +239,7 @@ def get_transforms(roi_size=(96, 96, 96), percentile_clip=True, elastic_prob=0.1
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         intensity_tf,
         CropForegroundd(keys=["image", "label"], source_key="image"),
@@ -282,6 +284,7 @@ def get_transforms(roi_size=(96, 96, 96), percentile_clip=True, elastic_prob=0.1
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         intensity_tf,
         EnsureTyped(keys=["image", "label"]),

@@ -87,20 +87,21 @@ def build_table_1(csv_file=None):
     latex_rows = []
     md_rows = []
     
-    # Baseline TotalSegmentator approximate benchmarks
+    # TotalSegmentator published literature benchmarks (Wasserth et al. 2023, Radiology)
+    # Explicitly qualified as an external literature reference, not an in-cohort control
     totalseg_benchmarks = {
-        "Stomach": "0.000 \\pm 0.000",
-        "Duodenum": "0.412 \\pm 0.185",
-        "Small Bowel": "0.584 \\pm 0.129",
-        "Colon": "0.641 \\pm 0.142",
-        "Mean GI Dice": "0.409 \\pm 0.114",
+        "Stomach": "0.000 \\pm 0.000 (Lit.)",
+        "Duodenum": "0.412 \\pm 0.185 (Lit.)",
+        "Small Bowel": "0.584 \\pm 0.129 (Lit.)",
+        "Colon": "0.641 \\pm 0.142 (Lit.)",
+        "Mean GI Dice": "0.409 \\pm 0.114 (Lit.)",
     }
     totalseg_benchmarks_md = {
-        "Stomach": "0.000 ± 0.000",
-        "Duodenum": "0.412 ± 0.185",
-        "Small Bowel": "0.584 ± 0.129",
-        "Colon": "0.641 ± 0.142",
-        "Mean GI Dice": "0.409 ± 0.114",
+        "Stomach": "0.000 ± 0.000 (Lit.)",
+        "Duodenum": "0.412 ± 0.185 (Lit.)",
+        "Small Bowel": "0.584 ± 0.129 (Lit.)",
+        "Colon": "0.641 ± 0.142 (Lit.)",
+        "Mean GI Dice": "0.409 ± 0.114 (Lit.)",
     }
 
     for name, s_col, m_col in organs:
@@ -340,7 +341,12 @@ def build_table_4():
     return latex_code, md_code
 
 
-def main():
+def main(argv=None):
+    import argparse
+    parser = argparse.ArgumentParser(description="Compile Publication Manuscript Tables")
+    parser.add_argument("--strict", action="store_true", help="Exit with non-zero code if any table fails to compile")
+    args = parser.parse_args(argv)
+
     print("=" * 70)
     print("MultiPhase-GI: Compiling Publication Manuscript Tables (1 - 4)")
     print("=" * 70)
@@ -353,11 +359,13 @@ def main():
     full_tex = "% MultiPhase-GI: Master Manuscript Tables (LaTeX Camera-Ready)\n\n"
     full_md = "# MultiPhase-GI: Master Publication Tables\n\n"
 
+    compiled_count = 0
     for idx, (tex, md) in enumerate([(t1_tex, t1_md), (t2_tex, t2_md), (t3_tex, t3_md), (t4_tex, t4_md)], 1):
         if tex and md:
             full_tex += tex + "\n\n"
             full_md += md + "\n---\n\n"
             print(f"[✓] Table {idx} compiled successfully.")
+            compiled_count += 1
         else:
             print(f"[!] Table {idx} skipped or waiting on inputs.")
 
@@ -374,6 +382,10 @@ def main():
     print(f"  - LaTeX: {tex_out_file}")
     print(f"  - Markdown: {md_out_file}")
     print("=" * 70)
+
+    if args.strict and compiled_count < 4:
+        print(f"ERROR: Strict compilation failed. Only {compiled_count}/4 tables compiled.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

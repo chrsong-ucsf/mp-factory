@@ -82,8 +82,17 @@ def resample_real_to_target(
         else:
             fake_nii = nib.load(str(target_ref))
 
-        # Check physical overlap using a unit support mask in real_nii space
-        real_support = nib.Nifti1Image(np.ones(real_nii.shape[:3], dtype=np.float32), real_nii.affine)
+        # Check physical overlap using observed anatomy support mask (F05)
+        supp_path = str(real_path).replace(".nii.gz", "_support.nii.gz")
+        if os.path.isfile(supp_path):
+            supp_nii = nib.load(supp_path)
+            real_support = nib.Nifti1Image(np.asanyarray(supp_nii.dataobj).astype(np.float32), supp_nii.affine)
+        else:
+            # When explicit support mask is absent, exclude -1000 HU registration padding
+            real_arr = np.asanyarray(real_nii.dataobj)
+            real_support_data = (real_arr > -999.0).astype(np.float32)
+            real_support = nib.Nifti1Image(real_support_data, real_nii.affine)
+
         overlap_nii = nip.resample_from_to(real_support, fake_nii, order=0, cval=0.0)
         overlap_arr = np.asanyarray(overlap_nii.dataobj)
         total_voxels = overlap_arr.size
