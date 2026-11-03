@@ -1,0 +1,2 @@
+VALID_NIFTI_GZ {"bytes": 262539, "same_size": true, "prefix_equal": true, "full_hash_changed": true, "fingerprint_unchanged": true, "changed_voxel": 4.0}
+ENSEMBLE_CONFLICT_MERGE {"exit": 0, "rows": 2, "unique_subjects": 1, "categories": ["CLEAN_HIGH_CONFIDENCE", "NOISE_REJECT"]}

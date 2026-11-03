@@ -1,0 +1,22 @@
+{
+  "commit": "d1a6717c46d56cb94830c65aa3e97b076ec34698",
+  "pytest": "132 passed in30.71s",
+  "python_parse": {
+    "files": 90,
+    "errors": 0
+  },
+  "shell_syntax": {
+    "files": 76,
+    "errors": 0
+  },
+  "pyflakes_diagnostics": 174,
+  "undefined_name_diagnostics": 0,
+  "sanity": {
+    "checks": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "production_reexecution": false
+}
