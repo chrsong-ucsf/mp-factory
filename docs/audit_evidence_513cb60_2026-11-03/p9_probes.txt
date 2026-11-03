@@ -1,0 +1,68 @@
+HEAD 513cb604aa57a67394f08eab90aeca4903b57674
+Temporary root /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-513cb60-p9-qyouwj6s
+ONE_EPOCH_ACTUAL_SWEEP_TINY_NETWORK
+  Validation: patient-grouped 20%% split (1 scans across 1 pts)
+
+============================================================
+  Scaling Sweep: N=1 (requested=2) | seed=42 | train=1 | val=1 | loss=asymmetric
+============================================================
+/opt/anaconda3/lib/python3.12/site-packages/monai/utils/deprecate_utils.py:320: FutureWarning: monai.transforms.spatial.dictionary Orientationd.__init__:labels: Current default value of argument `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` was changed in version None from `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` to `labels=None`. Default value changed to None meaning that the transform now uses the 'space' of a meta-tensor, if applicable, to determine appropriate axis labels.
+  warn_deprecated(argname, msg, warning_category)
+/opt/anaconda3/lib/python3.12/site-packages/monai/data/meta_tensor.py:154: UserWarning: Setting affine, but the applied meta contains an affine. This will be overwritten.
+  warnings.warn("Setting affine, but the applied meta contains an affine. This will be overwritten.")
+  Epoch   1/1 | loss=3.4050 | mean_dice=0.1873 | mean_hd95=18.06
+  Saved metrics → /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-513cb60-p9-qyouwj6s/sweep/N0001/seed42/epoch_metrics.json
+  Saved metrics → /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-513cb60-p9-qyouwj6s/sweep/N0001/seed42/epoch_metrics.csv
+  Best val Dice (N=2, seed=42): 0.1873
+
+RETURN ('/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-513cb60-p9-qyouwj6s/sweep/N0001/seed42/epoch_metrics.json', 0.18726591765880585)
+DIRECTORY /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-513cb60-p9-qyouwj6s/sweep/N0001/seed42
+MANIFEST {"n_cases": 1, "n_requested": 2, "n_train_scans": 1, "n_train_patients": 1, "n_val_scans": 1, "n_val_patients": 1, "seed": 42, "train_patients": ["CV_1000"], "val_patients": ["CV_1001"], "train_cases": ["CV_1000_P0"], "val_cases": ["CV_1001_P0"]}
+EPOCH_JSON_N_CASES 2
+SUMMARY [
+  {
+    "n_cases": 2,
+    "num_seeds": 1,
+    "seeds": [
+      42
+    ],
+    "mean_best_val_dice": 0.187266,
+    "std_best_val_dice": null,
+    "mean_best_val_hd95": 18.0624,
+    "std_best_val_hd95": null,
+    "mean_best_val_true_dice": null,
+    "std_best_val_true_dice": null,
+    "per_seed_results": [
+      {
+        "seed": 42,
+        "best_epoch": 1,
+        "best_val_mean_dice": 0.187266,
+        "best_val_mean_hd95": 18.0624,
+        "best_val_true_dice": null,
+        "best_dice_stomach": 0.187266,
+        "best_dice_duodenum": NaN,
+        "best_dice_small_bowel": NaN,
+        "best_dice_colon": NaN,
+        "best_hd95_stomach": 18.0624,
+        "best_hd95_duodenum": NaN,
+        "best_hd95_small_bowel": NaN,
+        "best_hd95_colon": NaN
+      }
+    ],
+    "mean_dice_stomach": 0.187266,
+    "std_dice_stomach": null,
+    "mean_dice_duodenum": NaN,
+    "std_dice_duodenum": null,
+    "mean_dice_small_bowel": NaN,
+    "std_dice_small_bowel": null,
+    "mean_dice_colon": NaN,
+    "std_dice_colon": null
+  }
+]
+PHASE1_DISJOINT training.train_mednext fg=0
+PHASE1_DISJOINT training.train_swin_unetr fg=0
+TAMPERED_OUTPUT_REGENERATED_CLASSES [0.0, 1.0, 2.0]
+DEFAULT_FOLD_MANIFEST_REJECTED RuntimeError: Missing required training manifest in /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-513cb60-p9-qyouwj6s/models for checkpoint /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-513cb60-p9-qyouwj6s/models/best_mednext_gi.pt. Expected one of ['train_manifest.json']. Bound membership/configuration is required to evaluate holdout validation.
+UNBOUND_NO_CONFIG_MANIFEST_ACCEPTED ('/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-513cb60-p9-qyouwj6s/models/train_manifest.json', {'train_cases': ['CV_1000_P0']})
+REPLACED_CHECKPOINT_STILL_ACCEPTED ('/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-513cb60-p9-qyouwj6s/models/train_manifest.json', {'train_cases': ['CV_1000_P0']})
+BLANK_MEMBERSHIP_ACCEPTED ('/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-513cb60-p9-qyouwj6s/models/train_manifest.json', {'train_cases': [' ']})

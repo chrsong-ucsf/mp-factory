@@ -1,0 +1,51 @@
+{
+  "single_process": {
+    "rank": 0,
+    "loss": 1.0972802639007568,
+    "best_loss": 1.0972802639007568,
+    "save_calls": 1,
+    "reduced_batch_count": 1
+  },
+  "multiprocess_exitcodes": [
+    0,
+    0
+  ],
+  "ddp_gloo_cpu": [
+    {
+      "rank": 1,
+      "loss": 0.9310199618339539,
+      "best_loss": 0.9310199618339539,
+      "save_calls": 0,
+      "reduced_batch_count": 2
+    },
+    {
+      "rank": 0,
+      "loss": 0.9310199618339539,
+      "best_loss": 0.9310199618339539,
+      "save_calls": 1,
+      "reduced_batch_count": 2
+    }
+  ],
+  "head": "513cb60",
+  "scope": "Production validation AST branch with synthetic model/AE; real two-process CPU Gloo all_reduce; not GPU/NCCL/full training",
+  "phase_manifest_actual_main": {
+    "conflicting_duplicate": {
+      "error_type": "ValueError",
+      "message": "Failed to load required pairs manifest from /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmppvnljecs/pairs.csv: Contradictory phase mapping in /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmppvnljecs/pairs.csv row 1 for '('CV_00001', 'CV_00002')': existing phase 'P1_arterial_early' vs new phase 'P2_arterial_late'"
+    },
+    "identical_duplicate": {
+      "returned_normally": true
+    }
+  },
+  "source_refs": {
+    "ddp_reduce_master_save": "code/project10/training/train_stage2_synthesis.py:560-584",
+    "phase_conflict_rejection": "code/project10/evaluation/sample_multiphase_diffusion.py:427-442",
+    "checkpoint_payload": "code/project10/training/train_stage2_synthesis.py:143-152"
+  },
+  "limits": [
+    "No full pytest",
+    "No production model regeneration",
+    "Historical checkpoint patient membership not verified",
+    "Sampler strict state_dict loading still rejects architectural mismatch; no historical checkpoint tested"
+  ]
+}

@@ -1,0 +1,19 @@
+Actual synthetic scanner probes HEAD513cb60. Temporary files only, not genuine production measurements.
+{
+  "rejected_subject_now_rejected": true,
+  "fractional_label_now_rejected": true,
+  "arbitrary_consistent_run_without_hashes_completion_accepted": true,
+  "mixed_v3_v4_accepted": true,
+  "garbage_version_now_rejected": true,
+  "invalid_domains_now_rejected": true,
+  "truncated_header_shape": [
+    16,
+    16,
+    16
+  ],
+  "truncated_payload_error": "EOFError",
+  "actual_scanner_truncated_payload_accepted": true
+}
+
+Actual report generation exclusions-loader probe:
+{"json_imported": false, "exclusions_json_exists": true, "report_uses_json_reasons": false, "report_uses_generic_37": true}

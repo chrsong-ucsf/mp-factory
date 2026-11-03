@@ -1,0 +1,147 @@
+MP-FACTORY: NEXT RESULTS/METHODS AUDIT
+Date: 2026-11-03 (America/Los_Angeles)
+Audited HEAD: 513cb604aa57a67394f08eab90aeca4903b57674
+Comparison: 7dafd09 and audit commit7ebca53
+
+ASSESSMENT AND FRESH CHECKS
+
+Most of the preceding concrete execution defects are now repaired in targeted
+verification. The audit remains open for checkpoint-manifest compatibility and
+binding, actual-size metadata propagation, payload verification, current run/metric
+proof and unreconciled historical cohort claims.
+
+- Full configured suite:160 passed in33.17s, exit0.
+- All90 tracked Python files parse; all76 tracked shell/job scripts pass bash -n.
+- Pyflakes:181 diagnostics, including undefined json at
+  code/evaluation/verify_production_results.py:688. Lint is not clean.
+- Built-in sanity checker:31checks,13PASS/17WARN/0FAIL/1INFO; exit0. It does not
+  establish production availability or scientific validity.
+- Started from a clean main checkout matching origin/main after fetch. Production
+  functions, CLI paths and selected unchanged validation branches were probed with
+  temporary data. Scaling used a tiny substituted Conv3d model for orchestration.
+- DDP validation used a real two-process CPU Gloo collective with a synthetic
+  model/AE and production validation branch; no GPU/NCCL training was conducted.
+- No implementation edits, cluster jobs, production inference or current cohort
+  regeneration. Only audit documentation/evidence is committed and pushed.
+
+REMAINING FINDINGS
+
+1. [P2] Default trainer manifests do not match their evaluation consumer.
+   Phase1/2 trainers default to fold=-1 and write fold_-1_manifest.json (e.g.
+   train_mednext.py:390; train_mednext_phase2.py:552). New
+   eval_scaling_checkpoints.py:185-193 recognizes only fold_(digits), then expects
+   train_manifest.json when no nonnegative fold is found. Actual helper probe with
+   a valid default-fold manifest rejects it as missing. Support producer filenames
+   and negative/default folds explicitly; test trainer-to-evaluator handoff.
+
+2. [P2] Manifest schema validation still does not authenticate checkpoint membership.
+   eval_scaling_checkpoints.py:208-232 validates a nonempty membership list and an
+   optional matching fold. It requires no content hash, architecture/configuration
+   identity, split/data fingerprint or nonblank member IDs.
+   Actual probes accept {train_cases:[CV_1000_P0]} without hashes/configuration;
+   replacing checkpoint contents leaves acceptance unchanged; train_cases:[space]
+   also passes and is later stripped, excluding nobody.
+   Bind membership to the saved checkpoint and executed configuration; reject
+   blank/malformed identifiers. File adjacency and matching model keys do not prove
+   which patients trained a same-architecture model, including legacy warm starts.
+
+3. [P2] Actual training size is not propagated through every scaling artifact.
+   New folder and train manifest correctly use measured N at
+   run_scaling_sweep.py:659,665-669. Epoch rows/checkpoints/epoch JSON still use
+   requested n_cases at:795,825,830. write_sweep_summary():862 groups that value;
+   progress CSV:1125 still writes requested N.
+   Actual one-epoch probe: request2/train1; folderN0001 and manifestn_train_scans1,
+   but epoch JSONn_cases2 and generated sweep summaryn_cases2. The fitting helper
+   now prefers n_train_scans when present, but its producers/other consumers must
+   supply it consistently. Propagate requested/actual scan/patient counts through
+   checkpoints, epochs, summaries and progress records; label the fitted quantity.
+
+4. [P2] Full-payload verification still only reads headers.
+   verify_production_results.py:459-504 visits every registration/synthesis/DVF
+   filename but obtains nib.load(...).header without reading voxel payloads.
+   Actual scanner accepts a matching synthetic gzip truncated to2000bytes: header
+   loads as16-cube, get_fdata() raises EOFError, cohort_lineage_ok remainsTrue.
+   Read and validate every required payload and finiteness/vector semantics, or
+   accurately label the check as header inventory rather than complete readability.
+   The previous unsampled-corrupt-header case is fixed by all-header traversal;
+   this is a separate compressed-payload truncation defect.
+
+5. [P1/P2] Verification accepts unproven run identity and mixed metric contracts.
+   verify_production_results.py:534-542 permits any single nonblank run ID without
+   linking checkpoint/input/output hashes, current manifest or worker completion.
+   Actual scanner accepts UNPROVEN_RUN with no such evidence. It also accepts a
+   table mixing v3_supported_spatial and v4_audited_support. The actual synthesis
+   merger requires current METRIC_VERSION=v4_audited_support
+   (evaluate_synthesis.py:42,392-400), so the verifier approves a table the strict
+   evaluator rejects. Require one compatible current contract and its verified
+   complete run evidence; label older results historical rather than current proof.
+   Invalid numeric domains, arbitrary garbage versions and inconsistent run-ID
+   strings are now rejected; nonblank metadata alone is the remaining gap.
+
+6. [P2] New exclusion-reason loader silently fails on missing json import.
+   verify_production_results.py:688 calls json.load, but imports18-29 omit json.
+   Broad except:693 suppresses NameError and falls back to generic count text.
+   Actual generate_production_report probe with exclusions JSON present omits its
+   reason breakdown and emits only37excluded. Import the dependency and test the
+   generated explanation and exclusion reconciliation, not just file presence.
+   Validate exclusion identities/counts and source linkage rather than suppressing
+   invalid reason evidence.
+
+7. [P2] Ensemble schema rejection is bypassed if subject_id itself is absent.
+   merge_ensemble_chunks.py:55 nests mandatory provenance checks inside an optional
+   subject_id-column branch. Parent CLI probes: a row with subject_id and no hashes
+   now correctly exits1; a SUCCESS row without subject_id or any hashes exits0 and
+   publishes a CSV. Require base identity/status/schema independently of optional
+   branches. Expected-case checking is only an optional lower-bound count, not
+   exact expected subjects/worker completion proof; complete verified exports still
+   need an explicit cohort/run contract.
+
+8. [P1/evidence] Eligibility and historic results remain unreconciled with current rules.
+   Archived triage remains1444REJECT/185WEAK/3CLEAN. Fresh current-rule replay of
+   rounded per-organ statistics remains1598REJECT/34WEAK/0CLEAN, not a new measured
+   source-volume cohort. Report still certifies151training scans.
+   New docs/manifest_exclusions.json records37unique archived IDs with coherent
+   counts:1missing coarse annotation and36zero-foreground masks. That improves
+   accounting, but does not contain source-volume hashes/run/version linkage or
+   reconcile remaining151eligibility with the changed aggregate metric policy.
+   Local results/logs and CT/checkpoint cohorts remain unavailable; remote absence
+   is not inferred. Report timestamp/all-gates-passed claims cannot be independently
+   reexecuted from current local evidence. All1545archived pairs still lack source/
+   target exam dates; contemporaneous pairing and old checkpoint holdout exposure
+   remain unverified. Regenerate/archive actual cohorts, affected training lineage,
+   independent metrics and consistent report/showcase descriptions before closure.
+
+VERIFIED REPAIRS
+
+- A complete one-epoch scaling call now trains, validates, saves, cleans up and
+  returns its result tuple. The gc-shadowing failure is repaired.
+- Both Phase1 GIDataset probes now resample individual organ geometry correctly:
+  the100mm-displaced stomach yields zero foreground in both trainers.
+- Tampered merged-mask output now triggers regeneration; returned classes[0,1,2].
+  Input/output hashes, schema version, geometry and label checks operate.
+- Empty/unrelated manifest rejection improves, recognized filename selection and
+  positive-fold checks work. Default-fold and content binding remain items1-2.
+- Actual two-process Stage2 validation: both ranks exit0 with identical reduced
+  loss0.93101996/count2; rank0saves once and rank1never saves. Single-process save
+  also works. This verifies CPU collective/control flow, not GPU performance.
+- Actual sampler main rejects contradictory phase rows before model loading;
+  identical duplicate mappings remain accepted.
+- Rejected audit subjects and fractional/noncanonical/nonfinite labels are rejected
+  by new training-manifest validation. Former all-ignore/geometry/alias checks remain.
+- Invalid metric domains, unsupported garbage versions and different run IDs reject;
+  DVFs require a vector-component dimension and all output headers are visited.
+- Ensemble provenance is mandatory by default when subject_id exists, with an
+  explicit unverified override. Missing/present duplicates retain their repair.
+- Earlier automatic phase lookup, support-presence merge, immutable split hashing,
+  empty-validation guards, probability alignment and statistical repairs remain.
+
+NEXT ACCEPTANCE GATE
+
+Repair default manifest handoff and bind validated membership to actual weights.
+Propagate actual training counts through every artifact. Verify complete payloads
+and one current metric/run contract, make schema/exclusion loading fail explicitly,
+and regenerate current scientific evidence. Passing setup/helper tests or refreshed
+timestamps cannot substitute for this evidence.
+
+Evidence: audit_evidence_513cb60_2026-11-03/ contains full-suite/lint/sanity, P9/P10/
+scanner transcripts, ensemble schema probes and archive replay. Source is unchanged.

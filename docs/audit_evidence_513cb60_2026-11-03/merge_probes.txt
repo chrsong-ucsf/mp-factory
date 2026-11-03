@@ -1,0 +1,14 @@
+{"probe": "no_provenance", "exit": 1, "output_exists": false}
+Found 1 chunk file(s):
+  /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6gej9pys/no_provenance/chunk_0.csv: 1 rows
+ERROR: Ensemble merge requires mandatory provenance columns ['input_fingerprint', 'consensus_sha256', 'uncertainty_sha256'], but they are absent from the merged schema. Pass --allow_unverified_provenance to bypass.
+
+
+{"probe": "no_subject_identity", "exit": 0, "output_exists": true}
+Found 1 chunk file(s):
+  /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6gej9pys/no_subject_identity/chunk_0.csv: 1 rows
+
+Merged 1 chunks -> 1 total rows -> /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6gej9pys/no_subject_identity/merged.csv
+  SUCCESS: 1 (100.0%)
+
+[DATASET SPLITS] Skipped (--splits_dir none).

@@ -1,0 +1,20 @@
+{
+  "audited_commit": "513cb604aa57a67394f08eab90aeca4903b57674",
+  "pytest": "160 passed in33.17s",
+  "python_parsed": 90,
+  "python_parse_errors": 0,
+  "shell_syntax_passed": 76,
+  "shell_syntax_errors": 0,
+  "pyflakes_diagnostics": 181,
+  "undefined_name_locations": [
+    "code/evaluation/verify_production_results.py:688:30: undefined name 'json'"
+  ],
+  "sanity": {
+    "checks": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "production_reexecution": false
+}
