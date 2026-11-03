@@ -255,17 +255,33 @@ def main():
     if os.path.exists(CSV_JHU):
         df_jhu = pd.read_csv(CSV_JHU)
         print(f"Loaded {len(df_jhu)} evaluations from {os.path.basename(CSV_JHU)}")
-        # Reject conflicting duplicate subject evaluations
+        # Reject conflicting duplicate subject evaluations across all evaluated metrics and identities (Finding 10)
         for m_name in ["MedNeXt", "TotalSegmentator"]:
             m_df = df_jhu[df_jhu["model_name"] == m_name]
             dups = m_df[m_df.duplicated(subset=["subject_id"], keep=False)]
             if not dups.empty:
                 for sid, grp in dups.groupby("subject_id"):
-                    for col in ["mean_dice", "stomach_dice", "duodenum_dice"]:
-                        if col in grp.columns:
-                            vals = grp[col].dropna().unique()
-                            if len(vals) > 1 and not np.allclose(vals, vals[0], atol=1e-5):
-                                raise ValueError(f"Conflicting duplicate records for {m_name} subject '{sid}': {vals.tolist()}")
+                    cols_to_check = [
+                        c for c in grp.columns
+                        if any(m in c for m in ["dice", "hd95", "iou", "betti", "precision", "sensitivity", "specificity"])
+                        or c in ["patient_id", "run_id", "model_name"]
+                    ]
+                    for col in cols_to_check:
+                        col_vals = grp[col].tolist()
+                        has_missing = any(pd.isna(v) or str(v).strip() in ("", "nan", "None") for v in col_vals)
+                        has_present = any(not pd.isna(v) and str(v).strip() not in ("", "nan", "None") for v in col_vals)
+                        if has_missing and has_present:
+                            raise ValueError(f"Conflicting duplicate records for {m_name} subject '{sid}' in column '{col}': missing-vs-present {col_vals}")
+
+                        clean_vals = [v for v in col_vals if not pd.isna(v) and str(v).strip() not in ("", "nan", "None")]
+                        if len(clean_vals) > 1:
+                            if grp[col].dtype.kind in 'biufc':
+                                arr = np.array(clean_vals, dtype=float)
+                                if not np.allclose(arr, arr[0], atol=1e-5):
+                                    raise ValueError(f"Conflicting duplicate records for {m_name} subject '{sid}' in metric '{col}': {clean_vals}")
+                            else:
+                                if len(set(str(v).strip() for v in clean_vals)) > 1:
+                                    raise ValueError(f"Conflicting duplicate records for {m_name} subject '{sid}' in column '{col}': {clean_vals}")
 
         med = df_jhu[df_jhu["model_name"] == "MedNeXt"].drop_duplicates(subset=["subject_id"])
         tot = df_jhu[df_jhu["model_name"] == "TotalSegmentator"].drop_duplicates(subset=["subject_id"])

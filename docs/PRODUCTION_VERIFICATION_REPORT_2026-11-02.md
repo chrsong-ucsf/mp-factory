@@ -1,5 +1,5 @@
 # Production Verification & Forensic Audit Report
-**Audit Timestamp:** 2026-11-03 10:11:46 UTC
+**Audit Timestamp:** 2026-11-03 10:52:18 UTC
 **Overall Status:** `ALL VERIFICATION GATES PASSED`
 **Cluster Environment:** CBI HPC (`/mnt/scratch/user/chrsong/mp-factory`)
 **Audit Scope:** On-disk asset inventory, cryptographic checkpoint fingerprints, geometric header validation, and historical metric aggregation.
@@ -13,7 +13,7 @@
 | **Gate 1** | Model Checkpoints (26 weights hashed & loaded) | **PASS** | 26 / 26 checkpoints valid |
 | **Gate 2** | Raw Ingestion & JHU Ground Truth Headers | **PASS** | 1632 CTs, 6 JHU NRRDs |
 | **Gate 3** | Phase 3 Batch Segmentations (1,632 volumes) | **PASS** | MedNeXt 1632, Swin 1632 |
-| **Gate 4** | Ensemble Consensus & Cleansing (Zero-FG Quarantining) | **PASS** | 1,632 consensus, 0 empty in clean, 187 clean training pool |
+| **Gate 4** | Ensemble Consensus & Cleansing (Zero-FG Quarantining) | **PASS** | 1,632 consensus, 0 empty in clean, 151 clean training pool |
 | **Gate 5** | Project 10 Synthesis, Registration & Kinetics Containment | **PASS** | 1545 pairs, 1067 synthetics, Kinetics: PASS |
 | **Gate 6** | Manuscript Tables Compilation Deliverables | **PASS** | Tables 1-4 successfully compiled to MD and TeX |
 
@@ -82,7 +82,7 @@ Full 64-character SHA-256 cryptographic digests and PyTorch loadability checks f
   - `WEAK_COARSE`: **185 scans (11.3%)**
   - `CLEAN_HIGH_CONFIDENCE`: **3 scans (0.2%)**
 - **Quarantined Zero-Foreground Cases:** **903 scans** report zero foreground components across all 4 GI organs and are strictly quarantined to `NOISE_REJECT`.
-- **Active Distillation Training Pool:** **187 verified scans** (3 `CLEAN_HIGH_CONFIDENCE` + 185 `WEAK_COARSE`) with verified non-empty foreground GI anatomy.
+- **Active Distillation Training Pool:** **151 verified scans** (3 `CLEAN_HIGH_CONFIDENCE` + 148 `WEAK_COARSE`; 37 candidate excluded due to missing human coarse annotations on disk (e.g. BDMAP_00391877)) with verified non-empty foreground GI anatomy.
 
 ---
 

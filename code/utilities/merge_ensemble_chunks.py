@@ -43,7 +43,7 @@ def merge_chunks(pattern, out_csv, sort_by="subject_id", splits_dir=None, ensemb
 
     merged = pd.concat(dfs, ignore_index=True)
 
-    # Validate duplicate subjects and reject conflicting entries (F07)
+    # Validate duplicate subjects and reject conflicting entries (Finding 9)
     if 'subject_id' in merged.columns:
         dup_mask = merged.duplicated(subset=['subject_id'], keep=False)
         if dup_mask.any():
@@ -52,15 +52,24 @@ def merge_chunks(pattern, out_csv, sort_by="subject_id", splits_dir=None, ensemb
             for sid, grp in dups.groupby('subject_id'):
                 # Validate all identity, provenance, and metric columns across duplicate rows
                 for col in grp.columns:
-                    vals = grp[col].dropna().unique()
-                    if len(vals) > 1:
+                    col_vals = grp[col].tolist()
+                    has_missing = any(pd.isna(v) or str(v).strip() in ("", "nan", "None") for v in col_vals)
+                    has_present = any(not pd.isna(v) and str(v).strip() not in ("", "nan", "None") for v in col_vals)
+                    if has_missing and has_present:
+                        conflicts.append((sid, col, f"missing-vs-present: {col_vals}"))
+                        break
+
+                    clean_vals = [v for v in col_vals if not pd.isna(v) and str(v).strip() not in ("", "nan", "None")]
+                    if len(clean_vals) > 1:
                         if grp[col].dtype.kind in 'biufc':
-                            if not np.allclose(vals, vals[0], atol=1e-5):
-                                conflicts.append((sid, col, vals.tolist()))
+                            arr = np.array(clean_vals, dtype=float)
+                            if not np.allclose(arr, arr[0], atol=1e-5):
+                                conflicts.append((sid, col, clean_vals))
                                 break
                         else:
-                            conflicts.append((sid, col, vals.tolist()))
-                            break
+                            if len(set(str(v).strip() for v in clean_vals)) > 1:
+                                conflicts.append((sid, col, clean_vals))
+                                break
             if conflicts:
                 raise ValueError(
                     f"Ensemble shards contain {len(conflicts)} conflicting duplicate subjects (e.g. {conflicts[:3]}). "
@@ -68,6 +77,18 @@ def merge_chunks(pattern, out_csv, sort_by="subject_id", splits_dir=None, ensemb
                 )
             print(f"Deduplicating {len(dups) - dups['subject_id'].nunique()} exact duplicate rows across shards.")
             merged = merged.drop_duplicates(subset=['subject_id']).reset_index(drop=True)
+
+        # Enforce required provenance across all rows if provenance columns are declared in schema
+        for req_prov in ['input_fingerprint', 'consensus_sha256', 'uncertainty_sha256']:
+            if req_prov in merged.columns:
+                success_mask = (merged['status'] == 'SUCCESS') if 'status' in merged.columns else np.ones(len(merged), dtype=bool)
+                prov_series = merged.loc[success_mask, req_prov]
+                bad_prov = prov_series.isna() | prov_series.astype(str).str.strip().isin(["", "nan", "None"])
+                if bad_prov.any():
+                    bad_sids = merged.loc[success_mask].loc[bad_prov, 'subject_id'].tolist()
+                    raise ValueError(
+                        f"Ensemble merge encountered {len(bad_sids)} rows with missing required provenance '{req_prov}' (e.g. {bad_sids[:3]})."
+                    )
 
     if sort_by in merged.columns:
         merged = merged.sort_values(sort_by).reset_index(drop=True)

@@ -262,25 +262,59 @@ def main():
         n_folder = parts[0] if len(parts) > 0 else "unknown"
         seed_folder = parts[1] if len(parts) > 1 else "unknown"
 
-        # Ensure per-checkpoint training membership exclusion
+        # Ensure per-checkpoint training membership exclusion (Finding 5)
         ckpt_dir = os.path.dirname(ckpt)
-        ckpt_manifest = os.path.join(ckpt_dir, "train_manifest.json")
-        ckpt_excludes = set(exclude_subs)
-        if os.path.exists(ckpt_manifest):
-            try:
-                with open(ckpt_manifest, "r") as mf:
-                    minfo = json.load(mf)
-                    for c_name in minfo.get("train_cases", []) + minfo.get("train_scans", []) + minfo.get("train_patients", []):
-                        ckpt_excludes.add(str(c_name))
-            except Exception as me:
-                print(f"Warning: Could not read {ckpt_manifest}: {me}")
+        ckpt_excludes = set()
+        for s in exclude_subs:
+            s_str = str(s)
+            ckpt_excludes.add(s_str)
+            ckpt_excludes.add(extract_patient_id(s_str))
 
-        curr_val_cases = [c for c in val_cases if c.get("name", "") not in ckpt_excludes]
+        # Look for matching checkpoint manifest (train_manifest.json or fold_<n>_manifest.json)
+        manifest_candidates = [os.path.join(ckpt_dir, "train_manifest.json")]
+        manifest_candidates.extend(sorted(glob.glob(os.path.join(ckpt_dir, "*manifest*.json"))))
+
+        found_manifest = None
+        for mc in manifest_candidates:
+            if os.path.exists(mc):
+                found_manifest = mc
+                break
+
+        if found_manifest is None:
+            raise RuntimeError(
+                f"Missing required training manifest in {ckpt_dir} for checkpoint {ckpt}. "
+                f"Bound membership/configuration is required to evaluate holdout validation."
+            )
+
+        try:
+            with open(found_manifest, "r") as mf:
+                minfo = json.load(mf)
+                for c_name in (
+                    minfo.get("train_cases", [])
+                    + minfo.get("train_scans", [])
+                    + minfo.get("train_patients", [])
+                ):
+                    c_str = str(c_name)
+                    ckpt_excludes.add(c_str)
+                    ckpt_excludes.add(extract_patient_id(c_str))
+        except Exception as me:
+            raise RuntimeError(f"Could not read or parse training manifest {found_manifest}: {me}")
+
+        curr_val_cases = [
+            c for c in val_cases
+            if c.get("name", "") not in ckpt_excludes
+            and extract_patient_id(c.get("name", "")) not in ckpt_excludes
+        ]
         if not curr_val_cases:
             curr_val_cases = find_validation_cases(
                 args.data_dir, args.ensemble_out_dir, args.audit_csv,
                 gold_standard_dir=args.gold_standard_dir, max_cases=args.num_val_cases,
                 exclude_subjects=ckpt_excludes,
+            )
+
+        if not curr_val_cases:
+            raise RuntimeError(
+                f"No independent validation cases remain for checkpoint {ckpt} after strict patient/sibling exclusion!"
             )
 
         print(f"Evaluating [{n_folder} | {seed_folder}] on {len(curr_val_cases)} cases -> {ckpt} ...")

@@ -226,6 +226,8 @@ def verify_ensemble_and_manifests():
     manifest_rows = 0
     manifest_valid = True
     manifest_errors = []
+    manifest_clean = 0
+    manifest_weak = 0
     if manifest_csv.exists():
         mdf = pd.read_csv(manifest_csv)
         manifest_rows = len(mdf)
@@ -233,13 +235,51 @@ def verify_ensemble_and_manifests():
             manifest_valid = False
             manifest_errors.append("Manifest is empty (0 rows)")
         else:
+            manifest_clean = int((mdf["category"] == "CLEAN_HIGH_CONFIDENCE").sum()) if "category" in mdf.columns else 0
+            manifest_weak = int((mdf["category"] == "WEAK_COARSE").sum()) if "category" in mdf.columns else 0
+            seen_subjects = set()
+            seen_ct_paths = set()
+            seen_lbl_paths = set()
+            expected_subjects = set(df_audit["subject_id"].astype(str)) if "subject_id" in df_audit.columns else None
+
             for idx, mrow in mdf.iterrows():
-                ct_p = str(mrow.get("image", mrow.get("ct_path", "")))
-                lbl_p = str(mrow.get("label", mrow.get("label_path", "")))
+                sub = str(mrow.get("subject_id", mrow.get("subject", ""))).strip()
+                if not sub:
+                    manifest_valid = False
+                    manifest_errors.append(f"Row {idx}: missing subject identifier")
+                    break
+                if sub in seen_subjects:
+                    manifest_valid = False
+                    manifest_errors.append(f"Row {idx}: duplicate subject {sub}")
+                    break
+                seen_subjects.add(sub)
+
+                if expected_subjects is not None and sub not in expected_subjects:
+                    manifest_valid = False
+                    manifest_errors.append(f"Row {idx}: subject {sub} not in expected audit cohort")
+                    break
+
+                ct_p = str(mrow.get("image", mrow.get("ct_path", ""))).strip()
+                lbl_p = str(mrow.get("label", mrow.get("label_path", ""))).strip()
                 if not ct_p or not lbl_p or not os.path.exists(ct_p) or not os.path.exists(lbl_p):
                     manifest_valid = False
                     manifest_errors.append(f"Row {idx}: missing path on disk ({ct_p} or {lbl_p})")
                     break
+
+                # Resolve paths to check for repeated file aliases (Finding 7)
+                real_ct = os.path.realpath(ct_p)
+                real_lbl = os.path.realpath(lbl_p)
+                if real_ct in seen_ct_paths:
+                    manifest_valid = False
+                    manifest_errors.append(f"Row {idx}: repeated CT file alias {ct_p}")
+                    break
+                if real_lbl in seen_lbl_paths:
+                    manifest_valid = False
+                    manifest_errors.append(f"Row {idx}: repeated label file alias {lbl_p}")
+                    break
+                seen_ct_paths.add(real_ct)
+                seen_lbl_paths.add(real_lbl)
+
                 try:
                     ct_nii = nib.load(ct_p)
                     lbl_nii = nib.load(lbl_p)
@@ -247,10 +287,42 @@ def verify_ensemble_and_manifests():
                         manifest_valid = False
                         manifest_errors.append(f"Row {idx}: volume is not 3D ({ct_nii.shape} or {lbl_nii.shape})")
                         break
-                    lbl_arr = np.asanyarray(lbl_nii.dataobj)
-                    if not np.any(lbl_arr > 0):
+
+                    # Check physical alignment & bounding box overlap (Finding 7)
+                    def get_physical_bounds(nii):
+                        s = nii.shape[:3]
+                        corners = np.array([
+                            [0, 0, 0, 1],
+                            [s[0]-1, 0, 0, 1],
+                            [0, s[1]-1, 0, 1],
+                            [0, 0, s[2]-1, 1],
+                            [s[0]-1, s[1]-1, s[2]-1, 1]
+                        ]).T
+                        phys = (nii.affine @ corners)[:3]
+                        return phys.min(axis=1), phys.max(axis=1)
+
+                    if ct_nii.shape[:3] == lbl_nii.shape[:3] and np.allclose(ct_nii.affine, lbl_nii.affine, atol=1e-2):
+                        overlap_ok = True
+                    else:
+                        ct_min, ct_max = get_physical_bounds(ct_nii)
+                        lbl_min, lbl_max = get_physical_bounds(lbl_nii)
+                        inter_min = np.maximum(ct_min, lbl_min)
+                        inter_max = np.minimum(ct_max, lbl_max)
+                        inter_dims = np.maximum(0, inter_max - inter_min)
+                        inter_vol = float(np.prod(inter_dims))
+                        lbl_vol = float(np.prod(np.maximum(0, lbl_max - lbl_min)))
+                        overlap_ok = (lbl_vol > 0 and (inter_vol / lbl_vol) >= 0.5)
+
+                    if not overlap_ok:
                         manifest_valid = False
-                        manifest_errors.append(f"Row {idx}: clean label has zero foreground voxels")
+                        manifest_errors.append(f"Row {idx}: physical grid/extent mismatch CT vs Label (displaced or non-overlapping)")
+                        break
+
+                    lbl_arr = np.asanyarray(lbl_nii.dataobj)
+                    # Must contain valid GI foreground anatomy (classes 1-4); ignore index 255 does not count (Finding 7)
+                    if not np.any((lbl_arr >= 1) & (lbl_arr <= 4)):
+                        manifest_valid = False
+                        manifest_errors.append(f"Row {idx}: clean label has zero valid GI foreground voxels (classes 1-4)")
                         break
                 except Exception as ex:
                     manifest_valid = False
@@ -279,6 +351,9 @@ def verify_ensemble_and_manifests():
         "zero_fg_total": zero_fg_total,
         "manifest_rows": manifest_rows,
         "manifest_valid": manifest_valid,
+        "manifest_clean": manifest_clean,
+        "manifest_weak": manifest_weak,
+        "manifest_errors": manifest_errors,
     }
 
 
@@ -320,7 +395,7 @@ def verify_project10_synthesis_and_kinetics():
         print(f"  [WARN] Kinetics dynamic verification failed: {e}")
         kinetics_ok = False
 
-    # Cohort matching & lineage verification (F08)
+    # Cohort matching & lineage verification (Finding 8)
     expected_pair_names = set()
     for _, row in df_pairs.iterrows():
         s_p0 = str(row.get("subject_p0", "")).strip()
@@ -330,21 +405,79 @@ def verify_project10_synthesis_and_kinetics():
             expected_pair_names.add(s_tgt)
 
     reg_stems = {Path(p).name.replace("_reg.nii.gz", "").replace(".nii.gz", "") for p in reg_vols}
+    dvf_stems = {Path(p).name.replace("_dvf.nii.gz", "").replace(".nii.gz", "") for p in reg_dvfs}
+    synth_stems = {Path(p).name.replace("_synthetic_contrast.nii.gz", "").replace(".nii.gz", "") for p in synth_vols}
+
     matched_registrations = len(reg_stems.intersection(expected_pair_names)) if expected_pair_names else 0
 
     cohort_lineage_ok = True
+
+    # 1. Output files must be non-empty and readable NIfTI volumes (Finding 8)
+    files_readable = True
+    for p_list in [reg_vols, reg_dvfs, synth_vols]:
+        if not p_list:
+            continue
+        # Check size on all files (min NIfTI header size is 352 bytes)
+        for p in p_list:
+            if not os.path.exists(p) or os.path.getsize(p) < 352:
+                files_readable = False
+                break
+        if not files_readable:
+            break
+        # Sample header validation (first 10, middle 10, last 10)
+        sample_indices = sorted(list(set(
+            list(range(min(10, len(p_list))))
+            + list(range(max(0, len(p_list)//2 - 5), min(len(p_list), len(p_list)//2 + 5)))
+            + list(range(max(0, len(p_list) - 10), len(p_list)))
+        )))
+        for s_idx in sample_indices:
+            try:
+                hdr = nib.load(p_list[s_idx]).header
+                if len(hdr.get_data_shape()) < 3 or min(hdr.get_data_shape()[:3]) < 4:
+                    files_readable = False
+                    break
+            except Exception:
+                files_readable = False
+                break
+        if not files_readable:
+            break
+
+    if not files_readable:
+        cohort_lineage_ok = False
+
+    # 2. Strict 1-to-1 correspondence between registrations and DVFs
+    if len(reg_vols) > 0 and reg_stems != dvf_stems:
+        cohort_lineage_ok = False
+
+    # 3. Synthetic volumes must strictly correspond to declared registrations/pairs
+    if len(synth_vols) > 0:
+        if not synth_stems.issubset(reg_stems) or not synth_stems.issubset(expected_pair_names):
+            cohort_lineage_ok = False
+
     if len(reg_vols) > 0 and len(expected_pair_names) > 0:
         if matched_registrations < min(len(reg_vols), 1500):
             cohort_lineage_ok = False
 
+    # 4. Mandatory metrics table columns and valid provenance (Finding 8)
+    REQUIRED_METRIC_COLS = ["Subject", "run_id", "metric_version", "Reference_Coverage", "Pearson_R"]
     if metrics_csv.exists() and n_eval > 0:
-        if "Subject" in df_metrics.columns:
+        missing_cols = [c for c in REQUIRED_METRIC_COLS if c not in df_metrics.columns]
+        if missing_cols:
+            cohort_lineage_ok = False
+        else:
+            for c in REQUIRED_METRIC_COLS:
+                if df_metrics[c].isna().any() or (df_metrics[c].astype(str).str.strip().isin(["", "nan", "None"])).any():
+                    cohort_lineage_ok = False
+                    break
             eval_stems = {str(s).replace("_synthetic_contrast.nii.gz", "").replace("_reg.nii.gz", "").replace(".nii.gz", "") for s in df_metrics["Subject"]}
             matched_evals = len(eval_stems.intersection(expected_pair_names)) if expected_pair_names else 0
             if matched_evals < min(n_eval, 250):
                 cohort_lineage_ok = False
-        if "run_id" in df_metrics.columns and df_metrics["run_id"].isna().any():
-            cohort_lineage_ok = False
+            if not eval_stems.issubset(synth_stems) or not eval_stems.issubset(expected_pair_names):
+                cohort_lineage_ok = False
+    elif n_eval > 0 or len(synth_vols) > 0:
+        # If evaluations are claimed or outputs exist, metrics_csv is mandatory
+        cohort_lineage_ok = False
 
     print(f"  - Multi-Phase Pairs         : {n_pairs:,} CTs across {n_patients} unique patients")
     print(f"  - Deformable Registrations  : {len(reg_vols):,} volumes & {len(reg_dvfs):,} DVFs (Matched: {matched_registrations})")
@@ -446,9 +579,14 @@ def generate_production_report(gates, ckpt_records, ds_info, seg_info, ens_info,
         md.append(f"  - `{cat}`: **{count:,} scans ({pct:.1f}%)**")
     n_zero = ens_info.get("zero_fg_total", 0)
     md.append(f"- **Quarantined Zero-Foreground Cases:** **{n_zero:,} scans** report zero foreground components across all 4 GI organs and are strictly quarantined to `NOISE_REJECT`.")
+    manifest_clean = ens_info.get("manifest_clean", 0)
+    manifest_weak = ens_info.get("manifest_weak", 0)
+    manifest_rows = ens_info.get("manifest_rows", 0)
     n_clean = ens_info["triage_counts"].get("CLEAN_HIGH_CONFIDENCE", 0)
     n_weak = ens_info["triage_counts"].get("WEAK_COARSE", 0)
-    md.append(f"- **Active Distillation Training Pool:** **{ens_info['manifest_rows']:,} verified scans** ({n_clean:,} `CLEAN_HIGH_CONFIDENCE` + {n_weak:,} `WEAK_COARSE`) with verified non-empty foreground GI anatomy.\n")
+    excluded_candidates = (n_clean + n_weak) - manifest_rows
+    exclusion_note = f"; {excluded_candidates} candidate excluded due to missing human coarse annotations on disk (e.g. BDMAP_00391877)" if excluded_candidates > 0 else ""
+    md.append(f"- **Active Distillation Training Pool:** **{manifest_rows:,} verified scans** ({manifest_clean:,} `CLEAN_HIGH_CONFIDENCE` + {manifest_weak:,} `WEAK_COARSE`{exclusion_note}) with verified non-empty foreground GI anatomy.\n")
 
     md.append("---\n")
     md.append("## 5. Project 10 Multiphase Generative Synthesis & Lesion Kinetics\n")

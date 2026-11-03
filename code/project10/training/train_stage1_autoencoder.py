@@ -363,29 +363,34 @@ def main() -> None:
         # Validation
         val_recon = float("nan")
         if is_master and (epoch + 1) % args.val_interval == 0:
-            model.eval()
-            val_acc = 0.0
-            n_val   = 0
-            with torch.no_grad():
-                for vbatch in val_loader:
-                    vct = vbatch["ct"].to(device, non_blocking=True)
-                    with autocast():
-                        vrecon, _ = model(vct)
-                        val_acc += reconstruction_loss(vrecon, vct, mode="l1").item()
-                    n_val += 1
-            val_recon = val_acc / max(n_val, 1)
-
-            if val_recon < best_val_recon:
-                best_val_recon = val_recon
-                ckpt_path = os.path.join(args.out_dir, "best_stage1_ae.pt")
-                torch.save({
-                    "epoch": epoch + 1,
-                    "model": (model.module if is_ddp else model).state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "val_recon": val_recon,
-                    "cfg": vars(cfg),
-                }, ckpt_path)
-                log.info(f"  [Epoch {epoch+1}] New best val_recon={val_recon:.4f} → saved {ckpt_path}")
+            if len(val_loader) == 0:
+                log.warning("Validation population/loader is empty; reporting validation as unavailable (NaN) and skipping checkpoint selection.")
+            else:
+                model.eval()
+                val_acc = 0.0
+                n_val   = 0
+                with torch.no_grad():
+                    for vbatch in val_loader:
+                        vct = vbatch["ct"].to(device, non_blocking=True)
+                        with autocast():
+                            vrecon, _ = model(vct)
+                            val_acc += reconstruction_loss(vrecon, vct, mode="l1").item()
+                        n_val += 1
+                if n_val > 0:
+                    val_recon = val_acc / n_val
+                    if val_recon < best_val_recon:
+                        best_val_recon = val_recon
+                        ckpt_path = os.path.join(args.out_dir, "best_stage1_ae.pt")
+                        torch.save({
+                            "epoch": epoch + 1,
+                            "model": (model.module if is_ddp else model).state_dict(),
+                            "optimizer": optimizer.state_dict(),
+                            "val_recon": val_recon,
+                            "cfg": vars(cfg),
+                        }, ckpt_path)
+                        log.info(f"  [Epoch {epoch+1}] New best val_recon={val_recon:.4f} → saved {ckpt_path}")
+                else:
+                    log.warning("No validation batches executed; reporting validation as unavailable (NaN).")
 
         # ------------------------------------------------------------------
         # Log

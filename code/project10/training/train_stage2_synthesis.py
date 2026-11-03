@@ -517,60 +517,65 @@ def main() -> None:
         # Validation
         val_loss = float("nan")
         if (epoch + 1) % args.val_interval == 0 or (epoch + 1) == args.epochs:
-            model.eval()
-            val_loss_acc = 0.0
-            n_val_batches = 0
+            if len(val_loader) == 0:
+                log.warning("Validation population/loader is empty; reporting validation as unavailable (NaN) and skipping checkpoint selection.")
+            else:
+                model.eval()
+                val_loss_acc = 0.0
+                n_val_batches = 0
 
-            with torch.no_grad():
-                for batch in val_loader:
-                    ncct = batch["ncct"].to(device)
-                    target = batch["target"].to(device)
-                    mask = batch["mask"].to(device)
+                with torch.no_grad():
+                    for batch in val_loader:
+                        ncct = batch["ncct"].to(device)
+                        target = batch["target"].to(device)
+                        mask = batch["mask"].to(device)
 
-                    z_ncct = ae.encode(ncct)
-                    z_target = ae.encode(target)
-                    mask_one_hot = F.one_hot(mask.squeeze(1).long(), num_classes=5).permute(0, 4, 1, 2, 3).float()
-                    mask_down = F.interpolate(mask_one_hot, size=z_target.shape[2:], mode="nearest")
+                        z_ncct = ae.encode(ncct)
+                        z_target = ae.encode(target)
+                        mask_one_hot = F.one_hot(mask.squeeze(1).long(), num_classes=5).permute(0, 4, 1, 2, 3).float()
+                        mask_down = F.interpolate(mask_one_hot, size=z_target.shape[2:], mode="nearest")
 
-                    t = torch.randint(0, diffusion.timesteps, (z_target.shape[0],), device=device, dtype=torch.long)
-                    noise = torch.randn_like(z_target)
-                    z_t = diffusion.q_sample(z_target, t, noise)
+                        t = torch.randint(0, diffusion.timesteps, (z_target.shape[0],), device=device, dtype=torch.long)
+                        noise = torch.randn_like(z_target)
+                        z_t = diffusion.q_sample(z_target, t, noise)
 
-                    val_phase_id = batch.get("phase_id", None)
-                    if val_phase_id is not None:
-                        val_phase_id = val_phase_id.to(device)
+                        val_phase_id = batch.get("phase_id", None)
+                        if val_phase_id is not None:
+                            val_phase_id = val_phase_id.to(device)
 
-                    with autocast():
-                        eps_pred = model(z_t, t, z_ncct, mask_down, phase_labels=val_phase_id)
-                        if "target_support" in batch:
-                            supp = batch["target_support"]
-                            if not supp.all():
-                                raise ValueError(
-                                    f"Encountered sample with partial target support ({supp.float().mean():.2%}). "
-                                    f"Latent diffusion validation requires 100% full observed target support to preserve encoder dependency integrity."
-                                )
-                        v_loss = F.mse_loss(eps_pred, noise)
+                        with autocast():
+                            eps_pred = model(z_t, t, z_ncct, mask_down, phase_labels=val_phase_id)
+                            if "target_support" in batch:
+                                supp = batch["target_support"]
+                                if not supp.all():
+                                    raise ValueError(
+                                        f"Encountered sample with partial target support ({supp.float().mean():.2%}). "
+                                        f"Latent diffusion validation requires 100% full observed target support to preserve encoder dependency integrity."
+                                    )
+                            v_loss = F.mse_loss(eps_pred, noise)
 
-                    val_loss_acc += v_loss.item()
-                    n_val_batches += 1
+                        val_loss_acc += v_loss.item()
+                        n_val_batches += 1
 
-            val_loss = val_loss_acc / max(n_val_batches, 1)
-
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                best_path = os.path.join(args.out_dir, "best_synthesis_net.pt")
-                payload = stage2_checkpoint_payload(
-                    epoch=epoch + 1,
-                    model=model,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    best_val_loss=best_val_loss,
-                    ae_checkpoint_sha256=ae_sha,
-                    conditioning=conditioning,
-                    timesteps=args.timesteps,
-                )
-                torch.save(payload, best_path)
-                log.info(f"  [Epoch {epoch+1:03d}] New best val_loss={val_loss:.5f} -> saved {best_path}")
+                if n_val_batches > 0:
+                    val_loss = val_loss_acc / n_val_batches
+                    if val_loss < best_val_loss:
+                        best_val_loss = val_loss
+                        best_path = os.path.join(args.out_dir, "best_synthesis_net.pt")
+                        payload = stage2_checkpoint_payload(
+                            epoch=epoch + 1,
+                            model=model,
+                            optimizer=optimizer,
+                            scheduler=scheduler,
+                            best_val_loss=best_val_loss,
+                            ae_checkpoint_sha256=ae_sha,
+                            conditioning=conditioning,
+                            timesteps=args.timesteps,
+                        )
+                        torch.save(payload, best_path)
+                        log.info(f"  [Epoch {epoch+1:03d}] New best val_loss={val_loss:.5f} -> saved {best_path}")
+                else:
+                    log.warning("No validation batches executed; reporting validation as unavailable (NaN).")
 
         elapsed = (time.time() - t_start) / 60.0
         if is_master:

@@ -28,6 +28,7 @@ import sys
 import gc
 import glob
 import json
+import hashlib
 import csv
 import time
 import random
@@ -152,15 +153,31 @@ def determine_mask_schema(mask_path, data_dir, mask_dir=None):
     return "gi_5class"
 
 
+def compute_file_sha256(path: str) -> str:
+    """Streaming SHA-256 computation (1MB chunks)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1048576):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def extract_patient_id(subject_id: str) -> str:
+    """Authoritative patient ID extraction ensuring CV_XXXX and BDMAP_XXXX are not collapsed into 'CV' (Finding 3)."""
+    s = str(subject_id).strip()
+    if s in JHU_SCAN_TO_PATIENT_MAP:
+        return JHU_SCAN_TO_PATIENT_MAP[s]
+    parts = s.split("_")
+    if len(parts) >= 2 and parts[0] in ("CV", "CancerVerse", "BDMAP"):
+        return f"{parts[0]}_{parts[1]}"
+    return s
+
+
 def assemble_or_get_mask(mask_dir, patient_id, ct_path):
-    """Returns path to combined multi-organ mask, merging individual organ masks from segmentations/ if needed."""
+    """Returns path to combined multi-organ mask, merging individual organ masks from segmentations/ if needed (Finding 2/6)."""
     mask_path = os.path.join(mask_dir, patient_id, "gi_mask.nii.gz")
     if os.path.exists(mask_path):
         return mask_path
-
-    merged_cached = os.path.join(mask_dir, patient_id, "gi_mask_merged.nii.gz")
-    if os.path.exists(merged_cached):
-        return merged_cached
 
     seg_dir = os.path.join(mask_dir, patient_id, "segmentations")
     if os.path.isdir(seg_dir):
@@ -179,35 +196,67 @@ def assemble_or_get_mask(mask_dir, patient_id, ct_path):
                     break
 
         if found_organs:
-            try:
-                ct_nii = nib.load(ct_path)
-                shape = ct_nii.shape[:3]
-                merged_data = np.zeros(shape, dtype=np.uint8)
+            # If only stomach exists and no other organs are present
+            if len(found_organs) == 1 and 1 in found_organs and len(os.listdir(seg_dir)) == 1:
+                return found_organs[1]
 
-                for organ_idx, op in sorted(found_organs.items()):
-                    o_nii = nib.load(op)
-                    o_arr = np.asanyarray(o_nii.dataobj)
-                    if o_arr.shape[:3] != shape or not np.allclose(o_nii.affine, ct_nii.affine, atol=1e-3):
-                        import nibabel.processing as nip
-                        o_nii_res = nip.resample_from_to(o_nii, ct_nii, order=0)
-                        o_arr = np.asanyarray(o_nii_res.dataobj)
-                    mask_vox = (o_arr > 0)
-                    merged_data[mask_vox] = organ_idx
+            merged_cached = os.path.join(mask_dir, patient_id, "gi_mask_merged.nii.gz")
+            meta_cached = merged_cached + ".meta.json"
 
+            # Compute current fingerprints of source inputs
+            source_hashes = {}
+            for o_idx, op in sorted(found_organs.items()):
+                source_hashes[str(o_idx)] = compute_file_sha256(op)
+            if os.path.exists(ct_path):
+                source_hashes["ct"] = compute_file_sha256(ct_path)
+
+            # Check if cache is strictly valid
+            cache_valid = False
+            if os.path.exists(merged_cached) and os.path.exists(meta_cached):
                 try:
-                    merged_nii = nib.Nifti1Image(merged_data, ct_nii.affine, ct_nii.header)
-                    nib.save(merged_nii, merged_cached)
-                    return merged_cached
+                    with open(meta_cached, "r") as mf:
+                        cached_meta = json.load(mf)
+                    if cached_meta.get("source_hashes") == source_hashes:
+                        cache_valid = True
                 except Exception:
-                    import tempfile
-                    td = tempfile.gettempdir()
-                    tmp_merged = os.path.join(td, f"{patient_id}_gi_mask_merged.nii.gz")
-                    merged_nii = nib.Nifti1Image(merged_data, ct_nii.affine, ct_nii.header)
-                    nib.save(merged_nii, tmp_merged)
-                    return tmp_merged
+                    cache_valid = False
+
+            if cache_valid:
+                return merged_cached
+
+            # Regenerate merged mask from source organs onto CT grid
+            ct_nii = nib.load(ct_path)
+            shape = ct_nii.shape[:3]
+            merged_data = np.zeros(shape, dtype=np.uint8)
+
+            for organ_idx, op in sorted(found_organs.items()):
+                # Fail closed on corrupt/unreadable organ masks (F06)
+                o_nii = nib.load(op)
+                o_arr = np.asanyarray(o_nii.dataobj)
+                if o_arr.shape[:3] != shape or not np.allclose(o_nii.affine, ct_nii.affine, atol=1e-3):
+                    import nibabel.processing as nip
+                    o_nii_res = nip.resample_from_to(o_nii, ct_nii, order=0)
+                    o_arr = np.asanyarray(o_nii_res.dataobj)
+                mask_vox = (o_arr > 0)
+                merged_data[mask_vox] = organ_idx
+
+            merged_nii = nib.Nifti1Image(merged_data, ct_nii.affine, ct_nii.header)
+            save_path = merged_cached
+            meta_path = meta_cached
+            try:
+                nib.save(merged_nii, save_path)
+                with open(meta_path, "w") as mf:
+                    json.dump({"source_hashes": source_hashes, "organs": list(found_organs.keys())}, mf)
+                return save_path
             except Exception:
-                if 1 in found_organs:
-                    return found_organs[1]
+                import tempfile
+                td = tempfile.gettempdir()
+                save_path = os.path.join(td, f"{patient_id}_gi_mask_merged.nii.gz")
+                meta_path = save_path + ".meta.json"
+                nib.save(merged_nii, save_path)
+                with open(meta_path, "w") as mf:
+                    json.dump({"source_hashes": source_hashes, "organs": list(found_organs.keys())}, mf)
+                return save_path
 
     stomach_p = os.path.join(mask_dir, patient_id, "segmentations", "stomach.nii.gz")
     if os.path.exists(stomach_p):
@@ -527,14 +576,14 @@ def run_single_sweep(
         gold_patients = set()
         for gc in gold_standard_cases:
             p_name = gc.get("name", "")
-            pid = JHU_SCAN_TO_PATIENT_MAP.get(p_name, p_name.split("_")[0] if "_" in p_name else p_name)
+            pid = extract_patient_id(p_name)
             gold_patients.add(pid)
             gold_patients.add(p_name)
 
         eligible_train_cases = []
         for c in all_cases:
             c_name = c.get("name", "")
-            c_pid = JHU_SCAN_TO_PATIENT_MAP.get(c_name, c_name.split("_")[0] if "_" in c_name else c_name)
+            c_pid = extract_patient_id(c_name)
             if c_pid not in gold_patients and c_name not in gold_patients:
                 eligible_train_cases.append(c)
 
@@ -549,7 +598,7 @@ def run_single_sweep(
         pt_map = {}
         for c in all_cases:
             c_name = c.get("name", "")
-            c_pid = JHU_SCAN_TO_PATIENT_MAP.get(c_name, c_name.split("_")[0] if "_" in c_name else c_name)
+            c_pid = extract_patient_id(c_name)
             pt_map.setdefault(c_pid, []).append(c)
 
         pts = sorted(list(pt_map.keys()))
@@ -569,11 +618,20 @@ def run_single_sweep(
         n_val       = len(val_cases)
         print(f"  Validation: patient-grouped 20%% split ({n_val} scans across {len(val_pts)} pts)")
 
+    if n_train == 0 or n_val == 0:
+        raise ValueError(f"Scaling sweep requires nonempty train and val populations! Got train={n_train}, val={n_val}")
+
+    # Output paths — per (N, seed) to avoid clobbering across multi-seed runs (Finding 2)
+    run_dir = os.path.join(output_dir, f"N{n_cases:04d}", f"seed{seed}")
+    os.makedirs(run_dir, exist_ok=True)
+    n_dir = run_dir
+
     # Save training membership manifest into run_dir
     manifest_info = {
         "n_cases": n_cases,
         "seed": seed,
-        "train_patients": sorted(list({JHU_SCAN_TO_PATIENT_MAP.get(c.get('name',''), c.get('name','').split('_')[0]) for c in train_cases})),
+        "train_patients": sorted(list({extract_patient_id(c.get('name', '')) for c in train_cases})),
+        "val_patients": sorted(list({extract_patient_id(c.get('name', '')) for c in val_cases})),
         "train_cases": [c.get("name", "") for c in train_cases],
         "val_cases": [c.get("name", "") for c in val_cases],
     }
@@ -617,9 +675,6 @@ def run_single_sweep(
             print("Warning: AsymmetricPDCELoss not imported; falling back to DiceCELoss.")
         loss_fn = DiceCELoss(to_onehot_y=True, softmax=True)
 
-    # Output paths — per (N, seed) to avoid clobbering across multi-seed runs
-    n_dir = os.path.join(output_dir, f"N{n_cases:04d}", f"seed{seed}")
-    os.makedirs(n_dir, exist_ok=True)
     json_path = os.path.join(n_dir, "epoch_metrics.json")
     csv_path  = os.path.join(n_dir, "epoch_metrics.csv")
 

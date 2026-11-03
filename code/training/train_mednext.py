@@ -301,7 +301,7 @@ def get_transforms(roi_size=(96, 96, 96), percentile_clip=True, elastic_prob=0.1
 def main():
     parser = argparse.ArgumentParser(description="Train 3D MedNeXt-B on GI Tract Segmentation (Project 9)")
     parser.add_argument("--data_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox")
-    parser.add_argument("--out_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/mednext_models")
+    parser.add_argument("--out_dir", "--output_dir", dest="out_dir", type=str, default="/mnt/scratch/user/chrsong/mp-factory/results/mednext_models")
     parser.add_argument("--model_id", type=str, default="B", help="MedNeXt variant: S, B, M, or L (default: B)")
     parser.add_argument("--kernel_size", type=int, default=3, help="Kernel size: 3 (3x3x3) or 5 (5x5x5)")
     parser.add_argument("--fold", type=int, default=-1, help="Specific fold index (0..num_folds-1) for parallel SLURM array jobs")
@@ -379,8 +379,9 @@ def main():
         val_pairs   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
         print(f"[Patient 80/20 Split] Train scans: {len(train_pairs)} ({len(train_patients)} pts) | Full Val pool: {len(val_pairs)} ({len(val_patients)} pts)")
 
-    os.makedirs(args.output_dir, exist_ok=True)
-    with open(os.path.join(args.output_dir, f"fold_{args.fold}_manifest.json"), "w") as f:
+    target_out_dir = getattr(args, "out_dir", getattr(args, "output_dir", None))
+    os.makedirs(target_out_dir, exist_ok=True)
+    with open(os.path.join(target_out_dir, f"fold_{args.fold}_manifest.json"), "w") as f:
         json.dump({
             "fold": args.fold, "num_folds": args.num_folds,
             "train_patients": sorted(list(train_patients)),
