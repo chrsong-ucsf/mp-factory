@@ -1,0 +1,54 @@
+{
+  "head": "0f59e03",
+  "scope": "Read-only temporary probes; no full pytest or production neural inference",
+  "auto_phase_main": {
+    "actual_entrypoint": "sample_multiphase_diffusion.main",
+    "neural_model_and_preprocessing_mocked": true,
+    "pair_filename": "CV_00001--CV_00002_reg.nii.gz",
+    "manifest_phase": "P1_arterial_early",
+    "actual_saved_provenance_target_phase": 1,
+    "result": "PASS"
+  },
+  "conflicting_phase_manifest": {
+    "actual_entrypoint": "sample_multiphase_diffusion.main",
+    "neural_model_and_preprocessing_mocked": true,
+    "rows_for_identical_pair": [
+      "P1_arterial_early",
+      "P2_arterial_late"
+    ],
+    "result": "ACCEPTED_LAST_ROW",
+    "actual_saved_provenance_target_phase": 2,
+    "source": "code/project10/evaluation/sample_multiphase_diffusion.py:441-450"
+  },
+  "empty_validation_dataset": {
+    "actual_class": "MultiPhaseVolumeDataset",
+    "patients": [
+      "P0",
+      "P1",
+      "P2"
+    ],
+    "train_volume_count": 6,
+    "validation_volume_count": 0
+  },
+  "empty_validation_actual_production_ast_branch": {
+    "validation_batches": 0,
+    "val_recon": 0.0,
+    "best_checkpoint_saved": true,
+    "saved_val_recon": 0.0
+  },
+  "support_presence_changes": {
+    "actual_entrypoints": [
+      "evaluate_synthesis.main",
+      "merge_worker_csvs"
+    ],
+    "models_mocked": false,
+    "present_to_deleted": "ValueError",
+    "absent_to_added": "ValueError",
+    "metric_version": "v4_audited_support"
+  },
+  "source_refs": {
+    "empty_validation_ae": "code/project10/training/train_stage1_autoencoder.py:365-387",
+    "empty_validation_stage2": "code/project10/training/train_stage2_synthesis.py:557-573",
+    "support_presence": "code/project10/evaluation/evaluate_synthesis.py:633-652"
+  }
+}

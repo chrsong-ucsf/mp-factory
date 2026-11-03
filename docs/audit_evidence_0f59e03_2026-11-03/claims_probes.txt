@@ -1,0 +1,48 @@
+Fresh read-only claims/provenance probes
+Checkout: 0f59e03
+These are observed local synthetic scanner/helper probes, not production measurements.
+Every temporary artifact was created under tempfile.TemporaryDirectory(); tracked reports were not overwritten.
+
+1. Actual verify_ensemble_and_manifests() with 34 manifest rows:
+   Each row had a different UNKNOWN subject_id, reused the same valid 16x16x16 CT,
+   and reused an 8x8x8 label containing only 255 with affine X origin displaced 1000mm.
+   OBSERVED: manifest_rows=34, manifest_valid=True.
+   Interpretation: ignore-only labels, geometry mismatch, duplicate file reuse and unknown subject membership are not rejected.
+
+2. Actual verify_ensemble_and_manifests() with the final row (34) referencing a missing label:
+   OBSERVED: manifest_valid=False.
+   Interpretation: inspecting all rows now fixes the former head(10) limitation.
+
+3. Actual verify_project10_synthesis_and_kinetics() using archived pair metadata and temporary output paths:
+   Created 1500 empty *_reg.nii.gz files whose target filenames matched archived subject_target values;
+   created 1500 empty DVF files with unrelated IDs;
+   created 1000 empty synthetic files with unrelated IDs;
+   wrote 250 metric rows with only Pearson_R=1.0 (no Subject or run_id columns).
+   OBSERVED actual scanner return:
+   {"pairs_count":1545,"patients_count":438,"reg_vols":1500,"reg_dvfs":1500,"synth_vols":1000,"n_evaluated":250,"mean_pearson_r":1.0,"kinetics_ok":true,"cohort_lineage_ok":true}
+   Interpretation: missing metric identities, unrelated DVF/synthetic sets and unreadable output volumes pass the current scanner and satisfy P10 count gates.
+   These dummy values are intentionally synthetic failure-path evidence, not genuine evaluation metrics.
+
+4. Actual statistical main() with temporary JHU CSV:
+   Six subjects from three explicit patients, MedNeXt and TotalSegmentator rows, and one duplicate MedNeXt subject
+   whose mean_hd95 changed from 10 to 999 while mean/stomach/duodenum Dice remained equal.
+   OBSERVED: main completed without rejecting the HD95 conflict; output n_patients=[3,3,3,3].
+   Interpretation: explicit patient preservation is repaired; duplicate validation still misses an analyzed metric.
+
+5. Actual evaluate_pairs() with five scans from one patient:
+   a=[0.3,0.4,0.5,0.6,0.7], b=[0.2,0.2,0.2,0.2,0.2].
+   OBSERVED: ci_95_low=NaN, ci_95_high=NaN.
+   Interpretation: former single-patient population-CI fallback is repaired.
+
+6. Current archive replay using recorded rounded per-organ values and actual triage_case():
+   Old: 1444 NOISE_REJECT /185 WEAK_COARSE /3 CLEAN_HIGH_CONFIDENCE.
+   Reaggregated:1598 NOISE_REJECT /34 WEAK_COARSE /0 CLEAN_HIGH_CONFIDENCE.
+   Transition:154 WEAK->REJECT and3 CLEAN->WEAK.
+   This replay is not a fresh source-volume cohort regeneration.
+
+7. Current inventory:
+   results/: exists, zero files.
+   logs/: exists, zero files.
+   CancerVerse_dbox/: absent locally.
+   Archived multiphase pairs:1545 missing source dates,1545 missing target dates, same_day=False for all1545.
+   Missing local assets do not establish absence on remote cluster storage.

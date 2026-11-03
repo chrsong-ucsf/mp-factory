@@ -1,0 +1,48 @@
+P9 targeted actual-production probes HEAD 0f59e035f57c344d3f8e9d86654b31a01f339e74
+Temporary root /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-0f59-evidence-kgiu6dx0
+
+COMMAND ['/opt/anaconda3/bin/python', 'code/training/train_mednext.py', '--data_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-0f59-evidence-kgiu6dx0/data', '--out_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-0f59-evidence-kgiu6dx0/train_mednext.py', '--epochs', '0']
+EXIT 1
+STDOUT
+Using compute device: cpu | Total GPU Cores Detected: 0
+Discovered 1 scanning pairs for training/validation.
+[Patient 80/20 Split] Train scans: 1 (1 pts) | Full Val pool: 0 (0 pts)
+
+STDERR
+Traceback (most recent call last):
+  File "/Users/chrissong/research_su26/02_Projects/mp-factory/code/training/train_mednext.py", line 532, in <module>
+    main()
+  File "/Users/chrissong/research_su26/02_Projects/mp-factory/code/training/train_mednext.py", line 382, in main
+    os.makedirs(args.output_dir, exist_ok=True)
+                ^^^^^^^^^^^^^^^
+AttributeError: 'Namespace' object has no attribute 'output_dir'. Did you mean: 'out_dir'?
+
+
+COMMAND ['/opt/anaconda3/bin/python', 'code/training/train_swin_unetr.py', '--data_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-0f59-evidence-kgiu6dx0/data', '--out_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-0f59-evidence-kgiu6dx0/train_swin_unetr.py', '--epochs', '0']
+EXIT 1
+STDOUT
+Using compute device: cpu | Total GPU Cores Detected: 0
+Discovered 1 scanning pairs for training/validation.
+[Standard 80/20 Patient Split] Train scans: 1 (1 pts) | Full Val pool: 0 (0 pts)
+
+STDERR
+Traceback (most recent call last):
+  File "/Users/chrissong/research_su26/02_Projects/mp-factory/code/training/train_swin_unetr.py", line 465, in <module>
+    main()
+  File "/Users/chrissong/research_su26/02_Projects/mp-factory/code/training/train_swin_unetr.py", line 305, in main
+    os.makedirs(args.output_dir, exist_ok=True)
+                ^^^^^^^^^^^^^^^
+AttributeError: 'Namespace' object has no attribute 'output_dir'. Did you mean: 'out_dir'?
+
+
+ACTUAL run_single_sweep stdout
+  Validation: patient-grouped 20%% split (2 scans across 1 pts)
+
+NameError: name 'run_dir' is not defined
+
+Exact current posthoc name filter, training excludes113/P1 and current candidate115:
+[{'name': 'BDMAP_00242115'}]
+MERGED_CLASSES [0.0, 1.0, 2.0]
+UPDATED_DUODENUM_INPUT_FG0_CACHED_DUODENUM_FG 64
+CORRUPT_DUODENUM_FALLBACK /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-0f59-evidence-kgiu6dx0/data/BDMAP_00242113/segmentations/stomach.nii.gz
+TOTALSEG_SCHEMA totalseg_v2

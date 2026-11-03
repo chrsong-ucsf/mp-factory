@@ -1,0 +1,20 @@
+{
+  "audited_commit": "0f59e035f57c344d3f8e9d86654b31a01f339e74",
+  "pytest": "143 passed in31.91s",
+  "python_parsed": 90,
+  "python_parse_errors": 0,
+  "shell_syntax_passed": 76,
+  "shell_syntax_errors": 0,
+  "pyflakes_diagnostics": 178,
+  "undefined_name_locations": [
+    "code/training/run_scaling_sweep.py:580:28: undefined name 'run_dir'"
+  ],
+  "sanity": {
+    "checks": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "production_reexecution": false
+}

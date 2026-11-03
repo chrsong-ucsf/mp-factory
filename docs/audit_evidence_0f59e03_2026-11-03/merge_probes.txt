@@ -1,0 +1,17 @@
+{"probe": "missing_vs_present_provenance_duplicate", "exit": 0, "rows": 1, "retained_fingerprint_is_missing": true}
+Found 2 chunk file(s):
+  /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpj9wzol9s/chunk_0.csv: 1 rows
+  /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpj9wzol9s/chunk_1.csv: 1 rows
+Deduplicating 1 exact duplicate rows across shards.
+
+Merged 2 chunks -> 1 total rows -> /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpj9wzol9s/merged.csv
+  SUCCESS: 1 (100.0%)
+
+[AUTOMATED DATA CLEANSING BREAKDOWN]
+  WEAK_COARSE                                  : 1 cases (100.0%)
+
+Mean Consensus Dice   : 0.8000
+Mean Inter-Model Dice : 0.7000
+Mean Uncertainty      : 0.1000
+
+[DATASET SPLITS] Skipped (--splits_dir none).

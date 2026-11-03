@@ -1,0 +1,177 @@
+MP-FACTORY: NEXT RESULTS/METHODS AUDIT
+Date: 2026-11-03 (America/Los_Angeles)
+Audited HEAD: 0f59e03 (remediation following audit commit d07f190)
+Comparison implementation: f0cf11a
+
+VERDICT
+
+The audit remains open. Several previous defects are repaired, including automatic
+phase lookup, support-file presence checks, stable patient assignment and some
+statistical contracts. However, new manifest-writing code prevents both Phase 1
+trainers and the scaling runner from starting training. Residual empty-validation,
+holdout, cached-mask, verifier and result-provenance problems remain.
+
+FRESH CHECKS AND BOUNDARIES
+
+- Started clean on main; fetched origin and confirmed origin/main matched.
+- Full configured repository suite:143 passed in31.91s, exit0.
+- All90 tracked Python files parse; all76 tracked shell/SLURM files pass bash -n.
+- Pyflakes exits1 with178 diagnostics. Its undefined-name finding is
+  code/training/run_scaling_sweep.py:580 run_dir. Namespace attribute errors in the
+  Phase1 trainers are demonstrated by actual CLI probes, not detected by this lint.
+- Built-in sanity checker exits0 with13PASS/17WARN/0FAIL/1INFO across31 checks.
+  It remains insufficient to validate production methods or unavailable outputs.
+- Actual CLI/function/merge probes used temporary data. Sampler main probes mocked
+  neural inference/preprocessing while retaining metadata/phase/output behavior.
+  Empty-validation checkpoint proof executed the unchanged validation branch with
+  an empty loader and mocked checkpoint saving; no model training was performed.
+- No implementation changes, cluster jobs, production inference, remote mutations
+  or independent reexecution of historic scientific metrics were performed.
+- This report and evidence are committed/pushed under the user's standing request.
+
+REMAINING PRIORITY FINDINGS
+
+1. [P1] Both Phase1 training entry points fail on the wrong argument name.
+   code/training/train_mednext.py:382-383 and train_swin_unetr.py:305-306 write new
+   fold manifests using args.output_dir. Both parsers define --out_dir instead.
+   Actual CLI invocations with valid temporary inputs exit1 before training:
+     AttributeError: 'Namespace' object has no attribute 'output_dir'
+   Fix the established argument name and add entry-point checks through dataset
+   discovery, split construction and manifest persistence, before model allocation.
+
+2. [P1] Scaling fails before model allocation on undefined run_dir.
+   code/training/run_scaling_sweep.py:580 writes train_manifest.json through run_dir,
+   which is never defined. Actual run_single_sweep raises NameError. The real n_dir
+   is only created later at:621-622. Create the correct run directory before writing
+   membership and exercise a real runner call in regression verification.
+
+3. [P2] Scaling collapses unknown patient names into a dataset prefix.
+   run_scaling_sweep.py:530,537,552,576 uses name.split('_')[0] outside the known JHU
+   map. CV_1001_P0 and CV_1002_P0 become one patient CV. Actual sweep split probe
+   reports two scans/one validation patient and zero training scans before item2.
+   The expert-validation branch can exclude unrelated patients by the same prefix.
+   Use verified patient metadata and one shared extraction policy; require nonempty
+   independent training/validation populations after exclusion and before fitting.
+
+4. [P1/P2] Empty P10 validation populations become a false perfect best checkpoint.
+   Stable hashing now correctly avoids cohort-relative reassignment, but neither
+   stage guards an empty validation loader. Stage1 validation at
+   project10/training/train_stage1_autoencoder.py:365-387 computes0/max(0,1)=0 and
+   saves best_stage1_ae.pt. Stage2 :557-573 similarly saves best_val_loss0.
+   Actual AE dataset probe on patientsP0/P1/P2 produced6training/0validation volumes.
+   Execution of the unchanged Stage1 validation branch confirmed a checkpoint save
+   containing val_recon0 despite zero validation batches. This is a supported
+   small/filtered-cohort failure path, not a measured historic cohort outcome.
+   Require nonempty populations and executed valid batches before metric reporting
+   or checkpoint selection; report unavailable validation as unavailable.
+
+5. [P2] Per-checkpoint evaluation still admits training-patient siblings.
+   eval_scaling_checkpoints.py:278 compares exact candidate scan names against mixed
+   scan/patient identifiers. A checkpoint manifest containing BDMAP_00242113 and
+   PATIENT_BDMAP_P1 does not exclude candidate BDMAP_00242115. A nonempty candidate
+   list bypasses the sibling-aware rediscovery helper at:280-284. It reads only
+   train_manifest.json (:267), whereas segmentation trainers persist
+   fold_<n>_manifest.json; missing/malformed checkpoint membership continues.
+   Normalize both candidate and excluded patient identities, require the matching
+   checkpoint manifest and bind membership/configuration to checkpoint identity.
+   Stable new hashes do not establish the training membership of legacy or arbitrary
+   warm-start checkpoints already on disk.
+
+6. [P2] New merged organ-label caching can silently retain stale supervision.
+   run_scaling_sweep.py:161-163 returns gi_mask_merged.nii.gz by existence alone.
+   Probe: duodenum input initially has64voxels; replace it with zeros; assembler
+   returns the cached mask still containing64duodenum voxels. At:208-210, a broad
+   exception fallback returns only the stomach mask if another organ is corrupt.
+   Actual corrupt-duodenum probe silently returns stomach.nii.gz, again interpreting
+   omitted anatomy as background in a four-organ training path.
+   Hash/validate all source masks, CT geometry and conversion policy before cache
+   reuse; fail/report bad merges or use explicitly supported partial-label masks.
+
+7. [P1/P2] Production manifest verification accepts unusable all-ignore supervision.
+   verify_production_results.py:236-254 now opens all rows and rejects unreadable
+   files, but foreground is merely any(lbl_arr>0). It counts255ignore as GI anatomy
+   and does not verify class1-4 supervision, CT/label shape/affine agreement, unique
+   expected subjects or repeated file aliases.
+   Actual scanner probe:34unknown subjects reuse one16-cube CT and one8-cube
+   all255label displaced1000mm. It returns manifest_valid=True. Gate:507-511 accepts
+   this status. Require eligible GI labels and physical pairing/cohort integrity.
+
+8. [P1/P2] P10 lineage validation fails open when required identities are absent.
+   verify_production_results.py:335-347 checks Subject and run_id only if their
+   columns exist. It does not validate synthetic/DVF case correspondence or output
+   readability. Actual scanner probe, without mocking its outputs, created1500empty
+   registrations with expected target names,1500unrelated empty DVFs,1000unrelated
+   empty syntheses and250metrics rows containing only Pearson_R. The scanner returns
+   cohort_lineage_ok=True and counts/kinetics satisfying gates:512-519.
+   Require identifying/provenance columns, matching declared case sets, readable
+   valid outputs, current hashes/checkpoint identity and completion proof. Inventory
+   thresholds alone cannot certify scientific result completeness.
+
+9. [P2] Ensemble duplicate validation ignores missing-versus-present provenance.
+   merge_ensemble_chunks.py:53-54 drops NaNs before checking each field. Blank
+   identity in one duplicate and a valid identity in another becomes one unique
+   nonmissing value, so drop_duplicates retains whichever row appears first.
+   Actual CLI probe returns exit0/one row with missing input_fingerprint when the
+   second duplicate had RUN_B. No required identity/expected worker-cohort contract
+   is enforced for unique rows either.
+   Reject missing required provenance and missing/present conflicts before dropping
+   truly identical rows; require complete declared partitions and worker completion.
+   Nonblank differing fields now correctly reject, and resume requires uncertainty
+   hashes; those repairs do not close this separate merger path.
+
+10.[P2] Statistical duplicate checking misses a metric it subsequently tests.
+   statistical_significance_test.py:264 checks only meanDice/stomach/duodenum, then
+   deduplicates at:270-271; it subsequently tests mean_hd95 at:283-284.
+   Actual temporary-main probe accepts duplicated MedNeXt rows differing only in
+   HD95(10versus999) and silently retains the first. Validate every used metric and
+   patient/run identity before deduplication, not a selected subset of columns.
+
+11.[P1/evidence] Archived eligibility and historic results remain unreconciled.
+   Archived triage remains1444REJECT/185WEAK/3CLEAN(188candidates). Fresh replay of
+   rounded per-organ statistics through current rules remains1598REJECT/34WEAK/0CLEAN.
+   Replay is an archive consistency diagnostic, not new source-volume measurement.
+   The production report now claims187verified scans while still listing3CLEAN+
+   185WEAK, without a named exclusion reconciling that difference or the larger
+   current-rule changes. Regenerate source-volume metrics, version eligibility and
+   actual exclusions, and identify affected training descendants.
+   Report timestamp is refreshed and ALL GATES PASSED remains. Local results/logs
+   are empty and CT cohort absent; no remote absence is inferred. Current raw
+   checkpoint/run/metric evidence cannot be independently reexecuted here. All1545
+   archived source/target examination dates remain missing, so contemporaneous
+   pairing is unverified. Numeric literature comparators and differing262/1067
+   synthesis descriptions still need source/evidence reconciliation.
+
+VERIFIED IMPROVEMENTS SINCE f0cf11a
+
+- Actual sampler main resolves ID-only pair filenames through manifest phase1 and
+  writes matching provenance; previous pd/subject_target failures are fixed.
+- Stage1/Stage2 use matching immutable patient hashes; no cohort-relative fallback
+  remains. Known segmentation fold hashes likewise survive cohort attrition.
+- Actual synthesis merge probes reject both support deletion and support addition.
+  v4_audited_support remains enforced; prior presence-transition bypass is closed.
+- Actual missing manifest row34 now fails, and corrupt volumes/zero labels reject.
+  All-ignore/wrong-geometry labels remain the distinct item7 defect.
+- TotalSeg BDMAP-cohort producer schema now resolves to totalseg_v2. Valid binary
+  organ merging produces[0,1,2]; stale/error fallbacks remain item6.
+- Prior canonical-mask, spacing-before-ROI, probability alignment, zero-padding,
+  ignored-label and reference-spacing fixes remain in place.
+- Posthoc absent organs now returnNaN and are excluded, aligning endpoint policy.
+- Ensemble uncertainty_sha256 is now required and verified at resume.
+- Statistical one-patient population CI now returnsNaN/NaN. Explicit patient
+  metadata is preserved; a6scan/3patient main probe reports3patients. CSV separates
+  scan- and patient-weighted mean differences. Known-JHU patient mapping, independent
+  patient hypothesis tests and FDR/report fixes retain their repairs.
+- Test report isolation and strict four-table checks remain repaired.
+
+NEXT ACCEPTANCE GATE
+
+First repair and test actual Phase1 and scaling entry points through manifest writes.
+Then guard empty datasets/validation, normalize per-checkpoint patient exclusions,
+version merged-mask caches and reject incomplete identity at both verification and
+merge boundaries. Finally regenerate current cohorts, affected training and result
+tables with explicit input/checkpoint/split/output lineage. Local unit success and
+refreshed report timestamps do not retroactively validate scientific claims.
+
+Evidence: audit_evidence_0f59e03_2026-11-03/ contains full-suite, syntax/lint/sanity,
+P9/P10/scanner probe transcripts, missing-provenance merge and archive replay output.
+Only audit documentation/evidence were added; implementation fixes were not applied.
