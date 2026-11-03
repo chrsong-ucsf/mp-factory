@@ -1,0 +1,8 @@
+SAME_FINGERPRINT_AFTER_CHANGED_CONTENT True
+
+[VERIFICATION COMPLETE]
+  Total manifest entries: 2
+  Valid   : 2
+  Broken  : 0
+CORRUPT_MANIFEST_ERRORS []
+OVERLAPPING_GRID_STATUS ERROR: No module named 'nilearn'

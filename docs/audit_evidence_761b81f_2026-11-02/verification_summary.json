@@ -1,0 +1,15 @@
+{
+  "commit": "761b81fc9d250b0729a266d4fdb040caccbcbec1",
+  "python_parsed": 90,
+  "shell_syntax_passed": 76,
+  "pytest": "127 passed in28.32s",
+  "undefined_name_locations": 11,
+  "sanity": {
+    "total": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "production_validation": "not performed; required outputs not available locally"
+}

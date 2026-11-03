@@ -1,0 +1,226 @@
+MP-FACTORY REMEDIATION RE-AUDIT
+Date: 2026-11-02 (America/Los_Angeles)
+Current commit: 761b81fc9d250b0729a266d4fdb040caccbcbec1
+Compared with original audit at: 7fdd2f7c2c5456a98c58eaa190bc4aecf1ea34e6
+
+VERDICT
+
+Not everything is fixed. Several original defects have real repairs, but production
+integration remains incomplete and new runtime regressions have been introduced.
+The commit message's assertion that all F01-F19 are remediated is not supported by
+the current executable paths or archived evidence. Software repair also does not
+retroactively validate historical model training or measured results.
+
+FRESH VERIFICATION
+
+- Clean checkout at start. Full configured suite: 127 passed in28.32s, exit0.
+- All90 tracked Python files parse; all76 shell/SLURM files pass bash -n.
+- Pyflakes identifies11 undefined-name locations: target_shape twice in ensemble,
+  summary_df nine times in stress reporting. These are reproducible runtime errors.
+- Built-in sanity checker:13PASS/17WARN/0FAIL, plus1INFO, across31 checks; exit0.
+  This remains an inventory/static check, not independent production validation.
+- Actual CLI probe with a valid probability NPZ: ensemble exits0 while every result
+  row reports ERROR and no consensus is produced.
+- Actual CLI resume probe accepts SUCCESS rows lacking both fingerprint and hash,
+  prints cryptographically verified, and skips reevaluation.
+- Source and current helper/production-path probes were reviewed in parallel for
+  segmentation, synthesis, statistics/verifier and archived results.
+- No implementation changes, training jobs, cluster mutations or production inference
+  were performed. Full tests no longer overwrite the tracked production report.
+
+ORIGINAL FINDING STATUS
+
+ID   Status                         What is actually repaired / still missing
+---- ------------------------------ ---------------------------------------------------
+F01  Mapping repaired locally       Central v1/v2 maps are wired into evaluate_subject.
+                                    Ambiguous dataset schemas still affect F14.
+F02  Partial; new geometry defects   Disjoint ensemble labels now align/reject correctly;
+                                    probabilities, cropped-label padding, dependencies
+                                    and individual-organ autolabel geometry remain unsafe.
+F03  Open                           Archive scores and188-case claim remain stale.
+F04  Partial                        Direct reevaluation replaces masks consistently;
+                                    CLI resume still accepts unverified/stale rows.
+F05  Partial                        New warped-support files are consumed correctly;
+                                    support hashes/cache and legacy support unresolved.
+F06  Partial; inference broken       Training accepts phase labels; sampler supplies none.
+F07  Open across stages             Within-Stage1 grouping repaired; AE and diffusion
+                                    validation patients still differ.
+F08  Partial; reporting broken       Favorable fixed takeaway replaced with undefined
+                                    variable; unsupported introductory claim remains.
+F09  Partial                        Exact CT count/geometry flag and nonzero P10 gates
+                                    repaired; completeness/provenance still not enforced.
+F10  Repaired locally               Missing/corrupt Stage1 CTs fail rather than blank-fill.
+F11  Mostly repaired; resume gap     Fallback affine and saved/sampled timestep repaired;
+                                    checkpoint resume can change the diffusion schedule.
+F12  Partial; new statistical bugs   Helpers added, but actual patient IDs, independent
+                                    tests, FDR row indexing and report conclusions wrong.
+F13  Open                           Segmentation scan folds/scaling train-pool evaluation
+                                    still lack patient holdout enforcement.
+F14  Partial                        New NRRD conversion fixes coordinates, but actual
+                                    JHU label selection and stale conversion cache remain.
+F15  Partial; validation regression  Missing keys now fail and empty Dice becomesNaN;
+                                    ignore-label handling and NaN aggregation incomplete.
+F16  Partial                        Missing-table strict failure repaired; unverified
+                                    comparator and hardcoded report claims remain.
+F17  Repaired locally               Test report output redirected to tmp_path.
+F18  Partial evidence improvement   Missing dates explicitly labeled, but examination
+                                    matching and archived temporal evidence unresolved.
+F19  Repaired locally               Reference-header spacing feeds physical metrics.
+
+REMAINING FIXES, IN PRIORITY ORDER
+
+1. [P1] Repair probability-based ensemble evaluation and its failure exit status.
+   code/evaluation/evaluate_multi_model_ensemble.py:469,471 references target_shape,
+   which no longer exists. Actual valid-NPZ probe returns
+   "ERROR: name 'target_shape' is not defined".
+   Actual CLI still exits0 and writes an all-error CSV without producing consensus.
+   Standard prediction jobs request --save_probs, so this is a normal production path.
+   The branch also still uses shape interpolation rather than the masks' physical
+   transform. Fix the name, physical/channel alignment and probability validation,
+   then make failed/incomplete cohorts fail closed. Test actual NPZ-enabled CLI runs.
+
+2. [P1] Complete phase-conditioned sampling and checkpoint compatibility.
+   code/project10/models/synthesis_net.py:59,87 enables/uses class embeddings, but
+   evaluation/sample_multiphase_diffusion.py:117-122 omits phase_labels and exposes
+   no requested acquisition phase. Actual DDIMSampler/current-network probe raises:
+   "ValueError: class_labels should be provided when num_class_embeds > 0".
+   Wire validated phase selection through sampler calls, output identity and resume.
+   Establish compatible phase-aware trained checkpoints; unchanged historical weights
+   are not proof of training or evaluation of the new phase-conditioned architecture.
+
+3. [P1] Fix ignored-label validation before one-hot conversion.
+   code/training/train_mednext_phase2.py:720 converts raw255 labels to five-class
+   one-hot before masking. Probe raises "index 255 is out of bounds ... size 5".
+   Replace ignored values with a safe temporary class before one-hot, then mask both
+   predictions and labels. Swin Phase2 :494-509 still replaces255 with background
+   without masking predictions and retains the original metric bias.
+
+4. [P1] Stop resamplers from inventing foreground outside observed label support.
+   train_mednext_phase2.py:281,333,358 and related resamplers omit padding_mode;
+   MONAI defaults to border extrapolation. Actual updated wrapper probe: a disjoint
+   16-cube all-foreground label at x=100mm fills all32768 voxels of a32-cube CT at0mm.
+   Use explicit zero padding and overlap/support validation. Individual-organ merging
+   in hard_threshold_autolabel.py:148-151 still checks shape without affine; Phase1
+   Swin transforms still lack equivalent label-to-image alignment.
+   New schema_mapping.py:245 unconditionally requires nilearn, absent locally and
+   not declared in requirements. A+1mm overlapping-grid evaluate_subject probe now
+   returns "ERROR: No module named 'nilearn'". Declare/install the dependency or use
+   an available physical resampling implementation; test overlapping rotated grids.
+
+5. [P1] Regenerate and reconcile the training-pool archive and descendants.
+   docs/manifests/ensemble_phase3_audit_summary.csv is unchanged. Current-rule replay
+   still gives1598REJECT/34WEAK/0CLEAN; checked-in report still certifies188 cases
+   (3CLEAN+185WEAK). Example row2 retains empty-organ-inflated .754/.75 global scores.
+   This replay is based on rounded stored statistics, not a new volume evaluation.
+   Recompute from current masks, version the archive/manifests and identify affected
+   training descendants. A claim of1735 freshly audited cases in the commit message
+   is not accompanied by a matching updated local result manifest/report.
+
+6. [P1/P2] Share one immutable patient holdout across every training stage.
+   Stage1 now groups patients, but train_stage1_autoencoder.py:156-166 uses default_rng;
+   train_stage2_synthesis.py:375-383 independently uses RandomState and can have a
+   different patient universe after registration. Same10-patient probe: AE validationP5,
+   diffusion validationP8; P8 is in AE training. Segmentation trainers still shuffle scan
+   indices, e.g. train_mednext_phase2.py:506-520 and train_swin_unetr.py:257-271.
+   Posthoc scaling eval_scaling_checkpoints.py:60-79 still selects training-eligible
+   consensus cases without checkpoint/patient exclusions. Persist and enforce shared
+   patient splits and keep final testing independent of checkpoint selection.
+
+7. [P2] Finish content/provenance checks for ensemble and synthesis caches.
+   Ensemble :70-79 fingerprints file size/mtime, not content, and omits probability
+   sidecars, model-name/order semantics and code/checkpoint identity. A same-size input
+   change with restored mtime leaves the fingerprint unchanged. Resume :872-879 treats
+   missing identity fields as acceptable; parent CLI probe confirms legacy rows skip.
+   It also retains rows outside the current cohort/worker and checks uncertainty by
+   existence only. Require complete input/output identities and worker ownership.
+   Synthesis evaluate_synthesis.py:270-285,835-853 hashes only real/fake CTs, excluding
+   the newly used support file: changing support50%->100% leaves run_id unchanged.
+   Hash support/policy into manifests/cache and invalidate affected historical metrics.
+
+8. [P2] Require genuine support provenance for legacy registrations.
+   New registration support is correctly warped/saved. Integrated probe:50% target
+   support is rejected for training and evaluator reports coverage.5. But missing
+   sidecars fall back to HU>-999 or unwarped native-domain support; acquired air is not
+   the same as unobserved padding. register_multiphase_pairs.py:378-381 skips existing
+   registered CTs without requiring/backfilling support. Regenerate/backfill support
+   with the audited original transform or exclude unverifiable cases.
+   Diffusion restore_stage2_checkpoint still ignores saved timesteps when resuming;
+   checkpoint20 timesteps restores without checking the runtime schedule. Validate it.
+
+9. [P2] Repair stress report execution and narrow its claimed endpoint.
+   stress_test_contrast_perturbation.py:236-242 reads undefined summary_df; actual
+   report generation raises NameError. Build the summary from measured df with the
+   correct column names and test the report writer. Introductory line212 still claims
+   generator robustness/invariance without hallucination, while the experiment measures
+   a fixed segmenter's consistency on perturbed generated output.
+
+10.[P2] Correct patient-level inference and FDR before publishing significance.
+   statistical_significance_test.py:202-204 merges patient columns into suffixed names,
+   then derives patient_id from subject_id.split('_')[0]. AllBDMAP scans become one
+   patient; the helper then falls back to scan-row bootstrap. Actual main with6 scans
+   from3 patients reports1 patient. T/Wilcoxon remain scan-level; large-cohort paths
+   do not pass patient IDs; pairing is not validated as one-to-one.
+   New FDR :86-101 dropsNaN without retaining result positions: [NaN,.01] assigns
+   q=.01 to the NaN comparison and leaves the valid result without correction.
+   Markdown still prints raw p/stars. Preserve true patient IDs and row identities,
+   use independent patient inference and display corrected conclusions consistently.
+
+11.[P2] Complete JHU schema selection and NaN handling in scaling.
+   run_scaling_sweep.py:188 calls normalization without an explicit schema. Actual JHU
+   vocabulary[0,1,2,3,4,5,6] raises; without esophagus it maps colon5 to smallbowel3.
+   Carry schema provenance per record. Newly converted NRRDs use corrected SimpleITK
+   coordinates, but old converted files are reused without source/version validation.
+   New empty-organNaN results are still aggregated with np.mean at:523-524 and:364-366,
+   so one absent case poisons an organ mean and the overall nanmean can then drop that
+   entire organ. Aggregate eligible cases explicitly and publish denominators.
+
+12.[P2] Enforce cohort completeness/content in production verification.
+   verify_production_results.py:432-440 still accepts34 unvalidated manifest rows,
+   one registration, one synthetic and one evaluated row; DVFs and subject-set coverage
+   are not required. Controlled actual-main probe passes all gates with those minimal
+   scanner returns and0DVFs. Dataset verify_dataset_integrity :194 reads only every
+   tenth row: a two-row probe containing a corrupt second NIfTI reports both valid.
+   Validate every required pair or accurately label sampled checks; enforce hashes,
+   eligible supervision, exact current subject coverage and complete cohort metadata.
+   Strict missing-table rejection and explicit test report paths are verified repairs.
+
+13.[P2] Reconcile narrative claims, temporal pairing and measured result provenance.
+   Report writer :379-380 still hardcodes903 and3CLEAN+185WEAK; :397-398 declares
+   weights/volumes verified even on failed gates. Table1 still uses unverified fixed
+   literature comparator numbers. Derive narrative/counts from verified records.
+   Missing dates now get temporal_match_status, but default discovery still allows
+   unverified exams; archived1545 pairs still have no source/target dates. Examination
+   evidence must be recovered or uncertain longitudinal pairs qualified/excluded.
+   Current checked-in report changes synthesis evaluation from1067 to262 andR.3430
+   to.2475, while SHOWCASE/other descriptions retain1067 and different metrics. Raw
+   updated CSVs, manifests and checkpoints are unavailable locally; new values cannot
+   be independently tied to repaired code or complete cohorts. Regenerate/reconcile
+   results and retraining lineage before claiming the scientific findings are repaired.
+
+REPAIRS VERIFIED IN CURRENT CODE
+
+- TotalSeg canonical maps are connected to actual evaluate_subject; v2 organ IDs
+  now map correctly. Disjoint ensemble masks no longer get perfect agreement.
+- Direct reevaluation now updates saved consensus rather than retaining stale files.
+- New registration support files work through dataset/evaluator on the observed path.
+- Stage1 groups patient phases and missing CT loading fails closed.
+- Forced sampler fallback affine exactly matches primary preprocessing in a rotated,
+  translated cropped/padded probe; timestep is saved and read during sampling.
+- Missing scaling checkpoint keys fail rather than retaining partial weights.
+- Strict manuscript compilation rejects the former one-table-only false success.
+- The regression test uses tmp_path for generated reports; tracked report preserved.
+- Ensemble physical metrics now receive spacing from reference affine column norms.
+
+RECOMMENDED NEXT GATE
+
+Fix items1-4 and9 first so supported production paths actually execute safely. Add
+integration checks for NPZ ensembles, phase-aware DDIM, ignored-label validation,
+overlapping/cropped/disjoint geometry and stress Markdown. Then enforce shared
+patient splits and complete content/support provenance. Finally regenerate masks,
+manifests, affected training and independent result tables. Passing current unit
+tests or loading old weights alone is insufficient to close the result audit.
+
+Evidence: sibling audit_evidence_761b81f_2026-11-02/ contains full-suite, sanity,
+undefined-name lint, CLI, provenance/integrity and archive-replay outputs.
+Boundary: current source/local checks and controlled probes, not live CHPC validation.
+Only this report and its evidence files were added; implementation remains unchanged.

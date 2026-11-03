@@ -1,0 +1,2 @@
+PROBABILITY_CLI {"exit": 0, "rows": [{"subject_id": "S", "num_models": 2, "weight_MedNeXt": 0.5, "weight_Swin-UNETR": 0.5, "status": "ERROR: name 'target_shape' is not defined"}], "consensus_exists": false}
+LEGACY_RESUME {"exit": 0, "skipped_unverified_row": true, "claims_verified": true, "has_fingerprint": false}
