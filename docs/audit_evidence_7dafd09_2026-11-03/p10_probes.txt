@@ -1,0 +1,26 @@
+{
+  "stage1_empty_validation": {
+    "metric_nan": true,
+    "best_checkpoint_saved": false
+  },
+  "stage2_empty_validation": {
+    "metric_nan": true,
+    "best_checkpoint_saved": false
+  },
+  "stage2_nonmaster_validation": {
+    "is_master": false,
+    "best_checkpoint_saved": true,
+    "val_loss": 1.3564622402191162
+  },
+  "head": "7dafd09",
+  "phase_duplicates": {
+    "unchanged_since": "0f59e03",
+    "code": "sample_multiphase_diffusion.py:441-450",
+    "behavior": "same pair phase last-row-wins (previous actual-main probe; code unchanged)"
+  },
+  "support_presence": {
+    "unchanged_since": "0f59e03",
+    "behavior": "both deletion and addition rejected in previous production probes; code unchanged",
+    "metric_version": "v4_audited_support"
+  }
+}

@@ -1,0 +1,173 @@
+MP-FACTORY: NEXT RESULTS/METHODS AUDIT
+Date: 2026-11-03 (America/Los_Angeles)
+Audited HEAD: 7dafd0998eba8117c0996fb394ae14963a746b29
+Compared with: 0f59e03 and its audit commit09e230b
+
+VERDICT AND CHECKS
+
+The audit remains open. The preceding output-directory/run-directory errors and
+empty-validation false-best-checkpoint defects are repaired. Fresh production-path
+probes still expose a scaling cleanup failure, destroyed organ-mask geometry,
+unbound checkpoint manifests, unvalidated cached outputs and invalid production
+evidence accepted by verification. Passing unit tests does not close these paths.
+
+- Full configured suite:152 passed in36.21s, exit0.
+- All90 tracked Python files parse; all76 tracked shell/job scripts pass bash -n.
+- Pyflakes:182 diagnostics, no undefined-name diagnostics. Lint is not clean.
+- Sanity checker:31checks;13PASS/17WARN/0FAIL/1INFO; exit0. Missing production
+  artifacts are warnings, so this is not a scientific or production-validation pass.
+- Checkout started clean on main, matching origin/main after fetch. Probes used
+  temporary inputs and current production functions/CLI or validation branches.
+- The scaling orchestration probe substituted a tiny Conv3d network; it tested
+  training/validation/control flow, not production MedNeXt performance. Validation
+  save probes used mocked saves; no distributed GPU experiment was conducted.
+- No implementation edits, cluster jobs, production inference or historic metric
+  regeneration. Only audit documents/evidence are committed and pushed.
+
+REMAINING FINDINGS
+
+1. [P1] Scaling trains and writes metrics, then crashes before returning its result.
+   code/training/run_scaling_sweep.py:577 uses `for gc in gold_standard_cases`, making
+   gc a local case dictionary. Cleanup:805 still invokes the imported module as
+   gc.collect(). Without a gold cohort, this raises UnboundLocalError; with one,
+   gc is a dict without collect. A normal one-epoch tiny-network probe completed
+   training and validation, saved epoch metrics and then raised UnboundLocalError.
+   The outer sweep cannot advance/aggregate the returned result.
+   Rename the case-loop variable and test a full function return, including cleanup,
+   both with and without the gold-standard branch.
+
+2. [P1/P2] Phase1 loaders discard individual-organ physical geometry before merging.
+   code/training/train_mednext.py:181-183 and train_swin_unetr.py:171-173 combine
+   binary masks by voxel index, then assign CT affine to the merged result. Later
+   physical transforms cannot recover the discarded original geometry.
+   Actual GIDataset.__getitem__ probes in both trainers: CT x0-15mm and stomach
+   mask x100-115mm (no overlap) still yield64foreground voxels at CT origin0.
+   Resample each organ onto the CT reference before merging, preserve support and
+   reject malformed geometry. This is a synthetic supported-path defect, not a
+   measured count of misaligned scans in the unavailable production cohort.
+
+3. [P2] Per-checkpoint holdout proof still accepts unrelated/empty manifests.
+   eval_scaling_checkpoints.py:274-281 chooses the first *manifest*.json when a
+   train_manifest is absent. At:291-299, `{}` is valid because membership lists
+   default empty. No matching checkpoint hash/config/fold or membership schema is
+   required. Exact production selection/filter-block probe accepts only
+   unrelated_manifest.json containing{} and keeps the validation case.
+   Require the correct schema and checkpoint identity; fail if membership cannot
+   be established. The new sibling-normalized exclusion itself works when valid
+   membership is supplied, but that does not establish arbitrary manifest identity.
+
+4. [P2] Merged-organ cache verifies sources but not the returned cached artifact.
+   run_scaling_sweep.py:215-225 compares source hashes only. Changed source inputs
+   now regenerate correctly, but a replaced/corrupt output with unchanged source
+   sidecar is trusted. Probe replaces the generated mask with all-colon data;
+   assembler returns it with classes[4]. Validate output hash/readability, discrete
+   labels, geometry and conversion version before cache reuse; regenerate on failure.
+
+5. [P2] Scaling fits nominal N rather than consistently recording actual training N.
+   A current run labeled N0002 and manifest n_cases2 trained1case and validated1.
+   Requested/exclusion-capped N is used for folder/manifest names at:625,631;
+   compute_scaling_law.py:13 treats the folder number as train_size. Exclusion and
+   availability caps can also make distinct requested Ns correspond to the same
+   actual training population. Record requested size, actual train scans/patients
+   and validation size separately; fit/label the intended measured training quantity.
+
+6. [P1/P2] Training-manifest verification admits rejected subjects and fractional labels.
+   verify_production_results.py:243 allows every audit subject, including REJECT.
+   The range predicate:321-325 counts labels1.5 as valid anatomy; it does not require
+   discrete canonical classes or reconcile manifest category with audit eligibility.
+   Actual scanner probe:34distinct audited NOISE_REJECT subjects, unique aligned
+   valid files, labels entirely1.5, manifest categoryCLEAN. Returns manifest_valid=True
+   and manifest_clean34. Require current eligible category/status, exact discrete
+   label vocabulary, finite data and subject-to-file/provenance correspondence.
+   The earlier all-ignore, unknown-subject and displaced-label bypasses are repaired;
+   this is a separate remaining eligibility/value validation problem.
+
+7. [P1/P2] Production lineage accepts invalid metric version, run identity and values.
+   verify_production_results.py:461-477 now requires nonblank identifying columns,
+   but not current supported metric_version, consistent/expected run identity,
+   checkpoint/input/output hashes or completion proof. Numeric domains are unchecked.
+   Actual scanner with matching1500registrations/DVFs,1000synthetics and250evaluated
+   subjects returns cohort_lineage_ok=True with metric_version=legacy_or_garbage,
+   250different run IDs, Reference_Coverage=-2 and Pearson_R=5. Scalar3D files also
+   pass as DVFs. These are intentionally invalid probe values, not actual results.
+   Use the evaluator's complete current manifest/worker contract and metric domains;
+   validate deformation vector shape/geometry and enforce executed model identity.
+
+8. [P2] File-readability certification is only a sampled header check.
+   verify_production_results.py:420-441 checks sizes for all outputs and headers for
+   first/middle/last samples. It does not read every payload. Replacing unsampled
+   synthetic index25 with1000bytes ofX still yields cohort_lineage_ok=True.
+   Validate all claimed required files, or explicitly report the sampled scope and
+   avoid certifying complete content validity. Separate header inventory from data
+   finiteness, label/vector/intensity semantics and per-case output integrity.
+
+9. [P2] Default ensemble merge accepts rows with all provenance columns absent.
+   merge_ensemble_chunks.py:81-90 checks required identities only if those columns
+   were supplied. Actual one-shard CLI probe with a SUCCESS row and no fingerprints
+   or output hashes exits0 and publishes the row. Missing/present duplicate conflicts
+   are now rejected, but legacy/unproven unique rows still bypass the contract.
+   Require identity columns by default, with any unverified export explicit, and
+   enforce declared current cohort/worker coverage before exporting training splits.
+
+10.[P2/conditional] DDP Stage2 permits every rank to write the same best checkpoint.
+   project10/training/train_stage2_synthesis.py:519 validates on every rank, samples
+   independent noise:538-539 and saves best_synthesis_net.pt:562-575 without master
+   gating or a reduced common validation loss. Executing the production branch with
+   is_master=False and one synthetic batch confirms a save. Multiple ranks can race
+   and store a criterion differing from the master's log. Current launcher is1GPU;
+   this applies to the supported multi-rank path. Reduce validation totals/counts
+   across ranks and save only on the designated writer with consistent selection.
+
+11.[P2] Conflicting phase metadata remains last-row-wins.
+   project10/evaluation/sample_multiphase_diffusion.py:441-450 overwrites pair/target
+   phase mappings without rejecting disagreement. The unchanged production main
+   path previously accepted early/late arterial rows for one pair and generated
+   the latter phase. Reject contradictory duplicate identity/phase mappings before
+   generation. No such conflict was demonstrated in the archived unique-pair cohort.
+
+12.[P1/evidence] Current eligibility/results still lack regenerated supporting artifacts.
+   Archive remains1444REJECT/185WEAK/3CLEAN; fresh replay of rounded organ statistics
+   under current aggregation remains1598REJECT/34WEAK/0CLEAN. This is a diagnostic
+   replay, not a new source-volume cohort. The refreshed report now claims151verified
+   scans(3CLEAN+148WEAK) with37missing-coarse exclusions. The arithmetic/explanation
+   improves, but there is no updated volume-backed eligibility archive or local
+   training/run manifest proving151follows current empty-organ rules. Exclusion prose
+   is still inferred from count differences rather than checked exclusion records.
+   Local results/logs are empty and CT cohort absent. No remote absence is inferred;
+   new checkpoint/output/metric claims cannot be independently reexecuted here.
+   All1545archived examination-date pairs remain missing dates; contemporaneous
+   pairing, old checkpoint exposure, fixed literature numbers and262/1067synthesis
+   descriptions still require independent evidence reconciliation.
+
+VERIFIED REPAIRS
+
+- Swin Phase1 actual zero-epoch CLI exits0 and writes its manifest. MedNeXt passes
+  the old wrong-argument point and writes its manifest; full training is locally
+  blocked by the existing missing nnunet_mednext dependency, not the old attribute bug.
+- Scaling creates run_dir/manifests; patient IDs no longer collapse intoCV; empty
+  train/validation cases fail early. A full epoch exposes the later cleanup issue1.
+- Valid checkpoint membership now excludes known training-patient siblings. Missing
+  manifests and exhausted holdouts fail; arbitrary empty manifests remain issue3.
+- Changed organ sources invalidate the merge cache, and corrupt organ input raises
+  ImageFileError instead of silently returning stomach-only supervision.
+- Both P10 empty-validation branches now reportNaN and do not save best checkpoints.
+- Manifest verifier rejects255-only,1000mm-displaced and unknown-subject probes,
+  checks all rows and rejects aliases/missing late rows.
+- P10 requires populated identity columns, registration/DVF filename equality and
+  synthetic/reference set correspondence; previous empty/unrelated-set bypass closes.
+- Statistical main now rejects HD95 duplicate conflicts and missing/present metric
+  conflicts. Patient mapping, independent hypothesis tests, one-patientCI decline,
+  explicit IDs, FDR and test-output isolation retain their repairs.
+- Previously repaired phase lookup, support-presence merge, complete input hashing,
+  ignored-label handling, physical probability alignment and ROI ordering remain.
+
+NEXT GATE
+
+Fix scaling cleanup and source-mask geometry first. Bind checkpoint/cache outputs
+to explicit validated identities; enforce eligible discrete training labels and a
+complete current result contract. Add production-path checks through successful
+function return and validation/checkpoint writing, not just helper setup. Then
+regenerate current cohort scores, affected training and independent result tables.
+
+Evidence folder: audit_evidence_7dafd09_2026-11-03/ contains full-suite/lint/sanity,
+P9/P10/scanner transcripts, provenance-absent merge and archive replay evidence.

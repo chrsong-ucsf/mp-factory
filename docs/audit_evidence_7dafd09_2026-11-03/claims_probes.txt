@@ -1,0 +1,38 @@
+Observed synthetic read-only scanner probes at HEAD7dafd09. Temporary outputs only; no real reports overwritten. These are failure-path probes, not genuine production measurements.
+{
+  "fractional_labels_rejected_subjects": {
+    "manifest_rows": 34,
+    "manifest_valid": true,
+    "manifest_clean": 34
+  },
+  "unknown_subject_now_rejected": true,
+  "matching_files_invalid_provenance_metric_values_scalar_DVF": {
+    "pairs_count": 1545,
+    "patients_count": 438,
+    "reg_vols": 1500,
+    "reg_dvfs": 1500,
+    "synth_vols": 1000,
+    "n_evaluated": 250,
+    "mean_pearson_r": 5.0,
+    "kinetics_ok": true,
+    "cohort_lineage_ok": true
+  },
+  "missing_runid_now_rejected": true,
+  "unsampled_synthetic_corrupt_header_accepted": true
+}
+
+Verified repairs:
+{
+  "all_ignore_now_rejected": true,
+  "displaced_now_rejected": true,
+  "HD95_conflict_now_rejected": true,
+  "HD95_error": "Conflicting duplicate records for MedNeXt subject 'BDMAP_900000' in metric 'mean_hd95': [10, 999]"
+}
+
+Current evidence limits:
+results: exists=True, files=0
+logs: exists=True, files=0
+CancerVerse_dbox: exists=False, files=0
+Archived pairs: 1545; missing dates source=1545, target=1545
+Archive current triage unchanged 1444REJECT/185WEAK/3CLEAN; fresh rounded-statistic replay1598REJECT/34WEAK/0CLEAN. Not a source-volume regeneration.
+Tracked production report now claims151 verified training scans=3CLEAN+148WEAK; archive still188eligible before current-rule replay. No updated volume-backed manifest available locally.

@@ -1,0 +1,15 @@
+{"probe": "absent_all_provenance_columns", "exit": 0, "rows": 1, "columns": ["subject_id", "status", "triage_category", "mean_consensus_dice", "mean_inter_model_dice", "mean_uncertainty"]}
+Found 1 chunk file(s):
+  /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpis6a8wli/chunk_0.csv: 1 rows
+
+Merged 1 chunks -> 1 total rows -> /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpis6a8wli/merged.csv
+  SUCCESS: 1 (100.0%)
+
+[AUTOMATED DATA CLEANSING BREAKDOWN]
+  WEAK_COARSE                                  : 1 cases (100.0%)
+
+Mean Consensus Dice   : 0.8000
+Mean Inter-Model Dice : 0.7000
+Mean Uncertainty      : 0.1000
+
+[DATASET SPLITS] Skipped (--splits_dir none).

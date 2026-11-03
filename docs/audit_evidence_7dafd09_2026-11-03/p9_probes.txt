@@ -1,0 +1,99 @@
+HEAD 7dafd0998eba8117c0996fb394ae14963a746b29
+Temporary root /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw
+COMMAND ['/opt/anaconda3/bin/python', 'code/training/train_mednext.py', '--data_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw/data', '--out_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw/train_mednext.py', '--epochs', '0']
+EXIT 1
+STDOUT
+Using compute device: cpu | Total GPU Cores Detected: 0
+Discovered 10 scanning pairs for training/validation.
+[Patient 80/20 Split] Train scans: 8 (8 pts) | Full Val pool: 2 (2 pts)
+ERROR: MedNeXt (nnunet_mednext) is not installed in this environment.
+Please install it manually on the login node: pip install git+https://github.com/MIC-DKFZ/MedNeXt.git
+
+STDERR
+/opt/anaconda3/lib/python3.12/site-packages/monai/utils/deprecate_utils.py:320: FutureWarning: monai.transforms.spatial.dictionary Orientationd.__init__:labels: Current default value of argument `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` was changed in version None from `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` to `labels=None`. Default value changed to None meaning that the transform now uses the 'space' of a meta-tensor, if applicable, to determine appropriate axis labels.
+  warn_deprecated(argname, msg, warning_category)
+
+MANIFEST_EXISTS True
+COMMAND ['/opt/anaconda3/bin/python', 'code/training/train_swin_unetr.py', '--data_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw/data', '--out_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw/train_swin_unetr.py', '--epochs', '0']
+EXIT 0
+STDOUT
+Using compute device: cpu | Total GPU Cores Detected: 0
+Discovered 10 scanning pairs for training/validation.
+[Standard 80/20 Patient Split] Train scans: 8 (8 pts) | Full Val pool: 2 (2 pts)
+
+Starting Swin-UNETR Training Loop from epoch 1 to 0...
+
+Training Complete! Best Validation Dice: -1.0000
+
+STDERR
+/opt/anaconda3/lib/python3.12/site-packages/monai/utils/deprecate_utils.py:320: FutureWarning: monai.transforms.spatial.dictionary Orientationd.__init__:labels: Current default value of argument `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` was changed in version None from `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` to `labels=None`. Default value changed to None meaning that the transform now uses the 'space' of a meta-tensor, if applicable, to determine appropriate axis labels.
+  warn_deprecated(argname, msg, warning_category)
+/Users/chrissong/research_su26/02_Projects/mp-factory/code/training/train_swin_unetr.py:360: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = torch.cuda.amp.GradScaler()
+/opt/anaconda3/lib/python3.12/site-packages/torch/cuda/amp/grad_scaler.py:31: UserWarning: torch.cuda.amp.GradScaler is enabled, but CUDA is not available.  Disabling.
+  super().__init__(
+
+MANIFEST_EXISTS True
+SCALING_SETUP_EXCEPTION Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+  File "/Users/chrissong/research_su26/02_Projects/mp-factory/code/training/run_scaling_sweep.py", line 805, in run_single_sweep
+    gc.collect()
+    ^^
+UnboundLocalError: cannot access local variable 'gc' where it is not associated with a value
+
+  Validation: patient-grouped 20%% split (1 scans across 1 pts)
+
+============================================================
+  Scaling Sweep: N=2 | seed=42 | train=1 | val=1 | loss=asymmetric
+============================================================
+  Saved metrics → /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw/sweep/N0002/seed42/epoch_metrics.json
+  Saved metrics → /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw/sweep/N0002/seed42/epoch_metrics.csv
+  Best val Dice (N=2, seed=42): 0.0000
+
+SCALING_MANIFEST {
+  "n_cases": 2,
+  "seed": 42,
+  "train_patients": [
+    "CV_1000"
+  ],
+  "val_patients": [
+    "CV_1001"
+  ],
+  "train_cases": [
+    "CV_1000_P0"
+  ],
+  "val_cases": [
+    "CV_1001_P0"
+  ]
+}
+CHANGED_ORGAN_CACHE_REGEN_DUODENUM_FG 0
+TAMPERED_MERGED_CACHE_ACCEPTED_CLASSES [4]
+CORRUPT_INPUT_REJECTED ImageFileError: File /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw/merge/BDMAP_00242113/segmentations/duodenum.nii.gz is not a gzip file
+EMPTY_UNRELATED_MANIFEST_ACCEPTED /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw/checkpoint/unrelated_manifest.json
+EMPTY_MANIFEST_VALIDATION_CASES [{'name': 'BDMAP_00242115'}]
+SIBLING_EXCLUSION_CURRENT [{'name': 'BDMAP_00242134'}]
+ONE_EPOCH_ACTUAL_SWEEP_WITH_TINY_NETWORK
+  Validation: patient-grouped 20%% split (1 scans across 1 pts)
+
+============================================================
+  Scaling Sweep: N=2 | seed=42 | train=1 | val=1 | loss=asymmetric
+============================================================
+/opt/anaconda3/lib/python3.12/site-packages/monai/utils/deprecate_utils.py:320: FutureWarning: monai.transforms.spatial.dictionary Orientationd.__init__:labels: Current default value of argument `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` was changed in version None from `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` to `labels=None`. Default value changed to None meaning that the transform now uses the 'space' of a meta-tensor, if applicable, to determine appropriate axis labels.
+  warn_deprecated(argname, msg, warning_category)
+/opt/anaconda3/lib/python3.12/site-packages/monai/data/meta_tensor.py:154: UserWarning: Setting affine, but the applied meta contains an affine. This will be overwritten.
+  warnings.warn("Setting affine, but the applied meta contains an affine. This will be overwritten.")
+  Epoch   1/1 | loss=1.7603 | mean_dice=0.0000 | mean_hd95=nan
+  Saved metrics → /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw/one_epoch/N0002/seed42/epoch_metrics.json
+  Saved metrics → /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-7daf-p9-xlzycjhw/one_epoch/N0002/seed42/epoch_metrics.csv
+  Best val Dice (N=2, seed=42): 0.0000
+
+Traceback (most recent call last):
+  File "<stdin>", line 9, in <module>
+  File "/Users/chrissong/research_su26/02_Projects/mp-factory/code/training/run_scaling_sweep.py", line 805, in run_single_sweep
+    gc.collect()
+    ^^
+UnboundLocalError: cannot access local variable 'gc' where it is not associated with a value
+
+PHASE1_BINARY_ORGAN_PHYSICAL_GEOMETRY_PROBE: input stomach at x=100mm, CT x=0..15mm; true overlap zero
+training.train_mednext merged_foreground=64 merged_origin_x=0.0
+training.train_swin_unetr merged_foreground=64 merged_origin_x=0.0

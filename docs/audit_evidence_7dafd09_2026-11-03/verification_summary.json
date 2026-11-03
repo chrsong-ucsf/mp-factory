@@ -1,0 +1,18 @@
+{
+  "audited_commit": "7dafd0998eba8117c0996fb394ae14963a746b29",
+  "pytest": "152 passed in36.21s",
+  "python_parsed": 90,
+  "python_parse_errors": 0,
+  "shell_syntax_passed": 76,
+  "shell_syntax_errors": 0,
+  "pyflakes_diagnostics": 182,
+  "undefined_name_diagnostics": 0,
+  "sanity": {
+    "checks": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "production_reexecution": false
+}
