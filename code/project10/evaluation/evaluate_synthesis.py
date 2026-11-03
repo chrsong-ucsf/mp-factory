@@ -271,6 +271,8 @@ def build_evaluation_cohort_manifest(
         fake_sha = compute_file_sha256(f)
         real_cand = find_matching_real_file(f, real_dir)
         real_sha = compute_file_sha256(real_cand) if (real_cand and real_cand.exists()) else None
+        supp_cand = Path(str(real_cand).replace(".nii.gz", "_support.nii.gz")) if real_cand else None
+        supp_sha = compute_file_sha256(supp_cand) if (supp_cand and supp_cand.exists()) else None
         worker_id = idx // chunk_size if chunk_size > 0 else 0
 
         item = {
@@ -278,11 +280,13 @@ def build_evaluation_cohort_manifest(
             "fake_sha256": fake_sha,
             "real_file": real_cand.name if real_cand else None,
             "real_sha256": real_sha,
+            "support_file": supp_cand.name if (supp_cand and supp_cand.exists()) else None,
+            "support_sha256": supp_sha,
             "worker_id": worker_id,
         }
         items.append(item)
         sig_builder.update(
-            f"{f.name}:{fake_sha}:{item['real_file']}:{real_sha}:{worker_id};".encode("utf-8")
+            f"{f.name}:{fake_sha}:{item['real_file']}:{real_sha}:{item['support_file']}:{supp_sha}:{worker_id};".encode("utf-8")
         )
 
     snapshot_hash = sig_builder.hexdigest()
@@ -845,10 +849,13 @@ def main():
                         if f_cand.exists() and real_cand is not None and real_cand.exists():
                             f_sha = compute_file_sha256(f_cand)
                             r_sha = compute_file_sha256(real_cand)
+                            supp_cand = Path(str(real_cand).replace(".nii.gz", "_support.nii.gz"))
+                            supp_sha = compute_file_sha256(supp_cand) if supp_cand.exists() else None
                             if (
                                 rec.get("fake_sha256") == f_sha
                                 and rec.get("real_sha256") == r_sha
                                 and rec.get("real_file") == real_cand.name
+                                and rec.get("support_sha256") == supp_sha
                             ):
                                 processed_subjects[subj] = rec
                 results = list(processed_subjects.values())
@@ -882,6 +889,8 @@ def main():
             metrics["fake_sha256"] = compute_file_sha256(fake_path)
             metrics["real_sha256"] = compute_file_sha256(real_path)
             metrics["real_file"] = real_path.name
+            supp_p = Path(str(real_path).replace(".nii.gz", "_support.nii.gz"))
+            metrics["support_sha256"] = compute_file_sha256(supp_p) if supp_p.exists() else None
             metrics["fake_mtime"] = float(fake_path.stat().st_mtime)
             metrics["metric_version"] = METRIC_VERSION
 

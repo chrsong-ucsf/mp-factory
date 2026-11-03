@@ -82,6 +82,7 @@ class DDIMSampler:
         anatomy_mask: torch.Tensor,
         num_inference_steps: int = 50,
         eta: float = 0.0,
+        phase_labels: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Run DDIM reverse diffusion trajectory from pure Gaussian noise.
@@ -92,6 +93,7 @@ class DDIMSampler:
             anatomy_mask: Downsampled SPADE conditioning mask [B, 5, D, H, W]
             num_inference_steps: Number of DDIM sampling steps (default: 50)
             eta: Stochasticity parameter (0.0 = deterministic DDIM)
+            phase_labels: Target phase integer tensor [B] (0..4)
         """
         device = source_latent.device
         B = source_latent.shape[0]
@@ -113,12 +115,13 @@ class DDIMSampler:
             else:
                 alpha_bar_prev = torch.tensor(1.0, device=device)
 
-            # Predict noise
+            # Predict noise with target phase conditioning (F06)
             eps_pred = model(
                 x=x_t,
                 timesteps=t_batch,
                 source_latent=source_latent,
                 anatomy_mask=anatomy_mask,
+                phase_labels=phase_labels,
             )
 
             # Estimate x_0 (clean latent)
@@ -348,7 +351,23 @@ def load_anatomy_mask(
     return dummy
 
 
-def main():
+PHASE_NAME_TO_ID = {
+    "noncontrast": 0, "ncct": 0, "0": 0,
+    "arterial_early": 1, "early_arterial": 1, "1": 1,
+    "arterial_late": 2, "late_arterial": 2, "arterial": 2, "2": 2,
+    "venous": 3, "portal_venous": 3, "portal": 3, "pv": 3, "3": 3,
+    "delayed": 4, "4": 4,
+}
+ID_TO_PHASE_NAME = {
+    0: "noncontrast",
+    1: "arterial_early",
+    2: "arterial_late",
+    3: "venous",
+    4: "delayed",
+}
+
+
+def build_arg_parser():
     parser = argparse.ArgumentParser(description="Multiphase Diffusion Inference & Sampling")
     parser.add_argument("--registered_dir", type=str,
                         default="results/project10/registered_volumes",
@@ -368,6 +387,8 @@ def main():
     parser.add_argument("--out_dir", type=str,
                         default="results/project10/synthetic_volumes",
                         help="Output directory for generated synthetic NIfTI CT volumes")
+    parser.add_argument("--target_phase", type=str, default="auto",
+                        help="Target contrast acquisition phase ('auto', 'arterial_early', 'arterial_late', 'venous', 'delayed', or 0..4)")
     parser.add_argument("--num_steps", type=int, default=50, help="Number of DDIM sampling steps (default: 50)")
     parser.add_argument("--array_id", type=int, default=0, help="SLURM array task index")
     parser.add_argument("--total_workers", type=int, default=1, help="Total number of parallel array workers")
@@ -380,6 +401,11 @@ def main():
     parser.add_argument("--overwrite", action="store_true",
                         help="Force regenerate existing synthetic volumes and provenance sidecars")
     parser.add_argument("--max_samples", type=int, default=None, help="Maximum scans to sample per worker")
+    return parser
+
+
+def main():
+    parser = build_arg_parser()
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -554,6 +580,27 @@ def main():
 
         mask_sha = checkpoint_sha256(mask_path) if mask_path and os.path.exists(mask_path) else None
 
+        # Resolve target phase (F06)
+        if args.target_phase != "auto":
+            phase_key = str(args.target_phase).lower()
+            if phase_key not in PHASE_NAME_TO_ID:
+                raise ValueError(f"Unknown --target_phase '{args.target_phase}'. Choose from {list(PHASE_NAME_TO_ID.keys())}")
+            target_phase_id = PHASE_NAME_TO_ID[phase_key]
+        else:
+            p_lower = pair_name.lower()
+            if "arterial_early" in p_lower or "early_art" in p_lower:
+                target_phase_id = 1
+            elif "arterial" in p_lower:
+                target_phase_id = 2
+            elif "delayed" in p_lower:
+                target_phase_id = 4
+            elif "venous" in p_lower or "portal" in p_lower or "pv" in p_lower:
+                target_phase_id = 3
+            else:
+                target_phase_id = 3  # Standard abdominal contrast phase
+        target_phase_name = ID_TO_PHASE_NAME.get(target_phase_id, f"phase_{target_phase_id}")
+        target_phase_tensor = torch.tensor([target_phase_id], device=device, dtype=torch.long)
+
         # Complete generation contract verification
         if os.path.exists(out_path) and not args.overwrite:
             try:
@@ -568,6 +615,7 @@ def main():
                         and prov_data.get("diffusion_checkpoint_sha256") == diff_sha
                         and prov_data.get("ae_checkpoint_sha256") == ae_sha
                         and prov_data.get("totalseg_task") == args.totalseg_task
+                        and prov_data.get("target_phase") == target_phase_id
                         and prov_data.get("num_steps") == args.num_steps
                         and prov_data.get("code_version") == CODE_VERSION_TAG
                     ):
@@ -585,7 +633,7 @@ def main():
                 log.warning(f"Existing {out_path} unreadable ({e}), regenerating...")
 
         attempted_count += 1
-        log.info(f"[{idx}/{len(my_files)}] Generating synthetic contrast volume for: {pair_name}")
+        log.info(f"[{idx}/{len(my_files)}] Generating synthetic contrast volume for: {pair_name} (Phase {target_phase_id}: {target_phase_name})")
 
         try:
             # Preprocess volume to normalised range [-0.5, 1.0] and get resampled affine
@@ -596,13 +644,14 @@ def main():
                 # Encode NCCT to latent space: (1, 4, 16, 16, 16)
                 z_ncct = ae.encode(ncct_tensor)
 
-                # Sample target latent via DDIM
+                # Sample target latent via DDIM with target phase conditioning (F06)
                 z_syn = sampler.sample(
                     model=model,
                     source_latent=z_ncct,
                     anatomy_mask=anatomy_mask,
                     num_inference_steps=args.num_steps,
                     eta=0.0,
+                    phase_labels=target_phase_tensor,
                 )
 
                 # Decode latent to full 3D CT volume (1, 1, 128, 128, 128)
@@ -630,6 +679,8 @@ def main():
                     "ae_checkpoint_sha256": ae_sha,
                     "totalseg_task": args.totalseg_task,
                     "require_conditioning": args.require_conditioning,
+                    "target_phase": target_phase_id,
+                    "target_phase_name": target_phase_name,
                     "num_steps": args.num_steps,
                     "target_shape": [128, 128, 128],
                     "spacing_mm": 1.5,

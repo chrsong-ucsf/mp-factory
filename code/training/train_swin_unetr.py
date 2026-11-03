@@ -33,6 +33,7 @@ from monai.transforms import (
     EnsureTyped,
     AsDiscrete,
     MapTransform,
+    ResampleToMatchd,
 )
 from monai.data import Dataset, DataLoader, decollate_batch
 
@@ -190,6 +191,7 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest", padding_mode="zeros"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         CropForegroundd(keys=["image", "label"], source_key="image"),
@@ -216,6 +218,7 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest", padding_mode="zeros"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         EnsureTyped(keys=["image", "label"]),
@@ -253,23 +256,33 @@ def main():
         print("Error: No data pairs found!")
         return
 
-    # Train / Val Split
-    np.random.seed(42)
-    indices = np.arange(len(data_pairs))
-    np.random.shuffle(indices)
+    # Train / Val Split grouped by patient ID to strictly prevent patient leakage across folds (F07/F13)
+    patient_map = {}
+    for i, pair in enumerate(data_pairs):
+        sub = pair.get("name", pair.get("subject_id", f"case_{i}"))
+        s = str(sub).strip()
+        parts = s.split("_")
+        pid = f"{parts[0]}_{parts[1]}" if (len(parts) >= 2 and parts[0] in ("CV", "CancerVerse", "BDMAP")) else s
+        patient_map.setdefault(pid, []).append(i)
+
+    unique_patients = np.sort(list(patient_map.keys()))
+    rng = np.random.RandomState(42)
+    shuffled_patients = rng.permutation(unique_patients)
 
     if args.fold >= 0:
-        folds = np.array_split(indices, args.num_folds)
-        val_indices = folds[args.fold]
-        train_indices = np.setdiff1d(indices, val_indices)
-        train_pairs = [data_pairs[i] for i in train_indices]
-        val_pairs = [data_pairs[i] for i in val_indices]
-        print(f"[Fold {args.fold}/{args.num_folds}] Train scans: {len(train_pairs)} | Full Val pool: {len(val_pairs)}")
+        patient_folds = np.array_split(shuffled_patients, args.num_folds)
+        val_patients = set(patient_folds[args.fold])
+        train_patients = set(np.setdiff1d(shuffled_patients, patient_folds[args.fold]))
+        train_pairs = [data_pairs[idx] for pid in train_patients for idx in patient_map[pid]]
+        val_pairs   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
+        print(f"[Fold {args.fold}/{args.num_folds} Patient Split] Train scans: {len(train_pairs)} ({len(train_patients)} pts) | Full Val pool: {len(val_pairs)} ({len(val_patients)} pts)")
     else:
-        split_idx = int(0.8 * len(data_pairs))
-        train_pairs = [data_pairs[i] for i in indices[:split_idx]]
-        val_pairs = [data_pairs[i] for i in indices[split_idx:]]
-        print(f"[Standard 80/20 Split] Train scans: {len(train_pairs)} | Full Val pool: {len(val_pairs)}")
+        n_val_pt = max(1, int(0.2 * len(shuffled_patients)))
+        val_patients = set(shuffled_patients[:n_val_pt])
+        train_patients = set(shuffled_patients[n_val_pt:])
+        train_pairs = [data_pairs[idx] for pid in train_patients for idx in patient_map[pid]]
+        val_pairs   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
+        print(f"[Standard 80/20 Patient Split] Train scans: {len(train_pairs)} ({len(train_patients)} pts) | Full Val pool: {len(val_pairs)} ({len(val_patients)} pts)")
 
     # Subsample Validation scans for fast evaluation
     if args.max_val_samples > 0 and len(val_pairs) > args.max_val_samples:

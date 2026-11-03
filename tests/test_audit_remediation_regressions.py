@@ -1916,3 +1916,170 @@ def test_stage1_dataset_patient_grouping_and_fail_closed(tmp_path):
     # Missing CT file must raise FileNotFoundError (F10)
     with pytest.raises(FileNotFoundError):
         _ = ds_train[0]
+
+
+def test_production_evaluate_multi_model_ensemble_npz_probability_resampling_and_fail_closed(tmp_path):
+    """F01 & F02 Regression: Ensemble evaluate_subject handles .npz probability maps with physical resampling."""
+    from code.evaluation.evaluate_multi_model_ensemble import evaluate_subject
+    import nibabel as nib
+    import numpy as np
+
+    shape = (16, 16, 16)
+    aff_ref = np.diag([1.5, 1.5, 2.0, 1.0])
+    # Model 1: seg mask + probability npz with identical grid
+    m1_mask = np.zeros(shape, dtype=np.uint8)
+    m1_mask[4:12, 4:12, 4:12] = 1  # stomach
+    m1_nii = nib.Nifti1Image(m1_mask, aff_ref)
+    m1_path = str(tmp_path / "case01_m1_gi_seg.nii.gz")
+    nib.save(m1_nii, m1_path)
+
+    # NPZ probabilities: shape (5, 16, 16, 16)
+    m1_probs = np.zeros((5,) + shape, dtype=np.float32)
+    m1_probs[0] = 0.1
+    m1_probs[1, 4:12, 4:12, 4:12] = 0.9
+    np.savez_compressed(m1_path.replace("_gi_seg.nii.gz", "_gi_probs.npz"), probs=m1_probs)
+
+    # Model 2: seg mask + probability npz with slightly shifted affine (physical resampling required)
+    aff_m2 = aff_ref.copy()
+    aff_m2[0, 3] = 1.5  # 1.5mm offset in X
+    m2_mask = np.zeros(shape, dtype=np.uint8)
+    m2_mask[4:12, 4:12, 4:12] = 1
+    m2_nii = nib.Nifti1Image(m2_mask, aff_m2)
+    m2_path = str(tmp_path / "case01_m2_gi_seg.nii.gz")
+    nib.save(m2_nii, m2_path)
+
+    m2_probs = np.zeros((5,) + shape, dtype=np.float32)
+    m2_probs[0] = 0.1
+    m2_probs[1, 4:12, 4:12, 4:12] = 0.9
+    np.savez_compressed(m2_path.replace("_gi_seg.nii.gz", "_gi_probs.npz"), probs=m2_probs)
+
+    out_dir = str(tmp_path / "ensemble_out")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Run evaluate_subject with NPZs present: must succeed and not raise NameError('target_shape')
+    res = evaluate_subject(
+        subject_id="case01",
+        model_files=[m1_path, m2_path],
+        model_names=["model1", "model2"],
+        out_dir=out_dir
+    )
+
+    assert res.get("status") == "SUCCESS", f"Ensemble evaluation failed: {res.get('error')}"
+    assert os.path.exists(os.path.join(out_dir, "case01_consensus.nii.gz"))
+    assert os.path.exists(os.path.join(out_dir, "case01_uncertainty.nii.gz"))
+    assert "mean_consensus_dice" in res
+    assert res["mean_consensus_dice"] > 0.0
+
+
+def test_production_train_phase2_ignore_index_clamping_and_masking():
+    """F03 Regression: Label value 255 (ignore index) is clamped before AsDiscrete to prevent out of bounds."""
+    from monai.transforms import AsDiscrete
+    from monai.data import decollate_batch
+    import torch
+
+    # Simulated batch: shape (1, 1, 4, 4, 4) with labels in 0..4 and 255 for boundary ignore
+    labels = torch.zeros((1, 1, 4, 4, 4), dtype=torch.long)
+    labels[0, 0, 1, 1, 1] = 1   # stomach
+    labels[0, 0, 2, 2, 2] = 255 # boundary ignore
+
+    # Target logic in train_mednext_phase2 / train_swin_unetr_phase2
+    valid_mask = (labels >= 0) & (labels < 5)
+    labels_safe = torch.where(valid_mask, labels, torch.zeros_like(labels))
+
+    post_label = AsDiscrete(to_onehot=5)
+    # This call must NOT raise: IndexError: index 255 is out of bounds for dimension with size 5
+    one_hots = [post_label(i) for i in decollate_batch(labels_safe)]
+    assert len(one_hots) == 1
+    one_hot = one_hots[0]
+    assert one_hot.shape == (5, 4, 4, 4)
+
+    # Valid mask should mask both target and predictions
+    vmasks = [m for m in decollate_batch(valid_mask)]
+    masked_target = one_hot * vmasks[0].float()
+    assert masked_target[:, 2, 2, 2].sum().item() == 0.0  # Ignore voxel is zeroed out
+    assert masked_target[1, 1, 1, 1].item() == 1.0        # Valid stomach voxel preserved
+
+
+def test_production_statistical_significance_patient_id_and_fdr_nan_preservation():
+    """F10 & F12 Regression: Patient ID extraction distinguishes BDMAP patients and FDR preserves NaN indices."""
+    from code.evaluation.statistical_significance_test import extract_patient_id, apply_fdr_correction
+    import numpy as np
+
+    # 1. Patient ID distinction: BDMAP subjects must NOT collapse into 'BDMAP'
+    assert extract_patient_id("BDMAP_00242131") == "BDMAP_00242131"
+    assert extract_patient_id("BDMAP_00242132") == "BDMAP_00242132"
+    assert extract_patient_id("BDMAP_00242131") != extract_patient_id("BDMAP_00242132")
+    assert extract_patient_id("CV_1001_P0") == "CV_1001"
+    assert extract_patient_id("CV_1001_P1") == "CV_1001"
+
+    # 2. FDR correction with NaN preservation
+    results = [
+        {"test": "A", "p_value_wilcoxon": np.nan},
+        {"test": "B", "p_value_wilcoxon": 0.01},
+        {"test": "C", "p_value_wilcoxon": 0.04},
+    ]
+    corrected = apply_fdr_correction(results, alpha=0.05)
+
+    # Test A had NaN p-value, so q-value must be NaN and not overwritten by Test B or C
+    assert np.isnan(corrected[0]["q_value_fdr"])
+    assert corrected[0]["sig_fdr"] == "n/a"
+
+    # Test B (p=0.01, rank 1 of 2 valid tests): q = min(0.01 * 2 / 1, q_next) = 0.02
+    assert abs(corrected[1]["q_value_fdr"] - 0.02) < 1e-4
+    assert corrected[1]["sig_fdr"] == "*"
+
+    # Test C (p=0.04, rank 2 of 2 valid tests): q = 0.04 * 2 / 2 = 0.04
+    assert abs(corrected[2]["q_value_fdr"] - 0.04) < 1e-4
+    assert corrected[2]["sig_fdr"] == "*"
+
+
+def test_production_sample_multiphase_diffusion_phase_resolution():
+    """F06 Regression: Target phase resolution handles auto discovery and explicit phase names/integers."""
+    from code.project10.evaluation.sample_multiphase_diffusion import PHASE_NAME_TO_ID, ID_TO_PHASE_NAME, build_arg_parser
+
+    # 1. Dictionary completeness
+    assert PHASE_NAME_TO_ID["arterial"] == 2
+    assert PHASE_NAME_TO_ID["venous"] == 3
+    assert PHASE_NAME_TO_ID["portal_venous"] == 3
+    assert PHASE_NAME_TO_ID["delayed"] == 4
+    assert PHASE_NAME_TO_ID["noncontrast"] == 0
+    assert PHASE_NAME_TO_ID["3"] == 3
+
+    assert ID_TO_PHASE_NAME[2] == "arterial_late"
+    assert ID_TO_PHASE_NAME[3] == "venous"
+
+    # 2. Arg parser includes --target_phase
+    parser = build_arg_parser()
+    args = parser.parse_args(["--target_phase", "venous"])
+    assert args.target_phase == "venous"
+
+
+def test_production_stress_test_contrast_perturbation_summary_df_no_name_error(tmp_path):
+    """F08 Regression: generate_markdown_report builds summary_df from measured data without NameError."""
+    from code.project10.evaluation.stress_test_contrast_perturbation import generate_markdown_report, PERTURBATION_CONDITIONS
+    import pandas as pd
+
+    records = []
+    for cond in PERTURBATION_CONDITIONS:
+        records.append({
+            "pair_id": "pair_001",
+            "condition": cond["name"],
+            "category": cond["category"],
+            "hu_shift": cond["hu_shift"],
+            "noise_sigma": cond["noise_sigma"],
+            "mean_retention_dice": 0.88,
+            "dice_retention_stomach": 0.90,
+            "dice_retention_duodenum": 0.85,
+            "dice_retention_small_bowel": 0.87,
+            "dice_retention_colon": 0.89,
+        })
+    df = pd.DataFrame(records)
+
+    out_md = tmp_path / "stress_report.md"
+    generate_markdown_report(df, str(out_md))
+
+    assert out_md.exists()
+    content = out_md.read_text()
+    assert "# MultiPhase-GI: Generative Contrast Robustness" in content
+    assert "Pass Rate (≥0.85)" in content
+

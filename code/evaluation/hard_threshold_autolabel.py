@@ -145,10 +145,11 @@ def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir, overwrite=Fa
                 base = fname.replace('.nii.gz', '').lower()
                 seg_nii = nib.load(os.path.join(seg_dir, fname))
                 seg_arr = np.asanyarray(seg_nii.dataobj).squeeze().astype(np.uint8)
-                # Resample to CT voxel grid if shapes differ.
-                if seg_arr.shape != human_arr.shape:
-                    seg_res = nip.resample_from_to(seg_nii, ct_nii, order=0)
-                    seg_arr = np.asanyarray(seg_res.dataobj).squeeze().astype(np.uint8)
+                # Resample to CT voxel grid with physical coordinate alignment and zero padding (F02/F04)
+                if seg_arr.shape != human_arr.shape or not np.allclose(seg_nii.affine, ct_nii.affine, atol=1e-3):
+                    seg_arr = resample_label_to_reference(
+                        seg_arr, seg_nii.affine, ct_nii.affine, human_arr.shape, order=0, cval=0.0
+                    )
                 # Match organ id from keywords.
                 for oid, kws in ORGAN_KEYWORDS.items():
                     if any(kw in base for kw in kws) and oid not in matched_ids:

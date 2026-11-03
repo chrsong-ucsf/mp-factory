@@ -209,27 +209,43 @@ def generate_markdown_report(df: pd.DataFrame, out_md: str):
         "# MultiPhase-GI: Generative Contrast Robustness & Out-of-Distribution Stress Test Report\n",
         f"**Date:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n",
         f"**Sample Size:** N = {df['pair_id'].nunique()} Paired Generative Scans ({len(df)} Evaluations)\n",
-        "This stress-test challenges the Project 10 latent diffusion contrast model against severe out-of-distribution scanner noise and HU attenuation shifts to prove anatomical invariance without hallucination.\n",
+        "This stress-test evaluates the segmentation consistency of a fixed 3D GI segmenter on perturbed generated contrast CT scans under simulated scanner noise and systematic HU attenuation shifts (measuring segmenter consistency on perturbed generative outputs).\n",
         "| Condition | Category | HU Shift | Noise σ | Mean GI Dice | Stomach (DSC) | Duodenum (DSC) | Small Bowel (DSC) | Colon (DSC) | Pass Rate (≥0.85) |",
         "| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
     ]
 
+    summary_records = []
     for cond in PERTURBATION_CONDITIONS:
         name = cond["name"]
         sub = df[df["condition"] == name]
         if len(sub) == 0:
             continue
 
-        mean_dice = f"{sub['mean_retention_dice'].mean():.3f} ± {sub['mean_retention_dice'].std():.3f}"
+        mean_val = float(sub['mean_retention_dice'].mean())
+        std_val = float(sub['mean_retention_dice'].std())
+        pass_val = float((sub['mean_retention_dice'] >= 0.85).mean())
+        summary_records.append({
+            "condition": name,
+            "category": cond["category"],
+            "hu_shift": cond["hu_shift"],
+            "noise_sigma": cond["noise_sigma"],
+            "mean_dice": mean_val,
+            "std_dice": std_val,
+            "pass_rate": pass_val,
+        })
+
+        mean_dice = f"{mean_val:.3f} ± {std_val:.3f}"
         s_dice = f"{sub['dice_retention_stomach'].mean():.3f}"
         d_dice = f"{sub['dice_retention_duodenum'].mean():.3f}"
         sb_dice = f"{sub['dice_retention_small_bowel'].mean():.3f}"
         c_dice = f"{sub['dice_retention_colon'].mean():.3f}"
-        pass_rate = f"{(sub['mean_retention_dice'] >= 0.85).mean() * 100.0:.1f}%"
+        pass_rate = f"{pass_val * 100.0:.1f}%"
 
         md_lines.append(
             f"| **{name}** | {cond['category']} | {cond['hu_shift']:+.0f} HU | {cond['noise_sigma']:.0f} HU | **{mean_dice}** | {s_dice} | {d_dice} | {sb_dice} | {c_dice} | **{pass_rate}** |"
         )
+
+    summary_df = pd.DataFrame(summary_records)
 
     # Derive observations strictly from measured metrics (F08)
     md_lines.append("\n### Measured Output Segmentation Consistency Findings:\n")

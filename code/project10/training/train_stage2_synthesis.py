@@ -163,6 +163,7 @@ def restore_stage2_checkpoint(
     ae_checkpoint_sha256: str,
     conditioning: dict,
     allow_legacy_ae_resume: bool = False,
+    expected_timesteps: Optional[int] = None,
 ) -> Tuple[int, float]:
     """
     Restore Stage 2 training state from checkpoint with strict provenance auditing.
@@ -200,6 +201,14 @@ def restore_stage2_checkpoint(
             raise ValueError(
                 f"Legacy checkpoint {path} has unaudited mask conditioning. "
                 "Explicit override required via --allow_legacy_ae_resume."
+            )
+
+    # 2b. Timesteps Schedule Validation (F11)
+    ckpt_timesteps = ckpt.get("timesteps")
+    if ckpt_timesteps is not None and expected_timesteps is not None:
+        if ckpt_timesteps != expected_timesteps:
+            raise ValueError(
+                f"Checkpoint {path} was trained with timesteps={ckpt_timesteps}, but runtime requested {expected_timesteps}."
             )
 
     # 3. Model weights
@@ -427,6 +436,7 @@ def main() -> None:
             ae_checkpoint_sha256=ae_sha,
             conditioning=conditioning,
             allow_legacy_ae_resume=args.allow_legacy_ae_resume,
+            expected_timesteps=args.timesteps,
         )
         if is_master:
             log.info(f"Resumed from {args.resume} (epoch {start_epoch}, best_val_loss {best_val_loss:.5f})")

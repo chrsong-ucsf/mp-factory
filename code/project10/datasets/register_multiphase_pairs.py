@@ -374,8 +374,10 @@ def main() -> None:
         phase_tag = str(row["phase_target"]).replace("/", "_")
         out_reg  = os.path.join(args.out_dir, f"{pair_id}_reg.nii.gz")
         out_dvf  = os.path.join(args.out_dir, f"{pair_id}_dvf.nii.gz")
+        out_supp = os.path.join(args.out_dir, f"{pair_id}_reg_support.nii.gz")
 
-        if args.skip_existing and os.path.exists(out_reg):
+        # Require all deliverables including genuine support mask to be present (F05/F08)
+        if args.skip_existing and os.path.exists(out_reg) and os.path.exists(out_supp) and os.path.exists(out_dvf):
             log.info(f"[{idx+1}/{len(pairs_df)}] SKIP (exists): {pair_id}")
             n_skip += 1
             continue

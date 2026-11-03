@@ -168,10 +168,10 @@ def build_manifest(
     return rows
 
 
-def verify_dataset_integrity(manifest, n_workers=1, early_exit=True):
+def verify_dataset_integrity(manifest, n_workers=1, early_exit=True, sample_stride=1):
     """
-    Reports items missing/broken, returns error count.
-    Loads up to a 25% subset of labels to confirm data validity without spending hours.
+    Reports items missing/broken, returns list of errors.
+    Checks all records by default (sample_stride=1) or every sample_stride records.
     """
     import nibabel as nib
 
@@ -190,8 +190,8 @@ def verify_dataset_integrity(manifest, n_workers=1, early_exit=True):
             msgs.append("label missing")
             ec += 1
 
-        # Attempt light NIfTI load for a random subset to catch corrupt/half-written files
-        if ec == 0 and (i % 10 == 0):
+        # Check NIfTI header and content validity
+        if ec == 0 and (sample_stride <= 1 or i % sample_stride == 0):
             try:
                 ct_nii = nib.load(ct)
                 lbl_nii = nib.load(lbl)

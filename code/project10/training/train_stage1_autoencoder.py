@@ -154,7 +154,7 @@ class MultiPhaseVolumeDataset(Dataset):
             all_paths = pd.concat([paths_p0, paths_tgt], ignore_index=True).drop_duplicates("ct_path").reset_index(drop=True)
             
             unique_pts = np.sort(all_paths["patient_id"].astype(str).unique())
-            rng = np.random.default_rng(seed)
+            rng = np.random.RandomState(seed)
             shuffled_pts = rng.permutation(unique_pts)
             n_val_pts = max(1, int(len(shuffled_pts) * val_fraction))
             val_pts_set = set(shuffled_pts[:n_val_pts])

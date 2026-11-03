@@ -41,13 +41,16 @@ ORGAN_NAMES = ["stomach", "duodenum", "small_bowel", "colon"]
 NUM_CLASSES = 5  # 0: bg, 1: stomach, 2: duodenum, 3: small bowel, 4: colon
 
 
-def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, gold_standard_dir=None, max_cases=20):
+def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, gold_standard_dir=None, max_cases=20, exclude_subjects=None):
     cases = []
+    exclude_set = set(str(s) for s in (exclude_subjects or []))
     # If gold_standard_dir is provided, look for gold standard masks
     if gold_standard_dir and os.path.exists(gold_standard_dir):
         gs_files = sorted(glob.glob(os.path.join(gold_standard_dir, "*.nii.gz")))
         for gf in gs_files:
             sub = os.path.basename(gf).replace(".nii.gz", "")
+            if sub in exclude_set:
+                continue
             ct = os.path.join(data_dir, sub, "ct.nii.gz")
             if os.path.exists(ct):
                 cases.append({"image": ct, "label": gf, "name": sub})
@@ -62,6 +65,8 @@ def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, gold_standard_d
         clean = df[df["triage_category"] == "CLEAN_HIGH_CONFIDENCE"]
         for _, row in clean.iterrows():
             sub = str(row["subject_id"])
+            if sub in exclude_set:
+                continue
             ct = os.path.join(data_dir, sub, "ct.nii.gz")
             lbl = os.path.join(ensemble_out_dir, f"{sub}_consensus.nii.gz")
             if os.path.exists(ct) and os.path.exists(lbl):
@@ -72,6 +77,8 @@ def find_validation_cases(data_dir, ensemble_out_dir, audit_csv, gold_standard_d
     if not cases and os.path.exists(ensemble_out_dir):
         for lbl in sorted(glob.glob(os.path.join(ensemble_out_dir, "*_consensus.nii.gz"))):
             sub = os.path.basename(lbl).replace("_consensus.nii.gz", "")
+            if sub in exclude_set:
+                continue
             ct = os.path.join(data_dir, sub, "ct.nii.gz")
             if os.path.exists(ct):
                 cases.append({"image": ct, "label": lbl, "name": sub})
@@ -155,6 +162,8 @@ def main():
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--num_val_cases", type=int, default=20)
     parser.add_argument("--roi_size", type=int, nargs=3, default=[96, 96, 96])
+    parser.add_argument("--exclude_manifest", type=str, default=None,
+                        help="Optional CSV manifest of training cases to strictly exclude from validation (F06/F13)")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -166,10 +175,18 @@ def main():
         print(f"      Gold Std:   {args.gold_standard_dir}")
     print("=" * 70)
 
+    exclude_subs = set()
+    if args.exclude_manifest and os.path.exists(args.exclude_manifest):
+        ex_df = pd.read_csv(args.exclude_manifest)
+        if "subject_id" in ex_df.columns:
+            exclude_subs = set(ex_df["subject_id"].astype(str))
+            print(f"Excluding {len(exclude_subs)} training subjects from validation holdout.")
+
     # 1. Find validation cases
     val_cases = find_validation_cases(
         args.data_dir, args.ensemble_out_dir, args.audit_csv,
-        gold_standard_dir=args.gold_standard_dir, max_cases=args.num_val_cases
+        gold_standard_dir=args.gold_standard_dir, max_cases=args.num_val_cases,
+        exclude_subjects=exclude_subs,
     )
     if not val_cases:
         print(f"ERROR: No valid (CT, label) pairs found in {args.data_dir} / {args.ensemble_out_dir}!")

@@ -213,9 +213,9 @@ class FixLiarLabelAffined(MapTransform):
     Directly uses MONAI's ResampleToMatchd to project the label onto the image voxel grid
     in physical world coordinates, preserving true anatomical bounds and orientation.
     """
-    def __init__(self, keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0), mode="nearest"):
+    def __init__(self, keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0), mode="nearest", padding_mode="zeros"):
         super().__init__(keys)
-        self.resampler = ResampleToMatchd(keys=keys, key_dst=image_key, mode=mode, allow_missing_keys=True)
+        self.resampler = ResampleToMatchd(keys=keys, key_dst=image_key, mode=mode, padding_mode=padding_mode, allow_missing_keys=True)
 
     def __call__(self, data):
         return self.resampler(data)
@@ -251,7 +251,7 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest", padding_mode="zeros"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         CropForegroundd(keys=["image", "label"], source_key="image"),
@@ -277,7 +277,7 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest", padding_mode="zeros"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         EnsureTyped(keys=["image", "label"]),
@@ -491,8 +491,9 @@ def main():
                 for val_data in val_loader:
                     val_inputs = val_data["image"].to(device)
                     val_labels = val_data["label"].to(device)
-                    # Mask out 255 for validation metric calculation
-                    val_labels_clean = torch.where(val_labels == IGNORE_INDEX, torch.zeros_like(val_labels), val_labels)
+                    # Mask out 255 for validation metric calculation on both predictions and labels (F03/F15)
+                    val_mask = (val_labels != IGNORE_INDEX)
+                    val_labels_clean = torch.where(val_mask, val_labels, torch.zeros_like(val_labels))
 
                     with torch.amp.autocast('cuda'):
                         val_outputs = sliding_window_inference(
@@ -505,8 +506,16 @@ def main():
 
                     val_outputs_list = [post_pred(i) for i in decollate_batch(val_outputs)]
                     val_labels_list  = [post_label(i) for i in decollate_batch(val_labels_clean)]
-                    dice_metric(y_pred=val_outputs_list, y=val_labels_list)
-                    dice_metric_batch(y_pred=val_outputs_list, y=val_labels_list)
+                    vmasks = [m for m in decollate_batch(val_mask)]
+                    cleaned_preds = []
+                    cleaned_labels = []
+                    for p, l, m in zip(val_outputs_list, val_labels_list, vmasks):
+                        if m.dim() < p.dim():
+                            m = m.unsqueeze(0)
+                        cleaned_preds.append(torch.where(m, p, torch.zeros_like(p)))
+                        cleaned_labels.append(torch.where(m, l, torch.zeros_like(l)))
+                    dice_metric(y_pred=cleaned_preds, y=cleaned_labels)
+                    dice_metric_batch(y_pred=cleaned_preds, y=cleaned_labels)
 
             mean_dice = dice_metric.aggregate().item()
             organ_dices = dice_metric_batch.aggregate()

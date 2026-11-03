@@ -106,7 +106,7 @@ def detect_schema(mask: np.ndarray, model_name: Optional[str] = None) -> str:
     if "bdmap" in m_lower or "abdomenatlas" in m_lower:
         return "bdmap"
 
-    if "jhu" in m_lower:
+    if any(k in m_lower for k in ["jhu", "radiologist", "expert"]):
         return "jhu"
 
     if any(k in m_lower for k in ["mednext", "swin", "ensemble", "consensus", "gi"]):
@@ -124,6 +124,8 @@ def detect_schema(mask: np.ndarray, model_name: Optional[str] = None) -> str:
             return "totalseg_v2"
         if any(lbl in uniques for lbl in (55, 56, 57)):
             return "totalseg_v1"
+        if 1 in uniques and uniques.issubset({1, 2, 3, 4, 5, 6}):
+            return "jhu"
         if uniques.issubset({2, 3, 4, 5, 6}):
             return "bdmap"
 
@@ -228,9 +230,11 @@ def resample_label_to_reference(
     moving_affine: np.ndarray,
     ref_affine: np.ndarray,
     ref_shape: Tuple[int, int, int],
+    order: int = 0,
+    cval: float = 0.0,
 ) -> np.ndarray:
     """Resample moving_arr into ref_shape and ref_affine in world physical coordinates
-    using nearest-neighbor interpolation.
+    using nearest-neighbor (or specified order) interpolation and zero-padding.
 
     If grids match physically (same shape and close affine), returns a copy without resampling.
     If physical bounds do not intersect, returns an all-zero array of ref_shape.
@@ -242,8 +246,9 @@ def resample_label_to_reference(
         # Physically disjoint -> no physical overlap
         return np.zeros(ref_shape, dtype=moving_arr.dtype)
 
-    from nilearn.image import resample_to_img
+    import nibabel.processing as nip
     moving_nii = nib.Nifti1Image(moving_arr.astype(np.float32), moving_affine)
     ref_dummy = nib.Nifti1Image(np.zeros(ref_shape, dtype=np.float32), ref_affine)
-    resampled_nii = resample_to_img(moving_nii, ref_dummy, interpolation='nearest', copy=False)
-    return np.asanyarray(resampled_nii.dataobj).squeeze().astype(moving_arr.dtype)
+    resampled_nii = nip.resample_from_to(moving_nii, ref_dummy, order=order, cval=cval)
+    res_arr = np.asanyarray(resampled_nii.dataobj).squeeze()
+    return res_arr.astype(moving_arr.dtype)

@@ -276,9 +276,9 @@ class FixLiarLabelAffined(MapTransform):
     Directly uses MONAI's ResampleToMatchd to project the label onto the image voxel grid
     in physical world coordinates, preserving true anatomical bounds and orientation.
     """
-    def __init__(self, keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0), mode="nearest"):
+    def __init__(self, keys=["label"], image_key="image", target_spacing=(1.5, 1.5, 2.0), mode="nearest", padding_mode="zeros"):
         super().__init__(keys)
-        self.resampler = ResampleToMatchd(keys=keys, key_dst=image_key, mode=mode, allow_missing_keys=True)
+        self.resampler = ResampleToMatchd(keys=keys, key_dst=image_key, mode=mode, padding_mode=padding_mode, allow_missing_keys=True)
 
     def __call__(self, data):
         return self.resampler(data)
@@ -329,8 +329,8 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        # Physically align label to CT grid in world coordinates before Spacingd
-        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
+        # Physically align label to CT grid in world coordinates before Spacingd with zero padding (F04)
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest", padding_mode="zeros"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         CropForegroundd(keys=["image", "label"], source_key="image"),
@@ -356,8 +356,8 @@ def get_transforms(roi_size=(96, 96, 96)):
         EnsureChannelFirstd(keys=["image", "label"]),
         RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
-        # Physically align label to CT grid in world coordinates before Spacingd
-        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest"),
+        # Physically align label to CT grid in world coordinates before Spacingd with zero padding (F04)
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest", padding_mode="zeros"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         EnsureTyped(keys=["image", "label"]),
@@ -503,22 +503,37 @@ def main():
         log("ERROR: No usable data pairs found.")
         sys.exit(1)
 
-    # Train / Val Split (use --seed for reproducibility)
-    np.random.seed(args.seed)
-    indices = np.random.permutation(len(data_pairs))
+    # Train / Val Split grouped by patient ID to strictly prevent patient leakage across folds (F07/F13)
+    def extract_pt_id(sub):
+        s = str(sub).strip()
+        parts = s.split("_")
+        if len(parts) >= 2 and parts[0] in ("CV", "CancerVerse", "BDMAP"):
+            return f"{parts[0]}_{parts[1]}"
+        return s
+
+    patient_map = {}
+    for i, pair in enumerate(data_pairs):
+        pid = extract_pt_id(pair.get("subject_id", f"case_{i}"))
+        patient_map.setdefault(pid, []).append(i)
+
+    unique_patients = np.sort(list(patient_map.keys()))
+    rng = np.random.RandomState(args.seed)
+    shuffled_patients = rng.permutation(unique_patients)
 
     if args.fold >= 0:
-        folds       = np.array_split(indices, args.num_folds)
-        val_indices = folds[args.fold]
-        train_idx   = np.setdiff1d(indices, val_indices)
-        train_pairs = [data_pairs[i] for i in train_idx]
-        val_pairs   = [data_pairs[i] for i in val_indices]
-        log(f"[Fold {args.fold}/{args.num_folds}] Train: {len(train_pairs)} | Val: {len(val_pairs)}")
+        patient_folds = np.array_split(shuffled_patients, args.num_folds)
+        val_patients = set(patient_folds[args.fold])
+        train_patients = set(np.setdiff1d(shuffled_patients, patient_folds[args.fold]))
+        train_pairs = [data_pairs[idx] for pid in train_patients for idx in patient_map[pid]]
+        val_pairs   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
+        log(f"[Fold {args.fold}/{args.num_folds} Patient Split] Train: {len(train_pairs)} scans ({len(train_patients)} pts) | Val: {len(val_pairs)} scans ({len(val_patients)} pts)")
     else:
-        split       = int(0.8 * len(data_pairs))
-        train_pairs = [data_pairs[i] for i in indices[:split]]
-        val_pairs   = [data_pairs[i] for i in indices[split:]]
-        log(f"[80/20 Split] Train: {len(train_pairs)} | Val: {len(val_pairs)}")
+        n_val_pt = max(1, int(0.2 * len(shuffled_patients)))
+        val_patients = set(shuffled_patients[:n_val_pt])
+        train_patients = set(shuffled_patients[n_val_pt:])
+        train_pairs = [data_pairs[idx] for pid in train_patients for idx in patient_map[pid]]
+        val_pairs   = [data_pairs[idx] for pid in val_patients for idx in patient_map[pid]]
+        log(f"[80/20 Patient Split] Train: {len(train_pairs)} scans ({len(train_patients)} pts) | Val: {len(val_pairs)} scans ({len(val_patients)} pts)")
 
     if args.max_val_samples > 0 and len(val_pairs) > args.max_val_samples:
         val_pairs = [val_pairs[i] for i in np.random.choice(
@@ -716,8 +731,9 @@ def main():
                             )
 
                         vmask = (vl != IGNORE_INDEX)
+                        vl_safe = torch.where(vmask, vl, torch.zeros_like(vl))
                         vo_preds = [post_pred(i) for i in decollate_batch(vo)]
-                        vl_labels = [post_label(i) for i in decollate_batch(vl)]
+                        vl_labels = [post_label(i) for i in decollate_batch(vl_safe)]
                         vmasks = [m for m in decollate_batch(vmask)]
                         cleaned_preds = []
                         cleaned_labels = []

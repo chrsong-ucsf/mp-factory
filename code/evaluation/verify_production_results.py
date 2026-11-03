@@ -217,8 +217,10 @@ def verify_ensemble_and_manifests():
     if betti_cols:
         clean_df = df_audit[df_audit["triage_category"] == "CLEAN_HIGH_CONFIDENCE"]
         zero_fg_clean = int((clean_df[betti_cols].sum(axis=1) == 0).sum())
+        zero_fg_total = int((df_audit[betti_cols].sum(axis=1) == 0).sum())
     else:
         zero_fg_clean = 0
+        zero_fg_total = 0
 
     manifest_csv = RESULTS_DIR / "dataset_splits_phase3" / "dataset_manifest_valid.csv"
     manifest_rows = len(pd.read_csv(manifest_csv)) if manifest_csv.exists() else 0
@@ -229,6 +231,7 @@ def verify_ensemble_and_manifests():
     print(f"  - Audited Cases in Summary  : {len(df_audit):,} cases")
     print(f"  - Triage Breakdown          : {triage_counts}")
     print(f"  - Zero-FG in Clean Category : {zero_fg_clean} (Must be 0)")
+    print(f"  - Zero-FG Total (Quarantined): {zero_fg_total}")
     print(f"  - Verified Clean Manifest   : {manifest_rows} CT/label pairs")
 
     return {
@@ -238,6 +241,7 @@ def verify_ensemble_and_manifests():
         "audit_cases": len(df_audit),
         "triage_counts": triage_counts,
         "zero_fg_clean": zero_fg_clean,
+        "zero_fg_total": zero_fg_total,
         "manifest_rows": manifest_rows,
     }
 
@@ -376,8 +380,11 @@ def generate_production_report(gates, ckpt_records, ds_info, seg_info, ens_info,
     for cat, count in ens_info["triage_counts"].items():
         pct = (count / ens_info["audit_cases"]) * 100.0 if ens_info["audit_cases"] > 0 else 0.0
         md.append(f"  - `{cat}`: **{count:,} scans ({pct:.1f}%)**")
-    md.append(f"- **Quarantined Zero-Foreground Cases:** **903 scans** report zero foreground components across all 4 GI organs and are strictly quarantined to `NOISE_REJECT`.")
-    md.append(f"- **Active Distillation Training Pool:** **{ens_info['manifest_rows']:,} verified scans** (3 `CLEAN_HIGH_CONFIDENCE` + 185 `WEAK_COARSE`) with verified non-empty foreground GI anatomy.\n")
+    n_zero = ens_info.get("zero_fg_total", 0)
+    md.append(f"- **Quarantined Zero-Foreground Cases:** **{n_zero:,} scans** report zero foreground components across all 4 GI organs and are strictly quarantined to `NOISE_REJECT`.")
+    n_clean = ens_info["triage_counts"].get("CLEAN_HIGH_CONFIDENCE", 0)
+    n_weak = ens_info["triage_counts"].get("WEAK_COARSE", 0)
+    md.append(f"- **Active Distillation Training Pool:** **{ens_info['manifest_rows']:,} verified scans** ({n_clean:,} `CLEAN_HIGH_CONFIDENCE` + {n_weak:,} `WEAK_COARSE`) with verified non-empty foreground GI anatomy.\n")
 
     md.append("---\n")
     md.append("## 5. Project 10 Multiphase Generative Synthesis & Lesion Kinetics\n")
@@ -394,8 +401,12 @@ def generate_production_report(gates, ckpt_records, ds_info, seg_info, ens_info,
     md.append("\n---\n")
     md.append("## 7. Audit Conclusion & Boundaries\n")
     md.append(f"Verification concluded with overall status: **{status_str}**.\n")
-    md.append("- All required model weights and on-disk volumes were verified.")
-    md.append("- Empty consensus masks were strictly quarantined from the distillation training pool.")
+    if overall_passed:
+        md.append("- All required model weights and on-disk volumes were verified.")
+        md.append("- Empty consensus masks were strictly quarantined from the distillation training pool.")
+    else:
+        failed_gates = [g_name for g_name, g in gates.items() if not g["passed"]]
+        md.append(f"- One or more verification gates failed ({', '.join(failed_gates)}).")
     md.append("- Benchmark metrics represent recorded historical evaluation summaries, not live re-execution of 1,067 generative diffusion runs.")
 
     report_content = "\n".join(md)
@@ -435,6 +446,7 @@ def main(argv=None):
               ens_info["manifest_rows"] >= 34)
     p10_ok = (p10_info["pairs_count"] >= 1500 and
               p10_info["reg_vols"] > 0 and
+              p10_info["reg_dvfs"] > 0 and
               p10_info["synth_vols"] > 0 and
               p10_info["n_evaluated"] > 0 and
               p10_info["kinetics_ok"])

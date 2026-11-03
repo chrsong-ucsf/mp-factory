@@ -82,30 +82,57 @@ def patient_clustered_bootstrap_ci(df, diff_col, patient_col="patient_id", n_boo
 
 
 def apply_fdr_correction(results_list, alpha=0.05):
-    """Applies Benjamini-Hochberg False Discovery Rate correction across the family of tests (F12)."""
-    p_vals = [r["p_value_wilcoxon"] for r in results_list if not np.isnan(r.get("p_value_wilcoxon", np.nan))]
+    """Applies Benjamini-Hochberg False Discovery Rate correction across the family of tests (F12).
+    Preserves original list indices when dropping NaNs.
+    """
+    valid_indices = []
+    p_vals = []
+    for idx, r in enumerate(results_list):
+        p = r.get("p_value_wilcoxon", np.nan)
+        if p is not None and not np.isnan(p):
+            valid_indices.append(idx)
+            p_vals.append(float(p))
+        else:
+            r["q_value_fdr"] = np.nan
+            r["sig_fdr"] = "n/a"
+
     if not p_vals:
         return results_list
-    n = len(p_vals)
-    sorted_indices = np.argsort(p_vals)
-    sorted_p = np.array(p_vals)[sorted_indices]
-    q_vals = np.zeros(n)
+
+    m = len(p_vals)
+    sort_order = np.argsort(p_vals)
+    sorted_p = np.array(p_vals)[sort_order]
+
+    q_vals = np.zeros(m)
     q_vals[-1] = sorted_p[-1]
-    for i in range(n - 2, -1, -1):
-        q_vals[i] = min(sorted_p[i] * n / (i + 1), q_vals[i + 1])
+    for i in range(m - 2, -1, -1):
+        q_vals[i] = min(sorted_p[i] * m / (i + 1), q_vals[i + 1])
     q_vals = np.minimum(q_vals, 1.0)
 
-    adj_map = {sorted_indices[i]: q_vals[i] for i in range(n)}
-    for idx, r in enumerate(results_list):
-        if idx in adj_map:
-            r["q_value_fdr"] = float(adj_map[idx])
-            r["sig_fdr"] = (
-                "***" if adj_map[idx] < 0.001
-                else ("**" if adj_map[idx] < 0.01
-                else ("*" if adj_map[idx] < 0.05
-                else "ns"))
-            )
+    for rank_idx, q in enumerate(q_vals):
+        orig_p_idx = sort_order[rank_idx]
+        orig_result_idx = valid_indices[orig_p_idx]
+        r = results_list[orig_result_idx]
+        r["q_value_fdr"] = float(q)
+        r["sig_fdr"] = (
+            "***" if q < 0.001
+            else ("**" if q < 0.01
+            else ("*" if q < 0.05
+            else "ns"))
+        )
     return results_list
+
+
+def extract_patient_id(subject_id: str) -> str:
+    """Extract patient ID avoiding collapsing distinct BDMAP subjects (F12)."""
+    s = str(subject_id).strip()
+    parts = s.split("_")
+    if len(parts) >= 2:
+        if parts[0] in ("CV", "CancerVerse"):
+            return f"{parts[0]}_{parts[1]}"
+        if parts[0] == "BDMAP":
+            return f"{parts[0]}_{parts[1]}"
+    return s
 
 
 def evaluate_pairs(df, model_a_col, model_b_col, label_name, patient_col=None):
@@ -177,6 +204,8 @@ def main():
     if os.path.exists(comp_file):
         df_comp = pd.read_csv(comp_file)
         print(f"Loaded {len(df_comp)} cohort cases from {os.path.basename(comp_file)}")
+        if "patient_id" not in df_comp.columns and "subject_id" in df_comp.columns:
+            df_comp["patient_id"] = df_comp["subject_id"].apply(extract_patient_id)
         
         med_prefix = "mednext_pool873" if "mednext_pool873_mean_dice" in df_comp.columns else "mednext"
         
@@ -185,7 +214,7 @@ def main():
             a_col = f"{med_prefix}_{o}_dice"
             b_col = f"swin_{o}_dice"
             if a_col in df_comp.columns and b_col in df_comp.columns:
-                res = evaluate_pairs(df_comp, a_col, b_col, f"MedNeXt vs Swin-UNETR ({o.capitalize()})")
+                res = evaluate_pairs(df_comp, a_col, b_col, f"MedNeXt vs Swin-UNETR ({o.capitalize()})", patient_col="patient_id")
                 if res:
                     results.append(res)
     else:
@@ -195,13 +224,15 @@ def main():
     if os.path.exists(CSV_JHU):
         df_jhu = pd.read_csv(CSV_JHU)
         print(f"Loaded {len(df_jhu)} evaluations from {os.path.basename(CSV_JHU)}")
-        med = df_jhu[df_jhu["model_name"] == "MedNeXt"]
-        tot = df_jhu[df_jhu["model_name"] == "TotalSegmentator"]
+        med = df_jhu[df_jhu["model_name"] == "MedNeXt"].drop_duplicates(subset=["subject_id"])
+        tot = df_jhu[df_jhu["model_name"] == "TotalSegmentator"].drop_duplicates(subset=["subject_id"])
         
-        # Merge on subject_id to align paired comparisons
+        # Merge on subject_id to align paired comparisons (strictly 1-to-1)
         merged = pd.merge(med, tot, on="subject_id", suffixes=("_mednext", "_totalseg"))
-        if "patient_id" not in merged.columns and "subject_id" in merged.columns:
-            merged["patient_id"] = merged["subject_id"].astype(str).apply(lambda x: x.split("_")[0])
+        if "patient_id_mednext" in merged.columns:
+            merged["patient_id"] = merged["patient_id_mednext"]
+        elif "patient_id" not in merged.columns and "subject_id" in merged.columns:
+            merged["patient_id"] = merged["subject_id"].apply(extract_patient_id)
         if len(merged) > 0:
             for o in ["stomach_dice", "duodenum_dice", "mean_dice", "mean_hd95"]:
                 res = evaluate_pairs(merged, f"{o}_mednext", f"{o}_totalseg", f"MedNeXt vs TotalSeg on JHU Expert ({o})", patient_col="patient_id")
@@ -224,16 +255,20 @@ def main():
     md_lines = [
         "# MultiPhase-GI: Statistical Significance & Hypothesis Testing Report\n",
         f"**Date:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n",
-        "Significance markers: `***` $p < 0.001$, `**` $p < 0.01$, `*` $p < 0.05$, `ns` not significant.\n",
-        "| Comparison | N | Mean Model A | Mean Model B | Mean Diff | 95% Bootstrap CI | Wilcoxon p-val | Cohen's d | Sig |",
-        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+        "Significance markers (FDR-adjusted): `***` $q < 0.001$, `**` $q < 0.01$, `*` $q < 0.05$, `ns` not significant.\n",
+        "| Comparison | N | N Patients | Mean Model A | Mean Model B | Mean Diff | 95% Bootstrap CI | Wilcoxon p-val | FDR q-val | Cohen's d | Sig |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
     ]
 
     for _, r in res_df.iterrows():
         ci_str = f"[{r['ci_95_low']:.3f}, {r['ci_95_high']:.3f}]"
-        p_str = f"< 0.001" if r['p_value_wilcoxon'] < 0.001 else f"{r['p_value_wilcoxon']:.4f}"
+        p_val = r.get("p_value_wilcoxon", np.nan)
+        p_str = "< 0.001" if (not np.isnan(p_val) and p_val < 0.001) else (f"{p_val:.4f}" if not np.isnan(p_val) else "N/A")
+        q_val = r.get("q_value_fdr", np.nan)
+        q_str = "< 0.001" if (not np.isnan(q_val) and q_val < 0.001) else (f"{q_val:.4f}" if not np.isnan(q_val) else "N/A")
+        sig_str = r.get("sig_fdr", r.get("significance", "ns"))
         md_lines.append(
-            f"| **{r['comparison']}** | {r['n_samples']} | {r['mean_model_a']:.3f} | {r['mean_model_b']:.3f} | {r['mean_diff']:+.3f} | {ci_str} | {p_str} | {r['cohens_d']:.2f} | **{r['significance']}** |"
+            f"| **{r['comparison']}** | {r['n_samples']} | {r.get('n_patients', r['n_samples'])} | {r['mean_model_a']:.3f} | {r['mean_model_b']:.3f} | {r['mean_diff']:+.3f} | {ci_str} | {p_str} | {q_str} | {r['cohens_d']:.2f} | **{sig_str}** |"
         )
 
     out_md = os.path.join(OUT_DIR, "statistical_significance_summary.md")

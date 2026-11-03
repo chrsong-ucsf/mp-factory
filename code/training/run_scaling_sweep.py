@@ -59,6 +59,8 @@ from monai.transforms import (
     RandFlipd,
     EnsureTyped,
     Lambdad,
+    MapTransform,
+    ResampleToMatchd,
 )
 from monai.data import Dataset
 from monai.inferers import sliding_window_inference
@@ -114,6 +116,7 @@ ORGAN_NAMES = ["stomach", "duodenum", "small_bowel", "colon"]
 def find_cases(data_dir, mask_dir):
     """Return list of {image, label, name} dicts for paired NIfTI cases."""
     cases = []
+    default_schema = "jhu" if "jhu" in data_dir.lower() else "bdmap"
 
     # Layout 1: data_dir/BDMAP_*/ct.nii.gz + mask_dir/BDMAP_*/gi_mask.nii.gz
     for ct_path in sorted(glob.glob(os.path.join(data_dir, "BDMAP_*", "ct.nii.gz"))):
@@ -122,7 +125,7 @@ def find_cases(data_dir, mask_dir):
         if not os.path.exists(mask_path):
             mask_path = os.path.join(mask_dir, patient_id, "segmentations", "stomach.nii.gz")
         if os.path.exists(ct_path) and os.path.exists(mask_path):
-            cases.append({"image": ct_path, "label": mask_path, "name": patient_id})
+            cases.append({"image": ct_path, "label": mask_path, "name": patient_id, "schema": default_schema})
 
     # Layout 2: CancerVerse / mp-factory subject directories (sub/ct.nii.gz + sub/gi_mask.nii.gz)
     if not cases:
@@ -130,7 +133,7 @@ def find_cases(data_dir, mask_dir):
             patient_id = os.path.basename(os.path.dirname(ct_path))
             mask_path = os.path.join(data_dir, patient_id, "gi_mask.nii.gz")
             if os.path.exists(mask_path):
-                cases.append({"image": ct_path, "label": mask_path, "name": patient_id})
+                cases.append({"image": ct_path, "label": mask_path, "name": patient_id, "schema": default_schema})
 
     # Layout 3: Flat layout data_dir/*.nii.gz + mask_dir/*.nii.gz
     if not cases:
@@ -138,7 +141,7 @@ def find_cases(data_dir, mask_dir):
             fname = os.path.basename(img_path)
             lbl_path = os.path.join(mask_dir, fname)
             if os.path.exists(lbl_path):
-                cases.append({"image": img_path, "label": lbl_path, "name": fname.split(".")[0]})
+                cases.append({"image": img_path, "label": lbl_path, "name": fname.split(".")[0], "schema": default_schema})
 
     return cases
 
@@ -178,28 +181,45 @@ if _eval_dir not in sys.path:
     sys.path.insert(0, _eval_dir)
 from schema_mapping import normalize_to_gi_classes
 
-def remap_gi_labels(lbl):
+class RemapGILabelTargets(MapTransform):
     """
     Remaps loaded labels to 4-class GI targets using canonical schema_mapping.
-    Correctly distinguishes BDMAP vs JHU Expert labels (F14).
+    Carries explicit schema provenance per record (F11/F14).
     """
-    is_torch = torch.is_tensor(lbl)
-    arr = lbl.cpu().numpy() if is_torch else np.asanyarray(lbl)
-    remapped = normalize_to_gi_classes(arr)
-    if is_torch:
-        from monai.data import MetaTensor
-        if isinstance(lbl, MetaTensor):
-            return MetaTensor(torch.from_numpy(remapped).to(lbl.device), affine=lbl.affine, meta=getattr(lbl, "meta", None))
-        return torch.from_numpy(remapped).to(lbl.device)
-    return remapped
+    def __init__(self, keys=["label"], default_schema=None):
+        super().__init__(keys)
+        self.default_schema = default_schema
+
+    def __call__(self, data):
+        d = dict(data)
+        schema = d.get("schema", self.default_schema)
+        for key in self.keys:
+            if key in d:
+                lbl = d[key]
+                is_torch = torch.is_tensor(lbl)
+                arr = lbl.cpu().numpy() if is_torch else np.asanyarray(lbl)
+                remapped = normalize_to_gi_classes(arr, schema=schema, preserve_ignore_index=True)
+                from monai.data import MetaTensor
+                if isinstance(lbl, MetaTensor):
+                    d[key] = MetaTensor(
+                        torch.from_numpy(remapped).to(lbl.device) if is_torch else remapped,
+                        affine=lbl.affine,
+                        meta=getattr(lbl, "meta", None),
+                    )
+                elif is_torch:
+                    d[key] = torch.from_numpy(remapped).to(lbl.device)
+                else:
+                    d[key] = remapped
+        return d
 
 
 def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
     shared = [
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
-        Lambdad(keys=["label"], func=remap_gi_labels),
+        RemapGILabelTargets(keys=["label"]),
         Orientationd(keys=["image", "label"], axcodes="RAS"),
+        ResampleToMatchd(keys=["label"], key_dst="image", mode="nearest", padding_mode="zeros"),
         Spacingd(keys=["image", "label"], pixdim=(1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
         ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
         EnsureTyped(keys=["image", "label"]),
@@ -361,7 +381,9 @@ def evaluate_radiologist_true_dice(model, rad_cases, roi_size, device):
                     lbl_oh[:, c, ...]  = (lbls[:, 0, ...] == (c + 1)).float()
 
                 dice_vals, _ = compute_dice_hd95(pred_oh, lbl_oh, NUM_CLASSES)
-                dices.append(np.mean(dice_vals))
+                valid_vals = [d for d in dice_vals if not np.isnan(d)]
+                if valid_vals:
+                    dices.append(float(np.mean(valid_vals)))
 
         return float(np.mean(dices)) if dices else None
     except Exception as err:
@@ -513,10 +535,9 @@ def run_single_sweep(
 
                 dice_vals, hd95_vals = compute_dice_hd95(pred_oh, lbl_oh, NUM_CLASSES)
                 for c in range(NUM_CLASSES):
-                    # Dice from compute_dice_hd95 is always a float (never NaN).
-                    # Do NOT gate it on isnan — that was incorrectly excluding 0.0/1.0
-                    # boundary-case values and causing the stepped Dice bias.
-                    all_dice[c].append(dice_vals[c])
+                    # Only append valid non-NaN scores to avoid poisoning whole organ mean (F11/F15)
+                    if not np.isnan(dice_vals[c]):
+                        all_dice[c].append(dice_vals[c])
                     if not np.isnan(hd95_vals[c]):
                         all_hd95[c].append(hd95_vals[c])
 
@@ -701,9 +722,14 @@ def load_gold_standard_nrrd_cases(
             print(f"  Warning: CT not found for gold-standard case {stem} (expected {ct_path}) — skipping.")
             continue
 
-        # Convert seg.nrrd → temp nii.gz
+        # Convert seg.nrrd → temp nii.gz with freshness and version validation (F11/F14)
         out_label_path = os.path.join(tmp_nifti_dir, f"{stem}_gs_label.nii.gz")
-        if not os.path.exists(out_label_path):
+        needs_convert = (
+            not os.path.exists(out_label_path)
+            or os.path.getsize(out_label_path) == 0
+            or os.path.getmtime(out_label_path) < os.path.getmtime(nrrd_path)
+        )
+        if needs_convert:
             try:
                 import SimpleITK as sitk
                 itk_img = sitk.ReadImage(nrrd_path)
@@ -713,7 +739,7 @@ def load_gold_standard_nrrd_cases(
                 print(f"  Warning: failed to convert {nrrd_path} → NIfTI ({exc}) — skipping.")
                 continue
 
-        cases.append({"image": ct_path, "label": out_label_path, "name": stem})
+        cases.append({"image": ct_path, "label": out_label_path, "name": stem, "schema": "jhu"})
         print(f"  Gold-standard case loaded: {stem}")
 
     return cases

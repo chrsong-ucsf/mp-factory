@@ -68,12 +68,25 @@ from schema_mapping import (
 
 
 def compute_input_fingerprint(subject_id: str, model_files: list, schema_version: str = "gi_v2") -> str:
-    """Cryptographic hash binding subject ID, schema version, and input file properties."""
+    """Cryptographic hash binding subject ID, schema version, model file contents, and probability sidecars."""
     h = hashlib.sha256()
     h.update(f"{subject_id}|{schema_version}|".encode("utf-8"))
     for p in sorted(model_files):
         if os.path.exists(p):
-            h.update(f"{p}:{os.path.getsize(p)}:{os.path.getmtime(p)}|".encode("utf-8"))
+            h.update(f"{p}:{os.path.getsize(p)}:".encode("utf-8"))
+            try:
+                with open(p, 'rb') as f:
+                    h.update(f.read(65536))
+            except Exception:
+                pass
+            prob_p = p.replace('_gi_seg.nii.gz', '_gi_probs.npz') if p.endswith('_gi_seg.nii.gz') else None
+            if prob_p and os.path.exists(prob_p):
+                h.update(f"{prob_p}:{os.path.getsize(prob_p)}:".encode("utf-8"))
+                try:
+                    with open(prob_p, 'rb') as pf:
+                        h.update(pf.read(65536))
+                except Exception:
+                    pass
         else:
             h.update(f"{p}:missing|".encode("utf-8"))
     return h.hexdigest()
@@ -466,10 +479,19 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
             prob_path = fpath.replace('_gi_seg.nii.gz', '_gi_probs.npz') if fpath.endswith('_gi_seg.nii.gz') else None
             if prob_path and os.path.exists(prob_path):
                 probs = np.load(prob_path, allow_pickle=True)['probs'].astype(np.float32)
-                if probs.shape[1:] != target_shape:
-                    t_probs = torch.tensor(probs, dtype=torch.float32, device=device).unsqueeze(0)
-                    t_res = torch.nn.functional.interpolate(t_probs, size=target_shape, mode='trilinear', align_corners=False)
-                    probs = t_res.squeeze(0).cpu().numpy()
+                if probs.ndim == 3:
+                    probs = probs[np.newaxis, ...]
+                if probs.shape[1:] != ref_shape or not np.allclose(loaded_niis[i].affine, ref_affine, atol=1e-3):
+                    resampled_channels = []
+                    for c_idx in range(probs.shape[0]):
+                        ch_res = resample_label_to_reference(
+                            probs[c_idx], loaded_niis[i].affine, ref_affine, ref_shape, order=1, cval=0.0
+                        )
+                        resampled_channels.append(ch_res)
+                    probs = np.stack(resampled_channels, axis=0)
+                probs = np.clip(probs, 0.0, 1.0)
+                sum_p = np.sum(probs, axis=0, keepdims=True)
+                probs = np.where(sum_p > 0, probs / (sum_p + 1e-7), probs)
                 t = torch.tensor(probs, dtype=torch.float32, device=device)
             else:
                 m_clamped = np.where((m >= 0) & (m < 5), m, 0)
@@ -863,20 +885,25 @@ def main():
                     sub = str(row['subject_id'])
                     c_path = os.path.join(args.out_dir, f"{sub}_consensus.nii.gz")
                     u_path = os.path.join(args.out_dir, f"{sub}_uncertainty.nii.gz")
+                    if sub not in common_subjects:
+                        continue
                     if not (os.path.exists(c_path) and os.path.exists(u_path)):
                         continue
-                    
-                    if sub in common_subjects:
-                        mfiles = [subject_maps[name][sub] for name in model_names]
-                        expected_fp = compute_input_fingerprint(sub, mfiles)
-                        if 'input_fingerprint' in row and pd.notna(row['input_fingerprint']):
-                            if str(row['input_fingerprint']) != expected_fp:
-                                continue
-                        if 'consensus_sha256' in row and pd.notna(row['consensus_sha256']):
-                            with open(c_path, 'rb') as f_c:
-                                curr_sha = hashlib.sha256(f_c.read()).hexdigest()
-                            if curr_sha != str(row['consensus_sha256']):
-                                continue
+                    if os.path.getsize(c_path) == 0 or os.path.getsize(u_path) == 0:
+                        continue
+
+                    mfiles = [subject_maps[name][sub] for name in model_names]
+                    expected_fp = compute_input_fingerprint(sub, mfiles)
+                    if 'input_fingerprint' not in row or pd.isna(row['input_fingerprint']):
+                        continue
+                    if str(row['input_fingerprint']) != expected_fp:
+                        continue
+                    if 'consensus_sha256' not in row or pd.isna(row['consensus_sha256']):
+                        continue
+                    with open(c_path, 'rb') as f_c:
+                        curr_sha = hashlib.sha256(f_c.read()).hexdigest()
+                    if curr_sha != str(row['consensus_sha256']):
+                        continue
 
                     already_processed.add(sub)
                     results.append(row.to_dict())
@@ -991,6 +1018,15 @@ def main():
             base = os.path.dirname(args.out_csv) or "."
             splits_dir = os.path.join(base, "dataset_splits")
         export_dataset_splits(df, splits_dir, ensemble_out_dir=args.out_dir)
+
+    # Fail closed on failed or incomplete evaluations
+    if len(df) == 0:
+        print("\n[CRITICAL ERROR] No cases evaluated. Failing closed with exit code 1.", flush=True)
+        sys.exit(1)
+    if total_valid < len(df):
+        n_err = len(df) - total_valid
+        print(f"\n[CRITICAL ERROR] Ensemble run completed with {n_err} failures out of {len(df)} total cases ({total_valid} valid). Failing closed with exit code 1.", flush=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
