@@ -51,61 +51,76 @@ def merge_chunks(
 
     merged = pd.concat(dfs, ignore_index=True)
 
-    # Validate duplicate subjects and reject conflicting entries (Finding 9)
-    if 'subject_id' in merged.columns:
-        dup_mask = merged.duplicated(subset=['subject_id'], keep=False)
-        if dup_mask.any():
-            dups = merged[dup_mask]
-            conflicts = []
-            for sid, grp in dups.groupby('subject_id'):
-                # Validate all identity, provenance, and metric columns across duplicate rows
-                for col in grp.columns:
-                    col_vals = grp[col].tolist()
-                    has_missing = any(pd.isna(v) or str(v).strip() in ("", "nan", "None") for v in col_vals)
-                    has_present = any(not pd.isna(v) and str(v).strip() not in ("", "nan", "None") for v in col_vals)
-                    if has_missing and has_present:
-                        conflicts.append((sid, col, f"missing-vs-present: {col_vals}"))
-                        break
+    # Enforce base identity and status columns unconditionally (Finding 7)
+    if "subject_id" not in merged.columns:
+        raise ValueError(
+            "Ensemble merge requires mandatory column 'subject_id', but it is missing from the merged schema."
+        )
+    if "status" not in merged.columns:
+        raise ValueError(
+            "Ensemble merge requires mandatory column 'status', but it is missing from the merged schema."
+        )
 
-                    clean_vals = [v for v in col_vals if not pd.isna(v) and str(v).strip() not in ("", "nan", "None")]
-                    if len(clean_vals) > 1:
-                        if grp[col].dtype.kind in 'biufc':
-                            arr = np.array(clean_vals, dtype=float)
-                            if not np.allclose(arr, arr[0], atol=1e-5):
-                                conflicts.append((sid, col, clean_vals))
-                                break
-                        else:
-                            if len(set(str(v).strip() for v in clean_vals)) > 1:
-                                conflicts.append((sid, col, clean_vals))
-                                break
-            if conflicts:
-                raise ValueError(
-                    f"Ensemble shards contain {len(conflicts)} conflicting duplicate subjects (e.g. {conflicts[:3]}). "
-                    "Cannot merge inconsistent or corrupt worker shards."
-                )
-            print(f"Deduplicating {len(dups) - dups['subject_id'].nunique()} exact duplicate rows across shards.")
-            merged = merged.drop_duplicates(subset=['subject_id']).reset_index(drop=True)
+    # Validate non-blank subject_ids
+    bad_sids = merged["subject_id"].isna() | merged["subject_id"].astype(str).str.strip().isin(["", "nan", "None"])
+    if bad_sids.any():
+        raise ValueError(
+            f"Ensemble merge encountered {bad_sids.sum()} rows with empty or blank 'subject_id'."
+        )
 
-        # Enforce required provenance across all rows by default (Finding 9)
-        required_prov_cols = ['input_fingerprint', 'consensus_sha256', 'uncertainty_sha256']
-        if require_provenance:
-            missing_cols = [c for c in required_prov_cols if c not in merged.columns]
-            if missing_cols:
-                raise ValueError(
-                    f"Ensemble merge requires mandatory provenance columns {missing_cols}, "
-                    f"but they are absent from the merged schema. Pass --allow_unverified_provenance to bypass."
-                )
+    # Validate duplicate subjects and reject conflicting entries (Finding 9 / Finding 7)
+    dup_mask = merged.duplicated(subset=['subject_id'], keep=False)
+    if dup_mask.any():
+        dups = merged[dup_mask]
+        conflicts = []
+        for sid, grp in dups.groupby('subject_id'):
+            # Validate all identity, provenance, and metric columns across duplicate rows
+            for col in grp.columns:
+                col_vals = grp[col].tolist()
+                has_missing = any(pd.isna(v) or str(v).strip() in ("", "nan", "None") for v in col_vals)
+                has_present = any(not pd.isna(v) and str(v).strip() not in ("", "nan", "None") for v in col_vals)
+                if has_missing and has_present:
+                    conflicts.append((sid, col, f"missing-vs-present: {col_vals}"))
+                    break
 
+                clean_vals = [v for v in col_vals if not pd.isna(v) and str(v).strip() not in ("", "nan", "None")]
+                if len(clean_vals) > 1:
+                    if grp[col].dtype.kind in 'biufc':
+                        arr = np.array(clean_vals, dtype=float)
+                        if not np.allclose(arr, arr[0], atol=1e-5):
+                            conflicts.append((sid, col, clean_vals))
+                            break
+                    else:
+                        if len(set(str(v).strip() for v in clean_vals)) > 1:
+                            conflicts.append((sid, col, clean_vals))
+                            break
+        if conflicts:
+            raise ValueError(
+                f"Ensemble shards contain {len(conflicts)} conflicting duplicate subjects (e.g. {conflicts[:3]}). "
+                "Cannot merge inconsistent or corrupt worker shards."
+            )
+        print(f"Deduplicating {len(dups) - dups['subject_id'].nunique()} exact duplicate rows across shards.")
+        merged = merged.drop_duplicates(subset=['subject_id']).reset_index(drop=True)
+
+    # Enforce required provenance across all rows by default (Finding 9 / Finding 7)
+    required_prov_cols = ['input_fingerprint', 'consensus_sha256', 'uncertainty_sha256']
+    if require_provenance:
+        missing_cols = [c for c in required_prov_cols if c not in merged.columns]
+        if missing_cols:
+            raise ValueError(
+                f"Ensemble merge requires mandatory provenance columns {missing_cols}, "
+                f"but they are absent from the merged schema. Pass --allow_unverified_provenance to bypass."
+            )
+
+        success_mask = (merged['status'] == 'SUCCESS')
         for req_prov in required_prov_cols:
-            if req_prov in merged.columns:
-                success_mask = (merged['status'] == 'SUCCESS') if 'status' in merged.columns else np.ones(len(merged), dtype=bool)
-                prov_series = merged.loc[success_mask, req_prov]
-                bad_prov = prov_series.isna() | prov_series.astype(str).str.strip().isin(["", "nan", "None"])
-                if bad_prov.any():
-                    bad_sids = merged.loc[success_mask].loc[bad_prov, 'subject_id'].tolist()
-                    raise ValueError(
-                        f"Ensemble merge encountered {len(bad_sids)} rows with missing required provenance '{req_prov}' (e.g. {bad_sids[:3]})."
-                    )
+            prov_series = merged.loc[success_mask, req_prov]
+            bad_prov = prov_series.isna() | prov_series.astype(str).str.strip().isin(["", "nan", "None"])
+            if bad_prov.any():
+                bad_sids = merged.loc[success_mask].loc[bad_prov, 'subject_id'].tolist()
+                raise ValueError(
+                    f"Ensemble merge encountered {len(bad_sids)} SUCCESS rows with missing required provenance '{req_prov}' (e.g. {bad_sids[:3]})."
+                )
 
     if expected_cases is not None:
         if len(merged) < expected_cases:

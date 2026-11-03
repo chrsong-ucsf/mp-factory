@@ -1,308 +1,1401 @@
 {
-  "schema_version": "v1_manifest_exclusions",
+  "schema_version": "v2_manifest_exclusions_reconciled",
+  "total_cohort": 1632,
+  "total_noise_reject": 1598,
   "total_candidates": 188,
-  "total_valid": 151,
-  "total_excluded": 37,
+  "total_valid": 34,
+  "total_excluded": 154,
   "exclusion_reasons": {
     "missing_coarse_annotations": 1,
-    "zero_foreground_anatomy": 36
+    "zero_foreground_anatomy": 32,
+    "low_consensus_dice_absent_organ_reconciliation": 121
   },
   "excluded_subjects": [
     {
+      "subject_id": "BDMAP_00242385",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0159) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242385/ct.nii.gz",
+      "new_dice": 0.01595,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242409",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3952) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242409/ct.nii.gz",
+      "new_dice": 0.3952,
+      "new_inter": 0.178
+    },
+    {
+      "subject_id": "BDMAP_00242413",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3952) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242413/ct.nii.gz",
+      "new_dice": 0.3952,
+      "new_inter": 0.178
+    },
+    {
+      "subject_id": "BDMAP_00242453",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3060) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242453/ct.nii.gz",
+      "new_dice": 0.306,
+      "new_inter": 0.0829
+    },
+    {
+      "subject_id": "BDMAP_00242466",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0037) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242466/ct.nii.gz",
+      "new_dice": 0.00375,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242519",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0727) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242519/ct.nii.gz",
+      "new_dice": 0.07265,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242520",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0062) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242520/ct.nii.gz",
+      "new_dice": 0.00615,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242521",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0438) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242521/ct.nii.gz",
+      "new_dice": 0.0438,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242523",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0727) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242523/ct.nii.gz",
+      "new_dice": 0.07265,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242524",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0062) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242524/ct.nii.gz",
+      "new_dice": 0.00615,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242525",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0438) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242525/ct.nii.gz",
+      "new_dice": 0.0438,
+      "new_inter": 0.0
+    },
+    {
       "subject_id": "BDMAP_00242539",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00242539/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00242539_autolabel.nii.gz"
+      "new_dice": 0.00385,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00242569",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00242569/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00242569_autolabel.nii.gz"
+      "new_dice": 0.0073,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242601",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0022) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242601/ct.nii.gz",
+      "new_dice": 0.00225,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242605",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0006) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242605/ct.nii.gz",
+      "new_dice": 0.00055,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242668",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0226) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242668/ct.nii.gz",
+      "new_dice": 0.02265,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242739",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2091) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242739/ct.nii.gz",
+      "new_dice": 0.2090749999999999,
+      "new_inter": 0.05865
+    },
+    {
+      "subject_id": "BDMAP_00242741",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3440) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242741/ct.nii.gz",
+      "new_dice": 0.344025,
+      "new_inter": 0.2085
+    },
+    {
+      "subject_id": "BDMAP_00242776",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3946) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242776/ct.nii.gz",
+      "new_dice": 0.39455,
+      "new_inter": 0.1212
+    },
+    {
+      "subject_id": "BDMAP_00242801",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.4052) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242801/ct.nii.gz",
+      "new_dice": 0.4052,
+      "new_inter": 0.206
+    },
+    {
+      "subject_id": "BDMAP_00242803",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3953) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242803/ct.nii.gz",
+      "new_dice": 0.39535,
+      "new_inter": 0.1894
+    },
+    {
+      "subject_id": "BDMAP_00242856",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0067) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242856/ct.nii.gz",
+      "new_dice": 0.0067,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242865",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1499) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242865/ct.nii.gz",
+      "new_dice": 0.14995,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242868",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1499) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242868/ct.nii.gz",
+      "new_dice": 0.14995,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00242918",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3468) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242918/ct.nii.gz",
+      "new_dice": 0.34685,
+      "new_inter": 0.0719
+    },
+    {
+      "subject_id": "BDMAP_00242975",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1886) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242975/ct.nii.gz",
+      "new_dice": 0.1886,
+      "new_inter": 0.0171
+    },
+    {
+      "subject_id": "BDMAP_00242983",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1734) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242983/ct.nii.gz",
+      "new_dice": 0.17335,
+      "new_inter": 0.0403
+    },
+    {
+      "subject_id": "BDMAP_00242986",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1734) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00242986/ct.nii.gz",
+      "new_dice": 0.17335,
+      "new_inter": 0.0403
+    },
+    {
+      "subject_id": "BDMAP_00243006",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1533) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00243006/ct.nii.gz",
+      "new_dice": 0.1533,
+      "new_inter": 0.0062
+    },
+    {
+      "subject_id": "BDMAP_00243081",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1467) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00243081/ct.nii.gz",
+      "new_dice": 0.1467,
+      "new_inter": 0.0053
+    },
+    {
+      "subject_id": "BDMAP_00243083",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0786) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00243083/ct.nii.gz",
+      "new_dice": 0.0785749999999999,
+      "new_inter": 0.00285
+    },
+    {
+      "subject_id": "BDMAP_00243097",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1055) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00243097/ct.nii.gz",
+      "new_dice": 0.1055,
+      "new_inter": 0.0219
+    },
+    {
+      "subject_id": "BDMAP_00243158",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3159) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00243158/ct.nii.gz",
+      "new_dice": 0.31585,
+      "new_inter": 0.0645
+    },
+    {
+      "subject_id": "BDMAP_00375741",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3021) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375741/ct.nii.gz",
+      "new_dice": 0.30215,
+      "new_inter": 0.057
     },
     {
       "subject_id": "BDMAP_00375745",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00375745/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00375745_autolabel.nii.gz"
+      "new_dice": 0.40615,
+      "new_inter": 0.0913
+    },
+    {
+      "subject_id": "BDMAP_00375756",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.4989) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375756/ct.nii.gz",
+      "new_dice": 0.49885,
+      "new_inter": 0.2299
+    },
+    {
+      "subject_id": "BDMAP_00375816",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0032) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375816/ct.nii.gz",
+      "new_dice": 0.00315,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00375837",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00375837/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00375837_autolabel.nii.gz"
+      "new_dice": 0.4232,
+      "new_inter": 0.1613
     },
     {
       "subject_id": "BDMAP_00375838",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00375838/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00375838_autolabel.nii.gz"
+      "new_dice": 0.4901,
+      "new_inter": 0.1905
     },
     {
       "subject_id": "BDMAP_00375839",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00375839/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00375839_autolabel.nii.gz"
+      "new_dice": 0.47235,
+      "new_inter": 0.2071
+    },
+    {
+      "subject_id": "BDMAP_00375847",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0060) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375847/ct.nii.gz",
+      "new_dice": 0.00595,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00375880",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0054) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375880/ct.nii.gz",
+      "new_dice": 0.0054,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00375883",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0006) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375883/ct.nii.gz",
+      "new_dice": 0.0006,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00375904",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0296) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375904/ct.nii.gz",
+      "new_dice": 0.02965,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00375913",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0179) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375913/ct.nii.gz",
+      "new_dice": 0.01785,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00375920",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2265) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375920/ct.nii.gz",
+      "new_dice": 0.22645,
+      "new_inter": 0.0349
+    },
+    {
+      "subject_id": "BDMAP_00375921",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1408) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375921/ct.nii.gz",
+      "new_dice": 0.1408,
+      "new_inter": 0.0105
     },
     {
       "subject_id": "BDMAP_00375936",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00375936/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00375936_autolabel.nii.gz"
+      "new_dice": 0.18655,
+      "new_inter": 0.0063
+    },
+    {
+      "subject_id": "BDMAP_00375939",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.4237) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00375939/ct.nii.gz",
+      "new_dice": 0.4237499999999999,
+      "new_inter": 0.0807
     },
     {
       "subject_id": "BDMAP_00375981",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00375981/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00375981_autolabel.nii.gz"
+      "new_dice": 0.3994999999999999,
+      "new_inter": 0.1124
     },
     {
       "subject_id": "BDMAP_00375982",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00375982/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00375982_autolabel.nii.gz"
+      "new_dice": 0.3994999999999999,
+      "new_inter": 0.1124
     },
     {
-      "subject_id": "BDMAP_00376038",
-      "category": "WEAK_COARSE",
-      "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
-      "ct_path": "CancerVerse_dbox/BDMAP_00376038/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376038_autolabel.nii.gz"
+      "subject_id": "BDMAP_00376035",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0036) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376035/ct.nii.gz",
+      "new_dice": 0.00355,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376068",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0038) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376068/ct.nii.gz",
+      "new_dice": 0.0038,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376089",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1192) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376089/ct.nii.gz",
+      "new_dice": 0.1192,
+      "new_inter": 0.0129
+    },
+    {
+      "subject_id": "BDMAP_00376091",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1192) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376091/ct.nii.gz",
+      "new_dice": 0.1192,
+      "new_inter": 0.0129
+    },
+    {
+      "subject_id": "BDMAP_00376109",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1955) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376109/ct.nii.gz",
+      "new_dice": 0.19545,
+      "new_inter": 0.0107
+    },
+    {
+      "subject_id": "BDMAP_00376111",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0461) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376111/ct.nii.gz",
+      "new_dice": 0.04615,
+      "new_inter": 0.0012
+    },
+    {
+      "subject_id": "BDMAP_00376183",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3329) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376183/ct.nii.gz",
+      "new_dice": 0.3329,
+      "new_inter": 0.126
+    },
+    {
+      "subject_id": "BDMAP_00376186",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2226) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376186/ct.nii.gz",
+      "new_dice": 0.2226,
+      "new_inter": 0.0784
+    },
+    {
+      "subject_id": "BDMAP_00376217",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0408) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376217/ct.nii.gz",
+      "new_dice": 0.040825,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00376269",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00376269/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376269_autolabel.nii.gz"
+      "new_dice": 0.07765,
+      "new_inter": 0.0008
+    },
+    {
+      "subject_id": "BDMAP_00376272",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2682) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376272/ct.nii.gz",
+      "new_dice": 0.2682,
+      "new_inter": 0.0502
+    },
+    {
+      "subject_id": "BDMAP_00376276",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2500) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376276/ct.nii.gz",
+      "new_dice": 0.25,
+      "new_inter": 0.0294
+    },
+    {
+      "subject_id": "BDMAP_00376280",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2682) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376280/ct.nii.gz",
+      "new_dice": 0.2682,
+      "new_inter": 0.0502
+    },
+    {
+      "subject_id": "BDMAP_00376284",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2500) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376284/ct.nii.gz",
+      "new_dice": 0.25,
+      "new_inter": 0.0294
+    },
+    {
+      "subject_id": "BDMAP_00376297",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0423) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376297/ct.nii.gz",
+      "new_dice": 0.04225,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376298",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0180) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376298/ct.nii.gz",
+      "new_dice": 0.01795,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376299",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0006) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376299/ct.nii.gz",
+      "new_dice": 0.00055,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376301",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0056) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376301/ct.nii.gz",
+      "new_dice": 0.00565,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376335",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0044) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376335/ct.nii.gz",
+      "new_dice": 0.00445,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00376336",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00376336/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376336_autolabel.nii.gz"
+      "new_dice": 0.01265,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00376340",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00376340/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376340_autolabel.nii.gz"
+      "new_dice": 0.02205,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376380",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0343) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376380/ct.nii.gz",
+      "new_dice": 0.0343,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00376483",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00376483/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376483_autolabel.nii.gz"
+      "new_dice": 0.006,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00376484",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00376484/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376484_autolabel.nii.gz"
+      "new_dice": 0.006,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376538",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0858) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376538/ct.nii.gz",
+      "new_dice": 0.08585,
+      "new_inter": 0.0068
+    },
+    {
+      "subject_id": "BDMAP_00376543",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2475) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376543/ct.nii.gz",
+      "new_dice": 0.247475,
+      "new_inter": 0.06965
     },
     {
       "subject_id": "BDMAP_00376545",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00376545/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376545_autolabel.nii.gz"
+      "new_dice": 0.45335,
+      "new_inter": 0.0851
+    },
+    {
+      "subject_id": "BDMAP_00376552",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0302) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376552/ct.nii.gz",
+      "new_dice": 0.03025,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376553",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0725) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376553/ct.nii.gz",
+      "new_dice": 0.0725,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376612",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0735) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376612/ct.nii.gz",
+      "new_dice": 0.0735,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376657",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0070) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376657/ct.nii.gz",
+      "new_dice": 0.007,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00376673",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00376673/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376673_autolabel.nii.gz"
+      "new_dice": 0.01615,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00376674",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00376674/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376674_autolabel.nii.gz"
+      "new_dice": 0.01615,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376685",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0593) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376685/ct.nii.gz",
+      "new_dice": 0.05935,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376686",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0593) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376686/ct.nii.gz",
+      "new_dice": 0.05935,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376688",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.4777) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376688/ct.nii.gz",
+      "new_dice": 0.4777,
+      "new_inter": 0.201
+    },
+    {
+      "subject_id": "BDMAP_00376703",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0094) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376703/ct.nii.gz",
+      "new_dice": 0.00935,
+      "new_inter": 0.00065
+    },
+    {
+      "subject_id": "BDMAP_00376705",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0376) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376705/ct.nii.gz",
+      "new_dice": 0.03755,
+      "new_inter": 0.00155
+    },
+    {
+      "subject_id": "BDMAP_00376723",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2933) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376723/ct.nii.gz",
+      "new_dice": 0.2933,
+      "new_inter": 0.1243
     },
     {
       "subject_id": "BDMAP_00376747",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00376747/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376747_autolabel.nii.gz"
+      "new_dice": 0.31515,
+      "new_inter": 0.0721
     },
     {
-      "subject_id": "BDMAP_00376821",
-      "category": "WEAK_COARSE",
-      "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
-      "ct_path": "CancerVerse_dbox/BDMAP_00376821/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376821_autolabel.nii.gz"
+      "subject_id": "BDMAP_00376749",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.4769) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376749/ct.nii.gz",
+      "new_dice": 0.4769,
+      "new_inter": 0.1893
+    },
+    {
+      "subject_id": "BDMAP_00376795",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0141) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376795/ct.nii.gz",
+      "new_dice": 0.0141,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376805",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3794) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376805/ct.nii.gz",
+      "new_dice": 0.37935,
+      "new_inter": 0.0746
+    },
+    {
+      "subject_id": "BDMAP_00376809",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3794) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376809/ct.nii.gz",
+      "new_dice": 0.37935,
+      "new_inter": 0.0746
+    },
+    {
+      "subject_id": "BDMAP_00376820",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2038) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376820/ct.nii.gz",
+      "new_dice": 0.2038499999999999,
+      "new_inter": 0.0246
+    },
+    {
+      "subject_id": "BDMAP_00376890",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3060) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376890/ct.nii.gz",
+      "new_dice": 0.306,
+      "new_inter": 0.0829
     },
     {
       "subject_id": "BDMAP_00376952",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00376952/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00376952_autolabel.nii.gz"
+      "new_dice": 0.002425,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00376962",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1533) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376962/ct.nii.gz",
+      "new_dice": 0.1533,
+      "new_inter": 0.0057
+    },
+    {
+      "subject_id": "BDMAP_00376992",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3468) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376992/ct.nii.gz",
+      "new_dice": 0.34685,
+      "new_inter": 0.0719
+    },
+    {
+      "subject_id": "BDMAP_00376993",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3468) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376993/ct.nii.gz",
+      "new_dice": 0.34685,
+      "new_inter": 0.0719
+    },
+    {
+      "subject_id": "BDMAP_00376999",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0819) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00376999/ct.nii.gz",
+      "new_dice": 0.081925,
+      "new_inter": 0.00425
+    },
+    {
+      "subject_id": "BDMAP_00377067",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2882) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00377067/ct.nii.gz",
+      "new_dice": 0.28815,
+      "new_inter": 0.0474
     },
     {
       "subject_id": "BDMAP_00391877",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "missing_coarse_annotations",
-      "detail": "No human coarse annotation or segmentations directory found on disk",
+      "detail": "Coarse annotation mask missing from data source",
       "ct_path": "CancerVerse_dbox/BDMAP_00391877/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00391877_autolabel.nii.gz"
+      "new_dice": 0.0513,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00392024",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00392024/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00392024_autolabel.nii.gz"
+      "new_dice": 0.0127,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00392195",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0762) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00392195/ct.nii.gz",
+      "new_dice": 0.07625,
+      "new_inter": 0.0061
+    },
+    {
+      "subject_id": "BDMAP_00392242",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3230) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00392242/ct.nii.gz",
+      "new_dice": 0.323,
+      "new_inter": 0.0728
     },
     {
       "subject_id": "BDMAP_00392613",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00392613/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00392613_autolabel.nii.gz"
+      "new_dice": 0.0063666666666666,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00392693",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3941) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00392693/ct.nii.gz",
+      "new_dice": 0.394075,
+      "new_inter": 0.2973
+    },
+    {
+      "subject_id": "BDMAP_00392742",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2955) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00392742/ct.nii.gz",
+      "new_dice": 0.29555,
+      "new_inter": 0.0567
+    },
+    {
+      "subject_id": "BDMAP_00392746",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2328) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00392746/ct.nii.gz",
+      "new_dice": 0.23275,
+      "new_inter": 0.0265
+    },
+    {
+      "subject_id": "BDMAP_00392769",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2649) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00392769/ct.nii.gz",
+      "new_dice": 0.2648999999999999,
+      "new_inter": 0.0974
     },
     {
       "subject_id": "BDMAP_00392863",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00392863/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00392863_autolabel.nii.gz"
+      "new_dice": 0.0127,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00393289",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00393289/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00393289_autolabel.nii.gz"
+      "new_dice": 0.00255,
+      "new_inter": 0.0
     },
     {
-      "subject_id": "BDMAP_00393949",
-      "category": "WEAK_COARSE",
-      "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
-      "ct_path": "CancerVerse_dbox/BDMAP_00393949/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00393949_autolabel.nii.gz"
+      "subject_id": "BDMAP_00393311",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1919) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00393311/ct.nii.gz",
+      "new_dice": 0.1919166666666666,
+      "new_inter": 0.1110999999999999
+    },
+    {
+      "subject_id": "BDMAP_00393459",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0086) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00393459/ct.nii.gz",
+      "new_dice": 0.008575,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00393911",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1125) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00393911/ct.nii.gz",
+      "new_dice": 0.112525,
+      "new_inter": 0.0311
     },
     {
       "subject_id": "BDMAP_00394168",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00394168/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00394168_autolabel.nii.gz"
+      "new_dice": 0.00665,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00394175",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0195) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394175/ct.nii.gz",
+      "new_dice": 0.0195499999999999,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00394187",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00394187/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00394187_autolabel.nii.gz"
+      "new_dice": 0.00155,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00394265",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2180) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394265/ct.nii.gz",
+      "new_dice": 0.217975,
+      "new_inter": 0.09035
+    },
+    {
+      "subject_id": "BDMAP_00394329",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0014) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394329/ct.nii.gz",
+      "new_dice": 0.0014,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00394335",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00394335/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00394335_autolabel.nii.gz"
+      "new_dice": 0.000675,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00394393",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2022) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394393/ct.nii.gz",
+      "new_dice": 0.2022,
+      "new_inter": 0.0241
+    },
+    {
+      "subject_id": "BDMAP_00394483",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0934) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394483/ct.nii.gz",
+      "new_dice": 0.09335,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00394512",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3467) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394512/ct.nii.gz",
+      "new_dice": 0.3467,
+      "new_inter": 0.0689
     },
     {
       "subject_id": "BDMAP_00394671",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00394671/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00394671_autolabel.nii.gz"
+      "new_dice": 0.027925,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00394785",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0013) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394785/ct.nii.gz",
+      "new_dice": 0.0013,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00394878",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0001) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00394878/ct.nii.gz",
+      "new_dice": 0.00015,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00395050",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0029) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00395050/ct.nii.gz",
+      "new_dice": 0.0029,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00395162",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2828) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00395162/ct.nii.gz",
+      "new_dice": 0.28285,
+      "new_inter": 0.0477
+    },
+    {
+      "subject_id": "BDMAP_00395259",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0454) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00395259/ct.nii.gz",
+      "new_dice": 0.04545,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00395532",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0198) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00395532/ct.nii.gz",
+      "new_dice": 0.01985,
+      "new_inter": 0.0005
+    },
+    {
+      "subject_id": "BDMAP_00395565",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0756) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00395565/ct.nii.gz",
+      "new_dice": 0.0756,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00395737",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00395737/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00395737_autolabel.nii.gz"
+      "new_dice": 0.0045,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00395912",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2225) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00395912/ct.nii.gz",
+      "new_dice": 0.22255,
+      "new_inter": 0.017
+    },
+    {
+      "subject_id": "BDMAP_00396087",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3757) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396087/ct.nii.gz",
+      "new_dice": 0.37575,
+      "new_inter": 0.1314
+    },
+    {
+      "subject_id": "BDMAP_00396252",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1620) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396252/ct.nii.gz",
+      "new_dice": 0.16205,
+      "new_inter": 0.0083
     },
     {
       "subject_id": "BDMAP_00396271",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00396271/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00396271_autolabel.nii.gz"
+      "new_dice": 0.03835,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00396298",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.3207) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396298/ct.nii.gz",
+      "new_dice": 0.3207,
+      "new_inter": 0.0697
+    },
+    {
+      "subject_id": "BDMAP_00396318",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0037) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396318/ct.nii.gz",
+      "new_dice": 0.00375,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00396379",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00396379/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00396379_autolabel.nii.gz"
+      "new_dice": 0.006625,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00396391",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.4617) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396391/ct.nii.gz",
+      "new_dice": 0.461725,
+      "new_inter": 0.2107
+    },
+    {
+      "subject_id": "BDMAP_00396478",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0978) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396478/ct.nii.gz",
+      "new_dice": 0.09775,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00396503",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1354) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396503/ct.nii.gz",
+      "new_dice": 0.13545,
+      "new_inter": 0.0199
+    },
+    {
+      "subject_id": "BDMAP_00396573",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0043) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396573/ct.nii.gz",
+      "new_dice": 0.00425,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00396785",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0574) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396785/ct.nii.gz",
+      "new_dice": 0.0574,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00396886",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.0176) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396886/ct.nii.gz",
+      "new_dice": 0.01765,
+      "new_inter": 0.0
     },
     {
       "subject_id": "BDMAP_00396887",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00396887/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00396887_autolabel.nii.gz"
+      "new_dice": 0.00055,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00396964",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1432) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00396964/ct.nii.gz",
+      "new_dice": 0.14325,
+      "new_inter": 0.0382
     },
     {
       "subject_id": "BDMAP_00397184",
-      "category": "WEAK_COARSE",
+      "category": "NOISE_REJECT",
       "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
+      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4)",
       "ct_path": "CancerVerse_dbox/BDMAP_00397184/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00397184_autolabel.nii.gz"
+      "new_dice": 0.18985,
+      "new_inter": 0.0
     },
     {
-      "subject_id": "BDMAP_00397252",
-      "category": "WEAK_COARSE",
-      "reason": "zero_foreground_anatomy",
-      "detail": "Autolabel candidate mask contains zero foreground voxels (classes 1-4); consists solely of background (0) and ignore (255)",
-      "ct_path": "CancerVerse_dbox/BDMAP_00397252/ct.nii.gz",
-      "label_path": "results/autolabel_phase3_out/BDMAP_00397252_autolabel.nii.gz"
+      "subject_id": "BDMAP_00397314",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1082) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00397314/ct.nii.gz",
+      "new_dice": 0.108175,
+      "new_inter": 0.0206
+    },
+    {
+      "subject_id": "BDMAP_00397529",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.1273) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00397529/ct.nii.gz",
+      "new_dice": 0.12725,
+      "new_inter": 0.0
+    },
+    {
+      "subject_id": "BDMAP_00397547",
+      "category": "NOISE_REJECT",
+      "reason": "low_consensus_dice_absent_organ_reconciliation",
+      "detail": "Consensus Dice on present organs (0.2258) below NOISE_DICE_MIN 0.50 threshold",
+      "ct_path": "CancerVerse_dbox/BDMAP_00397547/ct.nii.gz",
+      "new_dice": 0.2258,
+      "new_inter": 0.0305
     }
   ]
 }

@@ -18,6 +18,8 @@ Verifies:
 import os
 import sys
 import glob
+import json
+import struct
 import hashlib
 import time
 import subprocess
@@ -454,18 +456,35 @@ def verify_project10_synthesis_and_kinetics():
 
     cohort_lineage_ok = True
 
-    # 1. Output files must be non-empty and readable NIfTI volumes across all payloads (Findings 7 & 8)
+    # 1. Output files must be non-empty and readable NIfTI volumes across all payloads (Findings 4, 7 & 8)
     files_readable = True
     for p in reg_vols:
-        if not os.path.exists(p) or os.path.getsize(p) < 352:
+        if not os.path.exists(p) or os.path.getsize(p) < 18:
             files_readable = False
             break
         try:
-            hdr = nib.load(p).header
+            img = nib.load(p)
+            hdr = img.header
             shp = hdr.get_data_shape()
             if len(shp) < 3 or min(shp[:3]) < 4:
                 files_readable = False
                 break
+            # Stream payload validation via gzip trailer integrity (Finding 4)
+            if str(p).endswith(".gz"):
+                itemsize = hdr.get_data_dtype().itemsize
+                vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
+                expected_isize = (int(np.prod(shp)) * itemsize + vox_offset) % (2**32)
+                with open(p, "rb") as f:
+                    f.seek(-8, 2)
+                    crc, isize = struct.unpack("<II", f.read(8))
+                if isize != expected_isize:
+                    files_readable = False
+                    break
+            else:
+                data = np.asanyarray(img.dataobj)
+                if not np.isfinite(data).all():
+                    files_readable = False
+                    break
         except Exception:
             files_readable = False
             break
@@ -473,13 +492,19 @@ def verify_project10_synthesis_and_kinetics():
     for p in synth_vols:
         if not files_readable:
             break
-        if not os.path.exists(p) or os.path.getsize(p) < 352:
+        if not os.path.exists(p) or os.path.getsize(p) < 18:
             files_readable = False
             break
         try:
-            hdr = nib.load(p).header
+            img = nib.load(p)
+            hdr = img.header
             shp = hdr.get_data_shape()
             if len(shp) < 3 or min(shp[:3]) < 4:
+                files_readable = False
+                break
+            # Read full voxel payload and verify finiteness (Finding 4)
+            data = np.asanyarray(img.dataobj)
+            if not np.isfinite(data).all():
                 files_readable = False
                 break
         except Exception:
@@ -490,15 +515,32 @@ def verify_project10_synthesis_and_kinetics():
     for p in reg_dvfs:
         if not files_readable:
             break
-        if not os.path.exists(p) or os.path.getsize(p) < 352:
+        if not os.path.exists(p) or os.path.getsize(p) < 18:
             files_readable = False
             break
         try:
-            hdr = nib.load(p).header
+            img = nib.load(p)
+            hdr = img.header
             shp = hdr.get_data_shape()
             if len(shp) < 4 or 3 not in shp[3:]:
                 files_readable = False
                 break
+            # Stream payload validation via gzip trailer integrity & vector components (Finding 4)
+            if str(p).endswith(".gz"):
+                itemsize = hdr.get_data_dtype().itemsize
+                vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
+                expected_isize = (int(np.prod(shp)) * itemsize + vox_offset) % (2**32)
+                with open(p, "rb") as f:
+                    f.seek(-8, 2)
+                    crc, isize = struct.unpack("<II", f.read(8))
+                if isize != expected_isize:
+                    files_readable = False
+                    break
+            else:
+                data = np.asanyarray(img.dataobj)
+                if not np.isfinite(data).all():
+                    files_readable = False
+                    break
         except Exception:
             files_readable = False
             break
@@ -519,7 +561,7 @@ def verify_project10_synthesis_and_kinetics():
         if matched_registrations < min(len(reg_vols), 1500):
             cohort_lineage_ok = False
 
-    # 4. Mandatory metrics table columns, supported version, consistent run_id, and valid numeric domains (Findings 7 & 8)
+    # 4. Mandatory metrics table columns, supported version, consistent run_id, and valid numeric domains (Findings 5, 7 & 8)
     REQUIRED_METRIC_COLS = ["Subject", "run_id", "metric_version", "Reference_Coverage", "Pearson_R"]
     if metrics_csv.exists() and n_eval > 0:
         missing_cols = [c for c in REQUIRED_METRIC_COLS if c not in df_metrics.columns]
@@ -531,15 +573,49 @@ def verify_project10_synthesis_and_kinetics():
                     cohort_lineage_ok = False
                     break
 
-            # Metric version must match current supported standard 'v4_audited_support' or 'v3_supported_spatial'
+            # Metric version must match single current supported standard 'v4_audited_support' (Finding 5)
             metric_versions = set(df_metrics["metric_version"].dropna().astype(str).str.strip().unique())
-            if not metric_versions or not metric_versions.issubset({"v4_audited_support", "v3_supported_spatial"}):
+            if metric_versions != {"v4_audited_support"}:
                 cohort_lineage_ok = False
 
-            # Shard/run identity: all evaluated rows must belong to a single consistent execution run
+            # Shard/run identity: all evaluated rows must belong to a single consistent execution run with verified evidence (Finding 5)
             run_ids = set(df_metrics["run_id"].dropna().astype(str).str.strip().unique())
             if len(run_ids) != 1 or "" in run_ids or "nan" in run_ids:
                 cohort_lineage_ok = False
+            else:
+                the_run_id = list(run_ids)[0]
+                manifest_candidates = [
+                    metrics_csv.parent / "synthesis_metrics_manifest.json",
+                    metrics_csv.parent / "evaluation_manifest.json",
+                    metrics_csv.parent / f"{the_run_id}.json",
+                    RESULTS_DIR / "project10" / "manifests" / f"{the_run_id}.json",
+                    DOCS_DIR / "manifests" / "synthesis_metrics_manifest.json",
+                ]
+                sidecars = list(metrics_csv.parent.glob("*.meta.json"))
+                run_verified = False
+                for mc in manifest_candidates:
+                    if mc.exists():
+                        try:
+                            m_obj = json.loads(mc.read_text())
+                            if str(m_obj.get("run_id", "")).strip() == the_run_id:
+                                if "items" in m_obj or "total_files" in m_obj:
+                                    run_verified = True
+                                    break
+                        except Exception:
+                            pass
+                if not run_verified and sidecars:
+                    matching_sidecars = 0
+                    for sc in sidecars:
+                        try:
+                            sc_obj = json.loads(sc.read_text())
+                            if str(sc_obj.get("run_id", "")).strip() == the_run_id:
+                                matching_sidecars += 1
+                        except Exception:
+                            pass
+                    if matching_sidecars > 0:
+                        run_verified = True
+                if not run_verified:
+                    cohort_lineage_ok = False
 
             # Strict numeric domains for metrics
             cov = pd.to_numeric(df_metrics["Reference_Coverage"], errors="coerce")
@@ -690,8 +766,8 @@ def generate_production_report(gates, ckpt_records, ds_info, seg_info, ens_info,
             reason_counts = ex_payload.get("exclusion_reasons", {})
             reasons_str = ", ".join(f"{count} {reason.replace('_', ' ')}" for reason, count in reason_counts.items())
             exclusion_note = f"; {n_ex} candidates excluded [{reasons_str}] per manifest_exclusions.json"
-        except Exception:
-            exclusion_note = f"; {excluded_candidates} candidates excluded" if excluded_candidates > 0 else ""
+        except Exception as e:
+            raise ValueError(f"Failed to load or parse exclusions manifest {exclusions_json}: {e}")
     else:
         exclusion_note = f"; {excluded_candidates} candidates excluded" if excluded_candidates > 0 else ""
     md.append(f"- **Active Distillation Training Pool:** **{manifest_rows:,} verified scans** ({manifest_clean:,} `CLEAN_HIGH_CONFIDENCE` + {manifest_weak:,} `WEAK_COARSE`{exclusion_note}) with verified non-empty foreground GI anatomy.\n")

@@ -2897,6 +2897,230 @@ def test_multiphase_diffusion_sampling_rejects_contradictory_phase_mappings(tmp_
         sys.argv = orig_argv
 
 
+# ==============================================================================
+# AUDIT REMEDIATION REGRESSIONS (RESULTS_METHODS_REAUDIT_513cb60_2026-11-03)
+# ==============================================================================
+
+def test_default_trainer_manifest_handoff_and_hash_binding(tmp_path):
+    """Findings 1 & 2 (513cb60): Default-fold manifest handoff, hash binding, and metadata."""
+    import json
+    import hashlib
+    from code.evaluation.eval_scaling_checkpoints import validate_checkpoint_manifest
+
+    ckpt_path = tmp_path / "best_model.pt"
+    content = b"sample_model_weights_tensor_data"
+    ckpt_path.write_bytes(content)
+    sha256 = hashlib.sha256(content).hexdigest()
+
+    # 1. Negative/default fold manifest accepted
+    man_path = tmp_path / "fold_-1_manifest.json"
+    man_data = {
+        "fold": -1,
+        "train_cases": ["CV_0001", "CV_0002"],
+        "architecture": "mednext_b",
+        "checkpoint_sha256": sha256,
+    }
+    man_path.write_text(json.dumps(man_data))
+
+    res = validate_checkpoint_manifest(ckpt_path, expected_fold=-1)
+    assert res["train_cases"] == ["CV_0001", "CV_0002"]
+
+    # 2. Blank membership rejected
+    bad_man = tmp_path / "train_manifest.json"
+    bad_man.write_text(json.dumps({
+        "train_cases": ["   "],
+        "architecture": "mednext_b",
+        "checkpoint_sha256": sha256,
+    }))
+    with pytest.raises(ValueError, match="blank or malformed identifiers"):
+        validate_checkpoint_manifest(ckpt_path, manifest_path=bad_man)
+
+    # 3. Missing architecture metadata rejected
+    no_arch = tmp_path / "no_arch_manifest.json"
+    no_arch.write_text(json.dumps({
+        "train_cases": ["CV_0001"],
+        "checkpoint_sha256": sha256,
+    }))
+    with pytest.raises(ValueError, match="architecture/configuration identity"):
+        validate_checkpoint_manifest(ckpt_path, manifest_path=no_arch)
+
+    # 4. Tampered weights rejected
+    tampered_man = tmp_path / "tampered_manifest.json"
+    tampered_man.write_text(json.dumps({
+        "train_cases": ["CV_0001"],
+        "architecture": "mednext_b",
+        "checkpoint_sha256": "0" * 64,  # Incorrect hash
+    }))
+    with pytest.raises(ValueError, match="recorded hash"):
+        validate_checkpoint_manifest(ckpt_path, manifest_path=tampered_man)
 
 
+def test_actual_training_size_propagation(tmp_path):
+    """Finding 3 (513cb60): Actual measured training size is propagated in sweep summary."""
+    import json
+    from code.training.run_scaling_sweep import write_sweep_summary
+    import csv
+
+    epoch_record = {
+        "epoch": 1,
+        "val_mean_dice": 0.82,
+        "val_mean_hd95": 4.5,
+        "val_dice": {"stomach": 0.85, "duodenum": 0.80, "small_bowel": 0.81, "colon": 0.82},
+        "val_hd95": {"stomach": 4.0, "duodenum": 5.0, "small_bowel": 4.5, "colon": 4.5},
+    }
+    results = [
+        {
+            "n_cases": 10,
+            "n_train_scans": 7,
+            "n_requested": 10,
+            "n_train_patients": 5,
+            "seed": 42,
+            "epoch_records": [epoch_record],
+        }
+    ]
+    summary_json = tmp_path / "sweep_summary.json"
+    summary_csv = tmp_path / "sweep_summary.csv"
+    write_sweep_summary(results, str(tmp_path))
+
+    with open(summary_json) as f:
+        data = json.load(f)
+    assert len(data) == 1
+    assert data[0]["n_train_scans"] == 7
+    assert data[0]["n_requested"] == 10
+
+    with open(summary_csv) as f:
+        reader = list(csv.DictReader(f))
+    assert len(reader) == 1
+    assert reader[0]["n_train_scans"] == "7"
+    assert reader[0]["n_requested"] == "10"
+
+
+def test_payload_verification_rejects_truncated_nifti(tmp_path):
+    """Finding 4 (513cb60): verify_production_results rejects truncated NIfTI payload."""
+    import json
+    import numpy as np, nibabel as nib
+    from code.evaluation.verify_production_results import verify_project10_synthesis_and_kinetics
+
+    # Create dummy environment
+    synth_dir = tmp_path / "results" / "project10" / "synthetic_volumes"
+    reg_dir = tmp_path / "results" / "project10" / "registered_volumes"
+    eval_dir = tmp_path / "results" / "project10" / "evaluation_reports"
+    man_dir = tmp_path / "results" / "project10" / "manifests"
+    for d in [synth_dir, reg_dir, eval_dir, man_dir]:
+        d.mkdir(parents=True)
+
+    # Valid registration
+    reg_p = reg_dir / "CV_001--CV_002_reg.nii.gz"
+    nib.save(nib.Nifti1Image(np.zeros((16, 16, 16), dtype=np.float32), np.eye(4)), str(reg_p))
+    dvf_p = reg_dir / "CV_001--CV_002_dvf.nii.gz"
+    nib.save(nib.Nifti1Image(np.zeros((16, 16, 16, 1, 3), dtype=np.float32), np.eye(4)), str(dvf_p))
+
+    # Truncated synthetic volume
+    synth_p = synth_dir / "CV_001--CV_002_synthetic_contrast.nii.gz"
+    nib.save(nib.Nifti1Image(np.random.randn(32, 32, 32).astype(np.float32), np.eye(4)), str(synth_p))
+    content = synth_p.read_bytes()
+    synth_p.write_bytes(content[:2000])  # Truncate
+
+    # Manifests
+    pd.DataFrame([{"subject_p0": "CV_001", "subject_target": "CV_002", "patient_id": "P01"}]).to_csv(
+        man_dir / "multiphase_pairs.csv", index=False
+    )
+    pd.DataFrame([{"Subject": "CV_001--CV_002_synthetic_contrast.nii.gz", "run_id": "r1", "metric_version": "v4_audited_support", "Reference_Coverage": 0.5, "Pearson_R": 0.5}]).to_csv(
+        eval_dir / "synthesis_metrics.csv", index=False
+    )
+    (eval_dir / "synthesis_metrics_manifest.json").write_text(json.dumps({"run_id": "r1", "items": []}))
+
+    import code.evaluation.verify_production_results as vpr
+    orig_res = vpr.RESULTS_DIR
+    try:
+        vpr.RESULTS_DIR = tmp_path / "results"
+        res = verify_project10_synthesis_and_kinetics()
+        assert not res["cohort_lineage_ok"]
+    finally:
+        vpr.RESULTS_DIR = orig_res
+
+
+def test_metric_contract_and_unproven_run_rejected(tmp_path):
+    """Finding 5 (513cb60): Mixed versions and unproven run IDs reject."""
+    import json
+    import numpy as np, nibabel as nib
+    from code.evaluation.verify_production_results import verify_project10_synthesis_and_kinetics
+
+    synth_dir = tmp_path / "results" / "project10" / "synthetic_volumes"
+    reg_dir = tmp_path / "results" / "project10" / "registered_volumes"
+    eval_dir = tmp_path / "results" / "project10" / "evaluation_reports"
+    man_dir = tmp_path / "results" / "project10" / "manifests"
+    for d in [synth_dir, reg_dir, eval_dir, man_dir]:
+        d.mkdir(parents=True)
+
+    reg_p = reg_dir / "CV_001--CV_002_reg.nii.gz"
+    nib.save(nib.Nifti1Image(np.zeros((16, 16, 16), dtype=np.float32), np.eye(4)), str(reg_p))
+    dvf_p = reg_dir / "CV_001--CV_002_dvf.nii.gz"
+    nib.save(nib.Nifti1Image(np.zeros((16, 16, 16, 1, 3), dtype=np.float32), np.eye(4)), str(dvf_p))
+    synth_p = synth_dir / "CV_001--CV_002_synthetic_contrast.nii.gz"
+    nib.save(nib.Nifti1Image(np.zeros((16, 16, 16), dtype=np.float32), np.eye(4)), str(synth_p))
+
+    pd.DataFrame([{"subject_p0": "CV_001", "subject_target": "CV_002", "patient_id": "P01"}]).to_csv(
+        man_dir / "multiphase_pairs.csv", index=False
+    )
+
+    # 1. Mixed v3 and v4 rejected
+    pd.DataFrame([
+        {"Subject": "CV_001--CV_002_synthetic_contrast.nii.gz", "run_id": "r1", "metric_version": "v4_audited_support", "Reference_Coverage": 0.5, "Pearson_R": 0.5},
+        {"Subject": "CV_001--CV_002_synthetic_contrast.nii.gz", "run_id": "r1", "metric_version": "v3_supported_spatial", "Reference_Coverage": 0.5, "Pearson_R": 0.5},
+    ]).to_csv(eval_dir / "synthesis_metrics.csv", index=False)
+    (eval_dir / "synthesis_metrics_manifest.json").write_text(json.dumps({"run_id": "r1", "items": []}))
+
+    import code.evaluation.verify_production_results as vpr
+    orig_res = vpr.RESULTS_DIR
+    try:
+        vpr.RESULTS_DIR = tmp_path / "results"
+        res = verify_project10_synthesis_and_kinetics()
+        assert not res["cohort_lineage_ok"]
+
+        # 2. Unproven run without evidence rejected
+        pd.DataFrame([
+            {"Subject": "CV_001--CV_002_synthetic_contrast.nii.gz", "run_id": "UNPROVEN_RUN", "metric_version": "v4_audited_support", "Reference_Coverage": 0.5, "Pearson_R": 0.5},
+        ]).to_csv(eval_dir / "synthesis_metrics.csv", index=False)
+        res = verify_project10_synthesis_and_kinetics()
+        assert not res["cohort_lineage_ok"]
+    finally:
+        vpr.RESULTS_DIR = orig_res
+
+
+def test_ensemble_schema_rejects_missing_or_blank_subject_id(tmp_path):
+    """Finding 7 (513cb60): merge_chunks unconditionally enforces subject_id and status."""
+    from code.utilities.merge_ensemble_chunks import merge_chunks
+
+    c1 = tmp_path / "chunk_0.csv"
+    out = tmp_path / "out.csv"
+
+    # Missing subject_id column
+    pd.DataFrame([{"status": "SUCCESS"}]).to_csv(c1, index=False)
+    with pytest.raises(ValueError, match="mandatory column 'subject_id'"):
+        merge_chunks(str(c1), str(out))
+
+    # Blank subject_id
+    pd.DataFrame([{"subject_id": "  ", "status": "SUCCESS"}]).to_csv(c1, index=False)
+    with pytest.raises(ValueError, match="empty or blank 'subject_id'"):
+        merge_chunks(str(c1), str(out))
+
+    # Missing status
+    pd.DataFrame([{"subject_id": "BDMAP_001"}]).to_csv(c1, index=False)
+    with pytest.raises(ValueError, match="mandatory column 'status'"):
+        merge_chunks(str(c1), str(out))
+
+
+def test_historic_reconciliation_exact_counts():
+    """Finding 8 (513cb60): Reconciled cohort yields exactly 1,598 reject, 34 weak, 0 clean."""
+    import pandas as pd
+    df_audit = pd.read_csv("docs/manifests/ensemble_phase3_audit_summary.csv")
+    counts = df_audit["triage_category"].value_counts().to_dict()
+    assert counts.get("NOISE_REJECT", 0) == 1598
+    assert counts.get("WEAK_COARSE", 0) == 34
+    assert counts.get("CLEAN_HIGH_CONFIDENCE", 0) == 0
+
+    df_manifest = pd.read_csv("docs/manifests/dataset_manifest_valid.csv")
+    assert len(df_manifest) == 34
+    assert (df_manifest["category"] == "WEAK_COARSE").all()
 

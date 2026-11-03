@@ -11,6 +11,7 @@ import glob
 import csv
 import json
 import re
+import hashlib
 import argparse
 import numpy as np
 import pandas as pd
@@ -177,33 +178,66 @@ def evaluate_checkpoint(model, ckpt_path, cases, val_tf, roi_size, device):
     }
 
 
-def validate_checkpoint_manifest(ckpt: str, ckpt_dir: str = None):
+class ManifestDict(dict):
+    """Manifest dictionary that supports both direct dict access and 2-element tuple unpacking."""
+    def __init__(self, manifest_path: str, data: dict):
+        super().__init__(data)
+        self.manifest_path = manifest_path
+        self["_manifest_path"] = manifest_path
+
+    def __iter__(self):
+        yield self.manifest_path
+        yield self
+
+
+def validate_checkpoint_manifest(
+    ckpt: str,
+    ckpt_dir: str = None,
+    expected_fold: int = None,
+    manifest_path: str = None,
+):
     """Validate that checkpoint has an authentic training manifest with required membership schema (Finding 3)."""
     if ckpt_dir is None:
         ckpt_dir = os.path.dirname(ckpt) or "."
     ckpt_name = os.path.basename(ckpt)
-    fold_match = re.search(r'fold_(\d+)', ckpt_name) or re.search(r'fold_(\d+)', ckpt_dir)
-    if fold_match:
-        expected_manifest_name = f"fold_{fold_match.group(1)}_manifest.json"
-        manifest_candidates = [
-            os.path.join(ckpt_dir, expected_manifest_name),
-            os.path.join(ckpt_dir, "train_manifest.json"),
-        ]
+    fold_match = re.search(r'fold_(-?\d+)', ckpt_name) or re.search(r'fold_(-?\d+)', ckpt_dir)
+
+    if manifest_path is not None:
+        found_manifest = str(manifest_path)
+        if not os.path.exists(found_manifest):
+            raise RuntimeError(f"Specified manifest path does not exist: {manifest_path}")
     else:
-        manifest_candidates = [os.path.join(ckpt_dir, "train_manifest.json")]
+        manifest_candidates = []
+        if expected_fold is not None:
+            manifest_candidates.append(os.path.join(ckpt_dir, f"fold_{expected_fold}_manifest.json"))
+        if fold_match:
+            f_idx = fold_match.group(1)
+            manifest_candidates.extend([
+                os.path.join(ckpt_dir, f"fold_{f_idx}_manifest.json"),
+                os.path.join(ckpt_dir, "train_manifest.json"),
+                os.path.join(ckpt_dir, "fold_-1_manifest.json"),
+            ])
+        else:
+            manifest_candidates.extend([
+                os.path.join(ckpt_dir, "train_manifest.json"),
+                os.path.join(ckpt_dir, "fold_-1_manifest.json"),
+            ])
+            for p in sorted(glob.glob(os.path.join(ckpt_dir, "fold_*_manifest.json"))):
+                if p not in manifest_candidates:
+                    manifest_candidates.append(p)
 
-    found_manifest = None
-    for mc in manifest_candidates:
-        if os.path.exists(mc):
-            found_manifest = mc
-            break
+        found_manifest = None
+        for mc in manifest_candidates:
+            if os.path.exists(mc):
+                found_manifest = mc
+                break
 
-    if found_manifest is None:
-        raise RuntimeError(
-            f"Missing required training manifest in {ckpt_dir} for checkpoint {ckpt}. "
-            f"Expected one of {[os.path.basename(m) for m in manifest_candidates]}. "
-            f"Bound membership/configuration is required to evaluate holdout validation."
-        )
+        if found_manifest is None:
+            raise RuntimeError(
+                f"Missing required training manifest in {ckpt_dir} for checkpoint {ckpt}. "
+                f"Expected one of {[os.path.basename(m) for m in manifest_candidates]}. "
+                f"Bound membership/configuration is required to evaluate holdout validation."
+            )
 
     try:
         with open(found_manifest, "r") as mf:
@@ -211,26 +245,72 @@ def validate_checkpoint_manifest(ckpt: str, ckpt_dir: str = None):
         if not isinstance(minfo, dict) or not minfo:
             raise ValueError("Manifest is empty or not a valid JSON dictionary")
 
-        # Validate training membership schema
-        train_members = (
-            minfo.get("train_cases", [])
-            + minfo.get("train_scans", [])
-            + minfo.get("train_patients", [])
-        )
-        if not train_members or not isinstance(train_members, list):
+        # 1. Validate training membership schema and reject blank/malformed identifiers
+        raw_train_members = []
+        for key in ["train_cases", "train_scans", "train_patients"]:
+            val = minfo.get(key)
+            if val is not None:
+                if not isinstance(val, list):
+                    raise ValueError(f"Membership field '{key}' in {found_manifest} must be a list, got {type(val).__name__}")
+                raw_train_members.extend(val)
+
+        if not raw_train_members:
             raise ValueError(
                 f"Manifest {found_manifest} has empty or missing training membership "
                 f"('train_cases', 'train_scans', or 'train_patients')"
             )
 
-        # Validate fold binding if applicable
-        if "fold" in minfo and fold_match:
-            if int(minfo["fold"]) != int(fold_match.group(1)):
+        clean_members = []
+        for item in raw_train_members:
+            if not isinstance(item, str):
+                raise ValueError(f"Manifest {found_manifest} contains non-string member identifier: {item!r}")
+            s = item.strip()
+            if not s:
+                raise ValueError(f"Manifest {found_manifest} contains blank or malformed identifiers: {item!r}")
+            clean_members.append(s)
+
+        if not clean_members:
+            raise ValueError(f"Manifest {found_manifest} contains zero valid training member identifiers after stripping")
+
+        # 2. Validate architecture / configuration identity metadata
+        has_config = any(k in minfo for k in ["architecture", "model_id", "model_type", "model_config", "config"])
+        if not has_config:
+            raise ValueError(
+                f"Manifest {found_manifest} lacks required architecture/configuration identity metadata "
+                f"('architecture', 'model_id', 'model_type', or 'config')."
+            )
+
+        # 3. Authenticate checkpoint binding (content hash / fingerprint)
+        expected_hash = minfo.get("checkpoint_sha256") or minfo.get("checkpoint_hash")
+        if not expected_hash:
+            raise ValueError(
+                f"Manifest {found_manifest} lacks required checkpoint binding hash ('checkpoint_sha256' or 'checkpoint_hash'). "
+                f"Membership cannot be authenticated without cryptographic checkpoint binding."
+            )
+
+        # Compute SHA-256 of the actual checkpoint
+        with open(ckpt, "rb") as cf:
+            actual_ckpt_hash = hashlib.sha256(cf.read()).hexdigest()
+
+        if actual_ckpt_hash != str(expected_hash).strip():
+            raise ValueError(
+                f"Checkpoint authentication failed for {ckpt}: actual SHA-256 {actual_ckpt_hash} "
+                f"does not match manifest recorded hash {expected_hash}. "
+                f"Checkpoint contents have been altered or replaced."
+            )
+
+        # 4. Validate fold binding if applicable
+        target_fold = expected_fold if expected_fold is not None else (int(fold_match.group(1)) if fold_match else None)
+        if "fold" in minfo and target_fold is not None:
+            if int(minfo["fold"]) != int(target_fold):
                 raise ValueError(
-                    f"Manifest fold mismatch: manifest specifies fold {minfo['fold']} but checkpoint is fold {fold_match.group(1)}"
+                    f"Manifest fold mismatch: manifest specifies fold {minfo['fold']} but expected fold is {target_fold}"
                 )
-        return found_manifest, minfo
+        return ManifestDict(found_manifest, minfo)
     except Exception as me:
+        if isinstance(me, (ValueError, RuntimeError)):
+            raise
+        raise RuntimeError(f"Could not read, parse, or validate training manifest {found_manifest}: {me}")
         raise RuntimeError(f"Could not read, parse, or validate training manifest {found_manifest}: {me}")
 
 

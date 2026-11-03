@@ -399,14 +399,26 @@ def main():
         print(f"[Patient 80/20 Split] Train: {len(train_files)} ({len(train_patients)} pts) | Val: {len(val_files)} ({len(val_patients)} pts)")
 
     os.makedirs(args.out_dir, exist_ok=True)
-    with open(os.path.join(args.out_dir, f"fold_{args.fold}_manifest.json"), "w") as f:
-        json.dump({
-            "fold": args.fold, "num_folds": args.num_folds,
-            "train_patients": sorted(list(train_patients)),
-            "val_patients": sorted(list(val_patients)),
-            "train_scans": [p.get("name", p.get("subject_id", "")) for p in train_files],
-            "val_scans": [p.get("name", p.get("subject_id", "")) for p in val_files],
-        }, f, indent=2)
+    train_scan_list = [p.get("name", p.get("subject_id", "")) for p in train_files]
+    val_scan_list = [p.get("name", p.get("subject_id", "")) for p in val_files]
+    manifest_data = {
+        "fold": args.fold,
+        "num_folds": args.num_folds,
+        "architecture": "Swin-UNETR-Phase2",
+        "num_classes": NUM_CLASSES,
+        "train_patients": sorted(list(train_patients)),
+        "val_patients": sorted(list(val_patients)),
+        "train_scans": train_scan_list,
+        "val_scans": val_scan_list,
+        "train_cases": train_scan_list,
+        "val_cases": val_scan_list,
+    }
+    manifest_filenames = [f"fold_{args.fold}_manifest.json", "train_manifest.json"]
+    if args.fold == -1:
+        manifest_filenames.append("fold_-1_manifest.json")
+    for fname in set(manifest_filenames):
+        with open(os.path.join(args.out_dir, fname), "w") as f:
+            json.dump(manifest_data, f, indent=2)
 
     # Fast validation subsample (50 scans max) to keep epoch pace fast
     if len(val_files) > 50:
@@ -566,6 +578,13 @@ def main():
                 best_val_dice = mean_dice
                 torch.save(model.state_dict(), best_ckpt_path)
                 print(f"  [+] New Best Model Saved! Mean Dice: {best_val_dice:.4f} -> {best_ckpt_path}", flush=True)
+                with open(best_ckpt_path, "rb") as bf:
+                    ckpt_hash = hashlib.sha256(bf.read()).hexdigest()
+                manifest_data["checkpoint_sha256"] = ckpt_hash
+                manifest_data["checkpoint_file"] = os.path.basename(best_ckpt_path)
+                for fname in set(manifest_filenames):
+                    with open(os.path.join(args.out_dir, fname), "w") as f:
+                        json.dump(manifest_data, f, indent=2)
 
     print(f"\nTraining Complete for Fold {args.fold}! Best Validation Dice: {best_val_dice:.4f}")
 

@@ -313,14 +313,26 @@ def main():
 
     target_out_dir = getattr(args, "out_dir", getattr(args, "output_dir", None))
     os.makedirs(target_out_dir, exist_ok=True)
-    with open(os.path.join(target_out_dir, f"fold_{args.fold}_manifest.json"), "w") as f:
-        json.dump({
-            "fold": args.fold, "num_folds": args.num_folds,
-            "train_patients": sorted(list(train_patients)),
-            "val_patients": sorted(list(val_patients)),
-            "train_scans": [p.get("name", p.get("subject_id", "")) for p in train_pairs],
-            "val_scans": [p.get("name", p.get("subject_id", "")) for p in val_pairs],
-        }, f, indent=2)
+    train_scan_list = [p.get("name", p.get("subject_id", "")) for p in train_pairs]
+    val_scan_list = [p.get("name", p.get("subject_id", "")) for p in val_pairs]
+    manifest_data = {
+        "fold": args.fold,
+        "num_folds": args.num_folds,
+        "architecture": "Swin-UNETR",
+        "num_classes": NUM_CLASSES,
+        "train_patients": sorted(list(train_patients)),
+        "val_patients": sorted(list(val_patients)),
+        "train_scans": train_scan_list,
+        "val_scans": val_scan_list,
+        "train_cases": train_scan_list,
+        "val_cases": val_scan_list,
+    }
+    manifest_filenames = [f"fold_{args.fold}_manifest.json", "train_manifest.json"]
+    if args.fold == -1:
+        manifest_filenames.append("fold_-1_manifest.json")
+    for fname in set(manifest_filenames):
+        with open(os.path.join(target_out_dir, fname), "w") as f:
+            json.dump(manifest_data, f, indent=2)
 
     # Subsample Validation scans for fast evaluation
     if args.max_val_samples > 0 and len(val_pairs) > args.max_val_samples:
@@ -459,6 +471,13 @@ def main():
                     raw_model = model.module if hasattr(model, "module") else model
                     torch.save(raw_model.state_dict(), best_model_path)
                     print(f"  [+] New Best Model Saved! Dice: {best_val_dice:.4f} -> {best_model_path}", flush=True)
+                    with open(best_model_path, "rb") as bf:
+                        ckpt_hash = hashlib.sha256(bf.read()).hexdigest()
+                    manifest_data["checkpoint_sha256"] = ckpt_hash
+                    manifest_data["checkpoint_file"] = os.path.basename(best_model_path)
+                    for fname in set(manifest_filenames):
+                        with open(os.path.join(target_out_dir, fname), "w") as f:
+                            json.dump(manifest_data, f, indent=2)
 
         # Save last checkpoint every epoch for safe resuming
         raw_model = model.module if hasattr(model, "module") else model

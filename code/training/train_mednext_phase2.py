@@ -549,14 +549,28 @@ def main():
         log(f"[80/20 Patient Split] Train: {len(train_pairs)} scans ({len(train_patients)} pts) | Val: {len(val_pairs)} scans ({len(val_patients)} pts)")
 
     os.makedirs(args.out_dir, exist_ok=True)
-    with open(os.path.join(args.out_dir, f"fold_{args.fold}_manifest.json"), "w") as f:
-        json.dump({
-            "fold": args.fold, "num_folds": args.num_folds,
-            "train_patients": sorted(list(train_patients)),
-            "val_patients": sorted(list(val_patients)),
-            "train_scans": [p.get("subject_id", "") for p in train_pairs],
-            "val_scans": [p.get("subject_id", "") for p in val_pairs],
-        }, f, indent=2)
+    train_scan_list = [p.get("subject_id", "") for p in train_pairs]
+    val_scan_list = [p.get("subject_id", "") for p in val_pairs]
+    manifest_data = {
+        "fold": args.fold,
+        "num_folds": args.num_folds,
+        "architecture": f"MedNeXt-{args.model_id}",
+        "model_id": args.model_id,
+        "kernel_size": args.kernel_size,
+        "num_classes": NUM_CLASSES,
+        "train_patients": sorted(list(train_patients)),
+        "val_patients": sorted(list(val_patients)),
+        "train_scans": train_scan_list,
+        "val_scans": val_scan_list,
+        "train_cases": train_scan_list,
+        "val_cases": val_scan_list,
+    }
+    manifest_filenames = [f"fold_{args.fold}_manifest.json", "train_manifest.json"]
+    if args.fold == -1:
+        manifest_filenames.append("fold_-1_manifest.json")
+    for fname in set(manifest_filenames):
+        with open(os.path.join(args.out_dir, fname), "w") as f:
+            json.dump(manifest_data, f, indent=2)
 
     if args.max_val_samples > 0 and len(val_pairs) > args.max_val_samples:
         val_pairs = [val_pairs[i] for i in np.random.choice(
@@ -775,6 +789,13 @@ def main():
                     best_val_dice = mean_val_dice
                     torch.save(raw.state_dict(), best_ckpt_path)
                     log(f"  [+] New Best! Dice: {best_val_dice:.4f} -> {best_ckpt_path}")
+                    with open(best_ckpt_path, "rb") as bf:
+                        ckpt_hash = hashlib.sha256(bf.read()).hexdigest()
+                    manifest_data["checkpoint_sha256"] = ckpt_hash
+                    manifest_data["checkpoint_file"] = os.path.basename(best_ckpt_path)
+                    for fname in set(manifest_filenames):
+                        with open(os.path.join(args.out_dir, fname), "w") as f:
+                            json.dump(manifest_data, f, indent=2)
             if is_ddp:
                 dist.barrier()
 

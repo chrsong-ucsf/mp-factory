@@ -661,6 +661,7 @@ def run_single_sweep(
     n_dir = run_dir
 
     # Save training membership manifest into run_dir
+    train_scan_names = [c.get("name", "") for c in train_cases]
     manifest_info = {
         "n_cases": n_train,
         "n_requested": n_cases,
@@ -669,9 +670,15 @@ def run_single_sweep(
         "n_val_scans": n_val,
         "n_val_patients": len({extract_patient_id(c.get('name', '')) for c in val_cases}),
         "seed": seed,
+        "architecture": "MedNeXt-B",
+        "model_id": "B",
+        "kernel_size": 3,
+        "num_classes": NUM_CLASSES,
+        "roi_size": list(roi_size),
+        "data_fingerprint": hashlib.sha256("::".join(sorted(train_scan_names)).encode()).hexdigest(),
         "train_patients": sorted(list({extract_patient_id(c.get('name', '')) for c in train_cases})),
         "val_patients": sorted(list({extract_patient_id(c.get('name', '')) for c in val_cases})),
-        "train_cases": [c.get("name", "") for c in train_cases],
+        "train_cases": train_scan_names,
         "val_cases": [c.get("name", "") for c in val_cases],
     }
     with open(os.path.join(run_dir, "train_manifest.json"), "w") as f:
@@ -792,7 +799,10 @@ def run_single_sweep(
 
         record = {
             "epoch": epoch,
-            "n_cases": n_cases,
+            "n_cases": n_train,
+            "n_requested": n_cases,
+            "n_train_scans": n_train,
+            "n_train_patients": manifest_info["n_train_patients"],
             "train_loss": round(avg_loss, 6),
             "val_dice": {ORGAN_NAMES[c]: round(per_organ_dice[c], 6) for c in range(NUM_CLASSES)},
             "val_hd95": {ORGAN_NAMES[c]: round(per_organ_hd95[c], 4) for c in range(NUM_CLASSES)},
@@ -820,14 +830,30 @@ def run_single_sweep(
 
         if mean_dice > best_dice:
             best_dice = mean_dice
+            best_ckpt_path = os.path.join(n_dir, "best_checkpoint.pt")
             torch.save(
                 {"epoch": epoch, "model_state_dict": model.state_dict(),
-                 "val_mean_dice": mean_dice, "n_cases": n_cases},
-                os.path.join(n_dir, "best_checkpoint.pt"),
+                 "val_mean_dice": mean_dice, "n_cases": n_train,
+                 "n_requested": n_cases, "n_train_scans": n_train,
+                 "n_train_patients": manifest_info["n_train_patients"],
+                 "architecture": "MedNeXt-B", "model_id": "B"},
+                best_ckpt_path,
             )
+            with open(best_ckpt_path, "rb") as bf:
+                ckpt_hash = hashlib.sha256(bf.read()).hexdigest()
+            manifest_info["checkpoint_sha256"] = ckpt_hash
+            manifest_info["checkpoint_file"] = "best_checkpoint.pt"
+            with open(os.path.join(run_dir, "train_manifest.json"), "w") as f:
+                json.dump(manifest_info, f, indent=2)
 
         with open(json_path, "w") as f:
-            json.dump({"n_cases": n_cases, "epochs": epoch_records}, f, indent=2)
+            json.dump({
+                "n_cases": n_train,
+                "n_requested": n_cases,
+                "n_train_scans": n_train,
+                "n_train_patients": manifest_info["n_train_patients"],
+                "epochs": epoch_records,
+            }, f, indent=2)
 
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -836,7 +862,7 @@ def run_single_sweep(
 
     print(f"  Saved metrics → {json_path}")
     print(f"  Saved metrics → {csv_path}")
-    print(f"  Best val Dice (N={n_cases}, seed={seed}): {best_dice:.4f}")
+    print(f"  Best val Dice (N={n_train}, requested={n_cases}, seed={seed}): {best_dice:.4f}")
 
     # Clean up GPU memory before next run
     del model, optimizer
@@ -859,14 +885,19 @@ def write_sweep_summary(sweep_results: list, output_dir: str):
     from collections import defaultdict
     by_n: dict = defaultdict(list)
     for res in sweep_results:
-        n      = res["n_cases"]
-        seed   = res.get("seed", 42)
-        records = res["epochs"]
+        n = res.get("n_train_scans", res.get("n_cases"))
+        n_req = res.get("n_requested", res.get("n_cases"))
+        n_pts = res.get("n_train_patients", 1)
+        seed = res.get("seed", 42)
+        records = res.get("epochs", res.get("epoch_records", []))
         if not records:
             continue
         best = max(records, key=lambda r: r["val_mean_dice"])
         by_n[n].append({
             "seed": seed,
+            "n_train_scans": n,
+            "n_requested": n_req,
+            "n_train_patients": n_pts,
             "best_epoch": best["epoch"],
             "best_val_mean_dice": best["val_mean_dice"],
             "best_val_mean_hd95": best["val_mean_hd95"],
@@ -882,8 +913,13 @@ def write_sweep_summary(sweep_results: list, output_dir: str):
         dice_vals_across_seeds = [r["best_val_mean_dice"] for r in runs if r["best_val_mean_dice"] is not None]
         hd95_vals_across_seeds = [r["best_val_mean_hd95"] for r in runs if r["best_val_mean_hd95"] is not None]
         true_dice_across_seeds = [r["best_val_true_dice"] for r in runs if r["best_val_true_dice"] is not None]
+        n_req = runs[0].get("n_requested", n) if runs else n
+        n_pts = runs[0].get("n_train_patients", 1) if runs else 1
         entry = {
             "n_cases": n,
+            "n_train_scans": n,
+            "n_requested": n_req,
+            "n_train_patients": n_pts,
             "num_seeds": len(runs),
             "seeds": [r["seed"] for r in runs],
             "mean_best_val_dice":     float(np.mean(dice_vals_across_seeds))     if dice_vals_across_seeds else None,
@@ -907,7 +943,7 @@ def write_sweep_summary(sweep_results: list, output_dir: str):
     # Flat CSV (one row per N)
     if summary:
         flat_keys = [
-            "n_cases", "num_seeds",
+            "n_cases", "n_train_scans", "n_requested", "n_train_patients", "num_seeds",
             "mean_best_val_dice", "std_best_val_dice",
             "mean_best_val_hd95", "std_best_val_hd95",
             "mean_best_val_true_dice", "std_best_val_true_dice",
@@ -1121,8 +1157,9 @@ def main():
                 sweep_results.append(result)
 
             # Incremental progress save — protects against cluster job timeouts
+            n_actual = result.get("n_train_scans", n)
             with open(progress_csv_path, "a", newline="") as f:
-                csv.writer(f).writerow([n, seed, round(best_dice, 6)])
+                csv.writer(f).writerow([n_actual, seed, round(best_dice, 6)])
 
     write_sweep_summary(sweep_results, args.output_dir)
 
