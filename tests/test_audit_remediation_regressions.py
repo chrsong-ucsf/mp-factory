@@ -3605,3 +3605,216 @@ def test_eval_scaling_checkpoints_model_dispatch_explicit_and_fail_closed():
     }
     with pytest.raises(RuntimeError, match="Unknown or unsupported architecture 'TotallyUnknownArch'"):
         consumer.build_eval_model_for_manifest(meta_unknown_arch, torch.device("cpu"))
+
+
+def test_audit_reaudit_arch_model_id_contradiction_rejected():
+    """Finding 4: Contradictory architecture and model_id declarations must be rejected."""
+    import code.evaluation.eval_scaling_checkpoints as consumer
+
+    # 1. MedNeXt-S architecture with model_id B
+    meta_s_b = {
+        "architecture": "MedNeXt-S",
+        "model_id": "B",
+        "factory": "local_mednext",
+        "kernel_size": 7,
+        "out_channels": 5,
+    }
+    with pytest.raises(RuntimeError, match="contradicts model_id"):
+        consumer.build_eval_model_for_manifest(meta_s_b, torch.device("cpu"))
+
+    # 2. MedNeXt-B architecture with model_id S
+    meta_b_s = {
+        "architecture": "MedNeXt-B",
+        "model_id": "S",
+        "kernel_size": 7,
+        "out_channels": 5,
+    }
+    with pytest.raises(RuntimeError, match="contradicts model_id"):
+        consumer.build_eval_model_for_manifest(meta_b_s, torch.device("cpu"))
+
+    # 3. UNet architecture with MedNeXt model_id
+    meta_unet_mednext = {
+        "architecture": "UNet",
+        "model_id": "B",
+        "out_channels": 5,
+    }
+    with pytest.raises(RuntimeError, match="contradicts model_id"):
+        consumer.build_eval_model_for_manifest(meta_unet_mednext, torch.device("cpu"))
+
+    # 4. MedNeXt architecture with UNet model_id
+    meta_mednext_unet = {
+        "architecture": "MedNeXt-B",
+        "model_id": "UNet",
+        "out_channels": 5,
+    }
+    with pytest.raises(RuntimeError, match="contradicts model_id"):
+        consumer.build_eval_model_for_manifest(meta_mednext_unet, torch.device("cpu"))
+
+
+def test_audit_reaudit_metric_row_identity_and_evaluator_contract(monkeypatch):
+    """Finding 1: Metric-row input identity schema is mandatory and contract run_id is verified."""
+    import copy
+    import json
+    import contextlib
+    import io
+    import code.project10.evaluation.evaluate_synthesis as ev
+    import code.evaluation.verify_production_results as vr
+
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td)
+        res = p / "results"
+        reg = res / "project10/registered_volumes"
+        synth = res / "project10/synthetic_volumes"
+        rep = res / "project10/evaluation_reports"
+        man = res / "project10/manifests"
+        for x in [reg, synth, rep, man]:
+            x.mkdir(parents=True)
+
+        pairs = []
+        arr = np.arange(4096, dtype=np.float32).reshape(16, 16, 16) % 100
+        for i in [1, 2]:
+            name = f"CV_00{i}--CV_10{i}"
+            pairs.append({"subject_p0": f"CV_00{i}", "subject_target": f"CV_10{i}", "patient_id": f"P0{i}"})
+            for path, a in [
+                (reg / f"{name}_reg.nii.gz", arr),
+                (synth / f"{name}_synthetic_contrast.nii.gz", arr),
+                (reg / f"{name}_dvf.nii.gz", np.zeros((16, 16, 16, 1, 3), np.float32)),
+                (reg / f"{name}_reg_support.nii.gz", np.ones((16, 16, 16), np.uint8)),
+            ]:
+                nib.save(nib.Nifti1Image(a, np.eye(4)), path)
+        pd.DataFrame(pairs).to_csv(man / "multiphase_pairs.csv", index=False)
+
+        csv = rep / "synthesis_metrics.csv"
+        manifest = rep / "synthesis_metrics_manifest.json"
+
+        # 1. Genuine evaluator run with support
+        monkeypatch.setattr(sys, "argv", ["eval", "--fake_dir", str(synth), "--real_dir", str(reg), "--output_csv", str(csv), "--device", "cpu"])
+        ev.main()
+
+        df = pd.read_csv(csv)
+        payload = json.loads(manifest.read_text())
+        rid = df.run_id.iloc[0]
+
+        monkeypatch.setattr(vr, "RESULTS_DIR", res)
+        monkeypatch.setattr(vr, "DOCS_DIR", p / "docs")
+
+        def probe():
+            with contextlib.redirect_stdout(io.StringIO()):
+                return vr.verify_project10_synthesis_and_kinetics()["cohort_lineage_ok"]
+
+        # Genuine evaluator output must pass
+        assert probe() is True
+
+        # Dropping row identity columns must reject
+        reduced = df.drop(columns=[k for k in ["fake_sha256", "real_sha256", "support_sha256", "real_file"] if k in df])
+        reduced.to_csv(csv, index=False)
+        assert probe() is False
+
+        # Reset: restored valid metrics pass again
+        df.to_csv(csv, index=False)
+        assert probe() is True
+
+        # Removed support file with old run_id must reject
+        m = copy.deepcopy(payload)
+        for it in m["items"]:
+            if it["real_file"] == "CV_001--CV_101_reg.nii.gz":
+                it.update(support_file=None, support_sha256=None)
+        (reg / "CV_001--CV_101_reg_support.nii.gz").unlink()
+        dd = df.copy()
+        dd.loc[dd.Subject == "CV_001--CV_101_synthetic_contrast.nii.gz", "support_sha256"] = None
+        dd.to_csv(csv, index=False)
+        manifest.write_text(json.dumps(m))
+        assert probe() is False
+
+        # Genuine absent-support evaluation must pass
+        monkeypatch.setattr(sys, "argv", ["eval", "--fake_dir", str(synth), "--real_dir", str(reg), "--output_csv", str(csv), "--device", "cpu", "--overwrite"])
+        ev.main()
+        assert probe() is True
+
+
+def test_audit_reaudit_worker_manifest_ownership_and_idle_worker(monkeypatch):
+    """Findings 2 & 3: Completion records validated against manifest ownership and idle workers accepted."""
+    import copy
+    import json
+    import contextlib
+    import io
+    import code.project10.evaluation.evaluate_synthesis as ev
+    import code.evaluation.verify_production_results as vr
+
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td)
+        res = p / "results"
+        reg = res / "project10/registered_volumes"
+        synth = res / "project10/synthetic_volumes"
+        rep = res / "project10/evaluation_reports"
+        man = res / "project10/manifests"
+        for x in [reg, synth, rep, man]:
+            x.mkdir(parents=True)
+
+        pairs = []
+        arr = np.arange(4096, dtype=np.float32).reshape(16, 16, 16) % 100
+        for i in [1, 2]:
+            name = f"CV_00{i}--CV_10{i}"
+            pairs.append({"subject_p0": f"CV_00{i}", "subject_target": f"CV_10{i}", "patient_id": f"P0{i}"})
+            for path, a in [
+                (reg / f"{name}_reg.nii.gz", arr),
+                (synth / f"{name}_synthetic_contrast.nii.gz", arr),
+                (reg / f"{name}_dvf.nii.gz", np.zeros((16, 16, 16, 1, 3), np.float32)),
+                (reg / f"{name}_reg_support.nii.gz", np.ones((16, 16, 16), np.uint8)),
+            ]:
+                nib.save(nib.Nifti1Image(a, np.eye(4)), path)
+        pd.DataFrame(pairs).to_csv(man / "multiphase_pairs.csv", index=False)
+
+        csv = rep / "synthesis_metrics.csv"
+        manifest = rep / "synthesis_metrics_manifest.json"
+
+        monkeypatch.setattr(sys, "argv", ["eval", "--fake_dir", str(synth), "--real_dir", str(reg), "--output_csv", str(csv), "--device", "cpu"])
+        ev.main()
+
+        df = pd.read_csv(csv)
+        payload = json.loads(manifest.read_text())
+        rid = df.run_id.iloc[0]
+
+        monkeypatch.setattr(vr, "RESULTS_DIR", res)
+        monkeypatch.setattr(vr, "DOCS_DIR", p / "docs")
+
+        def probe():
+            with contextlib.redirect_stdout(io.StringIO()):
+                return vr.verify_project10_synthesis_and_kinetics()["cohort_lineage_ok"]
+
+        # Finding 2: Contradictory worker ownership (both assigned to worker 0 in manifest, sidecars claim 1 each)
+        m = copy.deepcopy(payload)
+        m["total_workers"] = 2
+        for it in m["items"]:
+            it["worker_id"] = 0
+        manifest.write_text(json.dumps(m))
+        for f in rep.glob("*.meta.json"):
+            f.unlink()
+        for wid in [0, 1]:
+            (rep / f"wrongassignment{wid}.meta.json").write_text(
+                json.dumps(dict(run_id=rid, status="completed", worker_id=wid, total_workers=2, num_assigned=1, num_scored=1, error_count=0))
+            )
+        assert probe() is False
+
+        # Finding 3: Actual 2-case / 3-worker evaluation produces an idle worker [1, 1, 0] and must pass
+        multi = rep / "multi.csv"
+        for wid in [0, 1, 2]:
+            monkeypatch.setattr(sys, "argv", [
+                "eval", "--fake_dir", str(synth), "--real_dir", str(reg), "--output_csv", str(multi),
+                "--device", "cpu", "--total_workers", "3", "--array_id", str(wid)
+            ])
+            ev.main()
+        ev.merge_worker_csvs(multi, 3)
+
+        multi_df = pd.read_csv(multi)
+        multi_payload = json.loads((rep / "multi_manifest.json").read_text())
+        multi_meta = {f.name: f.read_text() for f in rep.glob("multi_worker_*.meta.json")}
+
+        multi_df.to_csv(csv, index=False)
+        manifest.write_text(json.dumps(multi_payload))
+        for f in rep.glob("*.meta.json"):
+            f.unlink()
+        for n, v in multi_meta.items():
+            (rep / n).write_text(v)
+
+        assert probe() is True

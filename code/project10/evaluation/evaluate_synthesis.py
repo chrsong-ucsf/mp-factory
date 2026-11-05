@@ -248,6 +248,32 @@ def find_matching_real_file(fake_path: Path, real_dir: Path) -> Optional[Path]:
     return None
 
 
+def compute_cohort_manifest_run_id(
+    items: List[Dict[str, Any]],
+    total_workers: int,
+    total_files: Optional[int] = None,
+    metric_version: str = METRIC_VERSION,
+) -> str:
+    """
+    Derives deterministic cohort snapshot run_id according to the evaluator contract.
+    """
+    n_files = total_files if total_files is not None else len(items)
+    sig_builder = hashlib.sha256()
+    sig_builder.update(f"{metric_version}:{n_files}:{total_workers}:".encode("utf-8"))
+    for item in sorted(items, key=lambda it: str(it.get("fake_file", ""))):
+        f_name = item.get("fake_file")
+        fake_sha = item.get("fake_sha256")
+        r_file = item.get("real_file")
+        real_sha = item.get("real_sha256")
+        s_file = item.get("support_file")
+        supp_sha = item.get("support_sha256")
+        w_id = item.get("worker_id")
+        sig_builder.update(
+            f"{f_name}:{fake_sha}:{r_file}:{real_sha}:{s_file}:{supp_sha}:{w_id};".encode("utf-8")
+        )
+    return f"run_{sig_builder.hexdigest()[:16]}"
+
+
 def build_evaluation_cohort_manifest(
     fake_dir: Path,
     real_dir: Path,
@@ -264,9 +290,6 @@ def build_evaluation_cohort_manifest(
     chunk_size = (total_discovered + total_workers - 1) // total_workers if total_workers > 0 else total_discovered
 
     items = []
-    sig_builder = hashlib.sha256()
-    sig_builder.update(f"{metric_version}:{total_discovered}:{total_workers}:".encode("utf-8"))
-
     for idx, f in enumerate(sorted(fake_files)):
         fake_sha = compute_file_sha256(f)
         real_cand = find_matching_real_file(f, real_dir)
@@ -285,12 +308,13 @@ def build_evaluation_cohort_manifest(
             "worker_id": worker_id,
         }
         items.append(item)
-        sig_builder.update(
-            f"{f.name}:{fake_sha}:{item['real_file']}:{real_sha}:{item['support_file']}:{supp_sha}:{worker_id};".encode("utf-8")
-        )
 
-    snapshot_hash = sig_builder.hexdigest()
-    run_id = f"run_{snapshot_hash[:16]}"
+    run_id = compute_cohort_manifest_run_id(
+        items=items,
+        total_workers=total_workers,
+        total_files=total_discovered,
+        metric_version=metric_version,
+    )
 
     manifest = {
         "run_id": run_id,

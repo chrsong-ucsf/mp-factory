@@ -335,7 +335,54 @@ def validate_checkpoint_manifest(
 
 def build_eval_model_for_manifest(minfo: dict, device):
     """Construct model matching training manifest architecture, factory, and configuration."""
-    arch = str(minfo.get("architecture") or minfo.get("model_id") or "").strip()
+    raw_arch = str(minfo.get("architecture") or "").strip()
+    raw_mid = str(minfo.get("model_id") or "").strip()
+
+    # Extract variant from architecture if present
+    arch_variant = None
+    for sfx in ["-S", "_S", "-M", "_M", "-L", "_L", "-B", "_B"]:
+        if raw_arch.upper().endswith(sfx):
+            arch_variant = sfx[1]
+            break
+    if not arch_variant:
+        if raw_arch.upper() in ["MEDNEXT-S", "MEDNEXT_S", "MEDNEXTS"]:
+            arch_variant = "S"
+        elif raw_arch.upper() in ["MEDNEXT-B", "MEDNEXT_B", "MEDNEXTB"]:
+            arch_variant = "B"
+        elif raw_arch.upper() in ["MEDNEXT-M", "MEDNEXT_M", "MEDNEXTM"]:
+            arch_variant = "M"
+        elif raw_arch.upper() in ["MEDNEXT-L", "MEDNEXT_L", "MEDNEXTL"]:
+            arch_variant = "L"
+
+    # Extract variant from model_id if present
+    mid_variant = None
+    if raw_mid.upper() in ["S", "M", "L", "B"]:
+        mid_variant = raw_mid.upper()
+    elif raw_mid.upper().startswith("MEDNEXT"):
+        for sfx in ["-S", "_S", "-M", "_M", "-L", "_L", "-B", "_B"]:
+            if raw_mid.upper().endswith(sfx):
+                mid_variant = sfx[1]
+                break
+
+    # Cross-check 1: MedNeXt variant disagreement (Finding 4)
+    if arch_variant is not None and mid_variant is not None and arch_variant != mid_variant:
+        raise RuntimeError(
+            f"Contradictory manifest identity: architecture '{raw_arch}' contradicts model_id '{raw_mid}'."
+        )
+
+    # Cross-check 2: UNet vs MedNeXt disagreement (Finding 4)
+    arch_is_unet = raw_arch.upper() in ["UNET", "MONAI-UNET", "MONAI_UNET"]
+    mid_is_unet = raw_mid.upper() in ["UNET", "MONAI-UNET", "MONAI_UNET"]
+    arch_is_mednext = raw_arch.upper().startswith("MEDNEXT") or arch_variant is not None
+    mid_is_mednext = raw_mid.upper().startswith("MEDNEXT") or mid_variant is not None
+
+    if (arch_is_unet and mid_is_mednext) or (arch_is_mednext and mid_is_unet):
+        raise RuntimeError(
+            f"Contradictory manifest identity: architecture '{raw_arch}' contradicts model_id '{raw_mid}'."
+        )
+
+    arch = raw_arch or raw_mid
+    effective_variant = mid_variant or arch_variant
     factory = minfo.get("factory")
     if factory is not None:
         factory = str(factory).strip()
@@ -345,15 +392,12 @@ def build_eval_model_for_manifest(minfo: dict, device):
 
     # 1. Explicit factory dispatch
     if factory == "local_mednext":
-        m_id = str(minfo.get("model_id") or "").strip().upper()
-        if not m_id:
-            for sfx in ["-S", "_S", "-M", "_M", "-L", "_L", "-B", "_B"]:
-                if arch.upper().endswith(sfx):
-                    m_id = sfx[1]
-                    break
-        if m_id and m_id != "B":
+        target_variant = effective_variant or str(minfo.get("model_id") or "").strip().upper()
+        if not target_variant and arch in ["MedNeXt-B", "MedNeXtB", "MedNeXt_B", "MedNeXt"]:
+            target_variant = "B"
+        if target_variant and target_variant != "B":
             raise RuntimeError(
-                f"Manifest specified factory 'local_mednext', but declared variant '{m_id}' contradicts local MedNeXtB (variant B)."
+                f"Manifest specified factory 'local_mednext', but declared variant '{target_variant}' contradicts local MedNeXtB (variant B)."
             )
         if k_size is not None and k_size != 7:
             raise RuntimeError(
@@ -364,11 +408,12 @@ def build_eval_model_for_manifest(minfo: dict, device):
         raise RuntimeError("Manifest specified factory 'local_mednext', but local MedNeXtB is not available.")
 
     if factory == "nnunet_mednext":
+        target_variant = effective_variant or str(minfo.get("model_id", "B")).strip().upper()
         if create_mednext_v1 is not None:
             return create_mednext_v1(
                 num_input_channels=in_ch,
                 num_classes=out_ch,
-                model_id=str(minfo.get("model_id", "B")),
+                model_id=target_variant if target_variant else "B",
                 kernel_size=k_size if isinstance(k_size, int) else 3,
                 deep_supervision=False,
             ).to(device)
@@ -395,14 +440,9 @@ def build_eval_model_for_manifest(minfo: dict, device):
         raise RuntimeError("Manifest specified UNet architecture, but MONAI UNet is not available.")
 
     if arch in ["MedNeXt-B", "MedNeXtB", "MedNeXt_B"] or arch.startswith("MedNeXt-") or arch == "MedNeXt":
-        m_id = str(minfo.get("model_id") or "").strip().upper()
+        m_id = effective_variant
         if not m_id:
-            for sfx in ["-S", "_S", "-M", "_M", "-L", "_L", "-B", "_B"]:
-                if arch.upper().endswith(sfx):
-                    m_id = sfx[1]
-                    break
-            if not m_id:
-                m_id = "B" if arch in ["MedNeXt-B", "MedNeXtB", "MedNeXt_B", "MedNeXt"] else ""
+            m_id = "B" if arch in ["MedNeXt-B", "MedNeXtB", "MedNeXt_B", "MedNeXt"] else ""
 
         # Only variant B with kernel 7 can be served by local MedNeXtB
         if m_id == "B" and k_size == 7:
