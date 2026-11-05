@@ -674,6 +674,7 @@ def verify_project10_synthesis_and_kinetics():
             else:
                 the_run_id = list(run_ids)[0]
                 manifest_candidates = [
+                    metrics_csv.parent / f"{metrics_csv.stem}_manifest.json",
                     metrics_csv.parent / "synthesis_metrics_manifest.json",
                     metrics_csv.parent / "evaluation_manifest.json",
                     metrics_csv.parent / f"{the_run_id}.json",
@@ -694,7 +695,9 @@ def verify_project10_synthesis_and_kinetics():
                     if mc.exists():
                         try:
                             m_obj = json.loads(mc.read_text())
-                            if str(m_obj.get("run_id", "")).strip() == the_run_id:
+                            m_rid = str(m_obj.get("run_id", "")).strip()
+                            m_sid = str(m_obj.get("snapshot_id", m_obj.get("cohort_snapshot_id", ""))).strip()
+                            if m_rid == the_run_id or (m_sid and m_sid == the_run_id):
                                 the_manifest_obj = m_obj
                                 break
                         except Exception:
@@ -732,8 +735,23 @@ def verify_project10_synthesis_and_kinetics():
                                         total_files=total_files if total_files is not None else len(items),
                                         metric_version=metric_ver,
                                     )
-                                    if the_run_id != contract_run_id or str(the_manifest_obj.get("run_id", "")).strip() != contract_run_id:
+
+                                    manifest_run_id = str(the_manifest_obj.get("run_id", "")).strip()
+                                    if the_run_id != manifest_run_id:
                                         hashes_valid = False
+
+                                    manifest_snapshot_id = str(
+                                        the_manifest_obj.get("snapshot_id")
+                                        or the_manifest_obj.get("cohort_snapshot_id")
+                                        or ""
+                                    ).strip()
+
+                                    if manifest_snapshot_id:
+                                        if manifest_snapshot_id != contract_run_id:
+                                            hashes_valid = False
+                                    else:
+                                        if the_run_id != contract_run_id or manifest_run_id != contract_run_id:
+                                            hashes_valid = False
 
                                     df_metrics_by_subj = {}
                                     for idx, row in df_metrics.iterrows():
@@ -859,6 +877,9 @@ def verify_project10_synthesis_and_kinetics():
                     try:
                         sc_obj = json.loads(sc.read_text())
                         if str(sc_obj.get("run_id", "")).strip() == the_run_id:
+                            sc_snap = str(sc_obj.get("snapshot_id", sc_obj.get("cohort_snapshot_id", ""))).strip()
+                            if sc_snap and sc_snap != contract_run_id:
+                                continue
                             matching_sidecars.append(sc_obj)
                     except Exception:
                         pass

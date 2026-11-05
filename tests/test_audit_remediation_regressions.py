@@ -3818,3 +3818,130 @@ def test_audit_reaudit_worker_manifest_ownership_and_idle_worker(monkeypatch):
             (rep / n).write_text(v)
 
         assert probe() is True
+
+
+def test_audit_reaudit_named_run_actual_evaluation_merge_and_verifier(monkeypatch):
+    """Reaudit 1fe2929: Supported explicitly named evaluation runs pass verification alongside snapshot identity."""
+    import copy
+    import json
+    import contextlib
+    import io
+    import code.project10.evaluation.evaluate_synthesis as ev
+    import code.evaluation.verify_production_results as vr
+
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td)
+        res = p / "results"
+        reg = res / "project10/registered_volumes"
+        synth = res / "project10/synthetic_volumes"
+        rep = res / "project10/evaluation_reports"
+        man = res / "project10/manifests"
+        for x in [reg, synth, rep, man]:
+            x.mkdir(parents=True)
+
+        pairs = []
+        arr = np.arange(4096, dtype=np.float32).reshape(16, 16, 16) % 100
+        for i in [1, 2]:
+            name = f"CV_00{i}--CV_10{i}"
+            pairs.append({"subject_p0": f"CV_00{i}", "subject_target": f"CV_10{i}", "patient_id": f"P0{i}"})
+            for path, a in [
+                (reg / f"{name}_reg.nii.gz", arr),
+                (synth / f"{name}_synthetic_contrast.nii.gz", arr),
+                (reg / f"{name}_dvf.nii.gz", np.zeros((16, 16, 16, 1, 3), np.float32)),
+                (reg / f"{name}_reg_support.nii.gz", np.ones((16, 16, 16), np.uint8)),
+            ]:
+                nib.save(nib.Nifti1Image(a, np.eye(4)), path)
+        pd.DataFrame(pairs).to_csv(man / "multiphase_pairs.csv", index=False)
+
+        csv = rep / "synthesis_metrics.csv"
+        manifest = rep / "synthesis_metrics_manifest.json"
+
+        monkeypatch.setattr(vr, "RESULTS_DIR", res)
+        monkeypatch.setattr(vr, "DOCS_DIR", p / "docs")
+
+        def probe():
+            with contextlib.redirect_stdout(io.StringIO()):
+                return vr.verify_project10_synthesis_and_kinetics()["cohort_lineage_ok"]
+
+        # 1. Single worker evaluation with explicit custom run_id
+        named_run_id = "audit_named_positive_control"
+        monkeypatch.setattr(sys, "argv", [
+            "eval", "--fake_dir", str(synth), "--real_dir", str(reg), "--output_csv", str(csv),
+            "--device", "cpu", "--run_id", named_run_id, "--overwrite"
+        ])
+        ev.main()
+        ev.merge_worker_csvs(csv, 1, expected_run_id=named_run_id)
+
+        assert probe() is True
+
+        payload = json.loads(manifest.read_text())
+        assert payload["run_id"] == named_run_id
+        assert payload.get("snapshot_id") is not None
+        assert payload["snapshot_id"] == vr.compute_cohort_manifest_run_id(
+            payload["items"], payload["total_workers"], payload["total_files"], payload["metric_version"]
+        )
+
+        # 2. Multi-worker named evaluation with an idle worker (3 workers, 2 cases)
+        multi = rep / "multi_named.csv"
+        multi_named_run = "audit_named_multi_idle_worker_control"
+        for wid in [0, 1, 2]:
+            monkeypatch.setattr(sys, "argv", [
+                "eval", "--fake_dir", str(synth), "--real_dir", str(reg), "--output_csv", str(multi),
+                "--device", "cpu", "--total_workers", "3", "--array_id", str(wid),
+                "--run_id", multi_named_run, "--overwrite"
+            ])
+            ev.main()
+        ev.merge_worker_csvs(multi, 3, expected_run_id=multi_named_run)
+
+        multi_df = pd.read_csv(multi)
+        multi_payload = json.loads((rep / "multi_named_manifest.json").read_text())
+        multi_meta = {f.name: f.read_text() for f in rep.glob("multi_named_worker_*.meta.json")}
+
+        multi_df.to_csv(csv, index=False)
+        manifest.write_text(json.dumps(multi_payload))
+        for f in rep.glob("*.meta.json"):
+            f.unlink()
+        for n, v in multi_meta.items():
+            (rep / n).write_text(v)
+
+        assert probe() is True
+
+
+def test_audit_reaudit_factory_architecture_contradiction():
+    """Reaudit 1fe2929: Cross-check model factory against declared architecture and model_id."""
+    import code.evaluation.eval_scaling_checkpoints as consumer
+
+    device = torch.device("cpu")
+
+    # factory='monai_unet' with architecture='MedNeXt-B' must reject
+    manifest_mednext_monai = {
+        "architecture": "MedNeXt-B",
+        "factory": "monai_unet",
+        "model_id": "B",
+        "kernel_size": 3,
+        "out_channels": 5,
+    }
+    with pytest.raises(RuntimeError, match="Contradictory manifest identity: factory 'monai_unet' contradicts architecture"):
+        consumer.build_eval_model_for_manifest(manifest_mednext_monai, device)
+
+    # factory='local_mednext' with architecture='UNet' must reject
+    manifest_unet_local = {
+        "architecture": "UNet",
+        "factory": "local_mednext",
+        "model_id": "UNet",
+        "kernel_size": 7,
+        "out_channels": 5,
+    }
+    with pytest.raises(RuntimeError, match="Contradictory manifest identity: factory 'local_mednext' contradicts architecture"):
+        consumer.build_eval_model_for_manifest(manifest_unet_local, device)
+
+    # factory='nnunet_mednext' with architecture='UNet' must reject
+    manifest_unet_nnunet = {
+        "architecture": "UNet",
+        "factory": "nnunet_mednext",
+        "model_id": "UNet",
+        "kernel_size": 3,
+        "out_channels": 5,
+    }
+    with pytest.raises(RuntimeError, match="Contradictory manifest identity: factory 'nnunet_mednext' contradicts architecture"):
+        consumer.build_eval_model_for_manifest(manifest_unet_nnunet, device)

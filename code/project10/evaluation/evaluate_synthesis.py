@@ -318,6 +318,8 @@ def build_evaluation_cohort_manifest(
 
     manifest = {
         "run_id": run_id,
+        "snapshot_id": run_id,
+        "cohort_snapshot_id": run_id,
         "metric_version": metric_version,
         "fake_dir": str(fake_dir.resolve()),
         "real_dir": str(real_dir.resolve()),
@@ -814,11 +816,14 @@ def main():
         total_workers=args.total_workers,
         metric_version=METRIC_VERSION,
     )
+    snapshot_id = manifest.get("snapshot_id") or manifest["run_id"]
     if args.run_id:
         run_id = str(args.run_id).strip()
         manifest["run_id"] = run_id
     else:
         run_id = manifest["run_id"]
+    manifest["snapshot_id"] = snapshot_id
+    manifest["cohort_snapshot_id"] = snapshot_id
 
     manifest_path = output_csv.parent / f"{output_csv.stem}_manifest.json"
     try:
@@ -857,6 +862,8 @@ def main():
                 "worker_id": args.array_id,
                 "total_workers": args.total_workers,
                 "run_id": run_id,
+                "snapshot_id": snapshot_id,
+                "cohort_snapshot_id": snapshot_id,
                 "metric_version": METRIC_VERSION,
                 "num_assigned": 0,
                 "num_scored": 0,
@@ -978,6 +985,8 @@ def main():
             "worker_id": args.array_id,
             "total_workers": args.total_workers,
             "run_id": run_id,
+            "snapshot_id": snapshot_id,
+            "cohort_snapshot_id": snapshot_id,
             "metric_version": METRIC_VERSION,
             "num_assigned": len(my_files),
             "num_scored": len(df),

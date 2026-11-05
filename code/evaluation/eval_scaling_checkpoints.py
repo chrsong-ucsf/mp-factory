@@ -386,6 +386,19 @@ def build_eval_model_for_manifest(minfo: dict, device):
     factory = minfo.get("factory")
     if factory is not None:
         factory = str(factory).strip()
+
+    # Cross-check 3: Factory vs Architecture / Model ID disagreement
+    if factory in ["monai_unet", "monai"]:
+        if arch_is_mednext or mid_is_mednext:
+            raise RuntimeError(
+                f"Contradictory manifest identity: factory '{factory}' contradicts architecture '{raw_arch}' / model_id '{raw_mid}'."
+            )
+
+    if factory in ["local_mednext", "nnunet_mednext"]:
+        if arch_is_unet or mid_is_unet:
+            raise RuntimeError(
+                f"Contradictory manifest identity: factory '{factory}' contradicts architecture '{raw_arch}' / model_id '{raw_mid}'."
+            )
     k_size = minfo.get("kernel_size", 7)
     out_ch = minfo.get("out_channels") or minfo.get("num_classes", NUM_CLASSES)
     in_ch = minfo.get("in_channels", 1)
