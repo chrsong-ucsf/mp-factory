@@ -345,6 +345,20 @@ def build_eval_model_for_manifest(minfo: dict, device):
 
     # 1. Explicit factory dispatch
     if factory == "local_mednext":
+        m_id = str(minfo.get("model_id") or "").strip().upper()
+        if not m_id:
+            for sfx in ["-S", "_S", "-M", "_M", "-L", "_L", "-B", "_B"]:
+                if arch.upper().endswith(sfx):
+                    m_id = sfx[1]
+                    break
+        if m_id and m_id != "B":
+            raise RuntimeError(
+                f"Manifest specified factory 'local_mednext', but declared variant '{m_id}' contradicts local MedNeXtB (variant B)."
+            )
+        if k_size is not None and k_size != 7:
+            raise RuntimeError(
+                f"Manifest specified factory 'local_mednext', but declared kernel_size '{k_size}' contradicts local MedNeXtB (kernel 7)."
+            )
         if MedNeXtB is not None:
             return MedNeXtB(in_channels=in_ch, n_channels=32, n_classes=out_ch).to(device)
         raise RuntimeError("Manifest specified factory 'local_mednext', but local MedNeXtB is not available.")
@@ -380,23 +394,34 @@ def build_eval_model_for_manifest(minfo: dict, device):
             ).to(device)
         raise RuntimeError("Manifest specified UNet architecture, but MONAI UNet is not available.")
 
-    if arch in ["MedNeXt-B", "MedNeXtB", "MedNeXt_B"] or arch.startswith("MedNeXt-"):
-        # If kernel_size is 7, it corresponds to local_mednext (MedNeXtB)
-        if k_size == 7:
+    if arch in ["MedNeXt-B", "MedNeXtB", "MedNeXt_B"] or arch.startswith("MedNeXt-") or arch == "MedNeXt":
+        m_id = str(minfo.get("model_id") or "").strip().upper()
+        if not m_id:
+            for sfx in ["-S", "_S", "-M", "_M", "-L", "_L", "-B", "_B"]:
+                if arch.upper().endswith(sfx):
+                    m_id = sfx[1]
+                    break
+            if not m_id:
+                m_id = "B" if arch in ["MedNeXt-B", "MedNeXtB", "MedNeXt_B", "MedNeXt"] else ""
+
+        # Only variant B with kernel 7 can be served by local MedNeXtB
+        if m_id == "B" and k_size == 7:
             if MedNeXtB is not None:
                 return MedNeXtB(in_channels=in_ch, n_channels=32, n_classes=out_ch).to(device)
-            raise RuntimeError("Legacy MedNeXt kernel-7 architecture requires local MedNeXtB, which is unavailable.")
-        # If kernel_size is 3 or other, it corresponds to nnunet_mednext
+            raise RuntimeError("Legacy MedNeXt-B kernel-7 architecture requires local MedNeXtB, which is unavailable.")
+
+        # Non-B variants or non-7 kernels require create_mednext_v1
         if create_mednext_v1 is not None:
             return create_mednext_v1(
                 num_input_channels=in_ch,
                 num_classes=out_ch,
-                model_id=str(minfo.get("model_id", "B")),
+                model_id=m_id if m_id else "B",
                 kernel_size=k_size if isinstance(k_size, int) else 3,
                 deep_supervision=False,
             ).to(device)
-        # If create_mednext_v1 is not installed, fail explicitly rather than silently substituting wrong architecture
-        raise RuntimeError(f"Legacy MedNeXt kernel-{k_size} requires nnunet_mednext (create_mednext_v1), which is not installed.")
+        raise RuntimeError(
+            f"Legacy MedNeXt-{m_id or 'B'} kernel-{k_size} requires nnunet_mednext (create_mednext_v1), which is not installed."
+        )
 
     raise RuntimeError(f"Unknown or unsupported architecture '{arch}' in manifest; cannot dispatch evaluation model.")
 
@@ -523,8 +548,8 @@ def main():
                 f"No independent validation cases remain for checkpoint {ckpt} after strict patient/sibling exclusion!"
             )
 
-        # Build or reuse model matching this checkpoint's manifest
-        model_key = (minfo.get("architecture"), minfo.get("factory"), minfo.get("kernel_size"), minfo.get("out_channels", minfo.get("num_classes")))
+        # Build or reuse model matching this checkpoint's manifest (Finding 4: Key reuse on complete validated configuration)
+        model_key = (minfo.get("architecture"), minfo.get("factory"), minfo.get("model_id"), minfo.get("kernel_size"), minfo.get("in_channels", 1), minfo.get("out_channels") or minfo.get("num_classes"))
         if current_model is None or current_model_key != model_key:
             current_model = build_eval_model_for_manifest(minfo, device)
             current_model_key = model_key

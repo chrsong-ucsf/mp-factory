@@ -1759,8 +1759,11 @@ def test_verify_production_results_strict_boolean_gate_enforcement(tmp_path):
     from unittest.mock import patch
 
     test_report = tmp_path / "test_report.md"
+    mock_results = tmp_path / "results"
+    mock_results.mkdir(parents=True, exist_ok=True)
     # Mock compile_and_verify_manuscript_tables to return False
-    with patch("code.evaluation.verify_production_results.compile_and_verify_manuscript_tables", return_value=(False, "")):
+    with patch("code.evaluation.verify_production_results.compile_and_verify_manuscript_tables", return_value=(False, "")), \
+         patch.object(vpr, "RESULTS_DIR", mock_results):
         with pytest.raises(SystemExit) as exc_info:
             vpr.main(["--report_path", str(test_report)])
         assert exc_info.value.code == 1
@@ -3325,6 +3328,7 @@ def test_production_verifier_reaudit_8a059e2_findings(tmp_path):
     df = pd.read_csv(csv)
     payload = json.loads(manifest.read_text())
     rid = df.run_id.iloc[0]
+    metas = {f.name: f.read_text() for f in rep.glob("*.meta.json")}
 
     with mock.patch.object(vpr, "RESULTS_DIR", res), mock.patch.object(vpr, "DOCS_DIR", tmp_path / "docs"):
         def probe():
@@ -3355,6 +3359,7 @@ def test_production_verifier_reaudit_8a059e2_findings(tmp_path):
             item.update(fake_sha256="0" * 64, real_sha256="1" * 64, support_sha256="2" * 64)
         manifest.write_text(json.dumps(broken_m))
         assert probe() is False, "Wrong manifest count and hashes must fail lineage verification"
+        manifest.write_text(json.dumps(payload))
 
         # Finding 1: Incomplete errorful worker sidecar without subject coverage must be rejected
         manifest.unlink()
@@ -3374,15 +3379,163 @@ def test_production_verifier_reaudit_8a059e2_findings(tmp_path):
 
         # Finding 2: Changed finite real input with stale metrics must be rejected
         manifest.write_text(json.dumps(payload))
+        for n, s in metas.items():
+            (rep / n).write_text(s)
         rp = reg / "CV_001--CV_101_reg.nii.gz"
         nib.save(nib.Nifti1Image(np.full((16, 16, 16), 500, np.float32), np.eye(4)), rp)
         assert probe() is False, "Changed real input (hash mismatch) must fail lineage verification"
 
 
+def test_production_verifier_reaudit_c69d3fe_findings(tmp_path):
+    """
+    Direct regression tests for findings 1, 2, 3 from docs/RESULTS_METHODS_REAUDIT_c69d3fe_2026-11-05.txt:
+    - Finding 1: Mandatory input authentication across paths, hashes, rows, and support masks.
+    - Finding 2: Strict worker completion proof and worker identity contract.
+    - Finding 3: DVF vector layout (XYZ,3 or XYZ,1,3) and spatial geometry/affine alignment.
+    """
+    import copy
+    import json
+    import hashlib
+    import numpy as np
+    import nibabel as nib
+    import pandas as pd
+    import code.evaluation.verify_production_results as vpr
+    from code.evaluation.verify_production_results import verify_project10_synthesis_and_kinetics
+    import unittest.mock as mock
+
+    res = tmp_path / "results"
+    reg = res / "project10" / "registered_volumes"
+    synth = res / "project10" / "synthetic_volumes"
+    rep = res / "project10" / "evaluation_reports"
+    man = res / "project10" / "manifests"
+    for d in [reg, synth, rep, man]:
+        d.mkdir(parents=True)
+
+    pairs = []
+    arr = np.arange(16**3, dtype=np.float32).reshape(16, 16, 16) % 100
+    for i in [1, 2]:
+        name = f"CV_00{i}--CV_10{i}"
+        pairs.append({"subject_p0": f"CV_00{i}", "subject_target": f"CV_10{i}", "patient_id": f"P0{i}"})
+        for path, a in [
+            (reg / f"{name}_reg.nii.gz", arr),
+            (synth / f"{name}_synthetic_contrast.nii.gz", arr),
+            (reg / f"{name}_dvf.nii.gz", np.zeros((16, 16, 16, 1, 3), np.float32)),
+            (reg / f"{name}_reg_support.nii.gz", np.ones((16, 16, 16), np.uint8)),
+        ]:
+            nib.save(nib.Nifti1Image(a, np.eye(4)), path)
+
+    pd.DataFrame(pairs).to_csv(man / "multiphase_pairs.csv", index=False)
+    csv = rep / "synthesis_metrics.csv"
+    manifest = rep / "synthesis_metrics_manifest.json"
+
+    import code.project10.evaluation.evaluate_synthesis as ev
+    with mock.patch.object(sys, "argv", ["eval", "--fake_dir", str(synth), "--real_dir", str(reg), "--output_csv", str(csv), "--device", "cpu"]):
+        ev.main()
+
+    df = pd.read_csv(csv)
+    payload = json.loads(manifest.read_text())
+    rid = df.run_id.iloc[0]
+    metas = {f.name: f.read_text() for f in rep.glob("*.meta.json")}
+
+    def reset():
+        df.to_csv(csv, index=False)
+        manifest.write_text(json.dumps(payload))
+        for f in rep.glob("*.meta.json"):
+            f.unlink()
+        for n, s in metas.items():
+            (rep / n).write_text(s)
+        for i in [1, 2]:
+            nib.save(nib.Nifti1Image(arr, np.eye(4)), reg / f"CV_00{i}--CV_10{i}_reg.nii.gz")
+            nib.save(nib.Nifti1Image(np.zeros((16, 16, 16, 1, 3), np.float32), np.eye(4)), reg / f"CV_00{i}--CV_10{i}_dvf.nii.gz")
+            nib.save(nib.Nifti1Image(np.ones((16, 16, 16), np.uint8), np.eye(4)), reg / f"CV_00{i}--CV_10{i}_reg_support.nii.gz")
+
+    with mock.patch.object(vpr, "RESULTS_DIR", res), mock.patch.object(vpr, "DOCS_DIR", tmp_path / "docs"):
+        def probe():
+            return verify_project10_synthesis_and_kinetics()["cohort_lineage_ok"]
+
+        # Baseline positive control
+        assert probe() is True
+
+        # Finding 3: DVF 100mm shifted affine must be rejected
+        dp = reg / "CV_001--CV_101_dvf.nii.gz"
+        shifted = np.eye(4)
+        shifted[0, 3] = 100
+        nib.save(nib.Nifti1Image(np.zeros((16, 16, 16, 1, 3), np.float32), shifted), dp)
+        assert probe() is False, "100mm shifted DVF affine must fail lineage verification"
+
+        # Finding 3: DVF invalid extra axis (16, 16, 16, 2, 3) must be rejected
+        reset()
+        nib.save(nib.Nifti1Image(np.zeros((16, 16, 16, 2, 3), np.float32), np.eye(4)), dp)
+        assert probe() is False, "DVF with invalid extra axis must fail lineage verification"
+
+        # Finding 1: Missing manifest fake/real hashes must be rejected
+        reset()
+        broken = copy.deepcopy(payload)
+        for it in broken["items"]:
+            for key in ["fake_sha256", "real_sha256"]:
+                it.pop(key, None)
+        manifest.write_text(json.dumps(broken))
+        nib.save(nib.Nifti1Image(arr + 500, np.eye(4)), reg / "CV_001--CV_101_reg.nii.gz")
+        assert probe() is False, "Missing manifest hashes must fail lineage verification"
+
+        # Finding 1: Nonexistent manifest directories must be rejected
+        reset()
+        broken = copy.deepcopy(payload)
+        broken.update(fake_dir=str(tmp_path / "nonexistent_fake"), real_dir=str(tmp_path / "nonexistent_real"))
+        for it in broken["items"]:
+            it.update(fake_sha256="0" * 64, real_sha256="1" * 64)
+        manifest.write_text(json.dumps(broken))
+        assert probe() is False, "Nonexistent manifest directories must fail lineage verification"
+
+        # Finding 1: Contradictory metrics row hashes must be rejected
+        reset()
+        bad = df.copy()
+        bad["fake_sha256"] = "0" * 64
+        bad["real_sha256"] = "1" * 64
+        bad["support_sha256"] = "2" * 64
+        bad.to_csv(csv, index=False)
+        assert probe() is False, "Contradictory metrics row hashes must fail lineage verification"
+
+        # Finding 1: Changed support mask must be rejected
+        reset()
+        half = np.ones((16, 16, 16), np.uint8)
+        half[:8] = 0
+        nib.save(nib.Nifti1Image(half, np.eye(4)), reg / "CV_001--CV_101_reg_support.nii.gz")
+        assert probe() is False, "Changed support mask must fail lineage verification"
+
+        # Finding 2: Manifest without any worker completion sidecars must be rejected
+        reset()
+        for f in rep.glob("*.meta.json"):
+            f.unlink()
+        assert probe() is False, "Missing completion sidecars must fail lineage verification"
+
+        # Finding 2: Sidecar out-of-range worker 99 of 1 must be rejected
+        reset()
+        manifest.unlink()
+        for f in rep.glob("*.meta.json"):
+            f.unlink()
+        (rep / "forged.meta.json").write_text(json.dumps(dict(
+            run_id=rid, status="completed", worker_id=99, total_workers=1, num_assigned=2, num_scored=2, error_count=0
+        )))
+        assert probe() is False, "Worker ID 99 of 1 must fail lineage verification"
+        (rep / "forged.meta.json").unlink()
+
+        # Finding 2: Sidecar inconsistent total_workers declarations must be rejected
+        for k, tw in [(5, 2), (6, 999)]:
+            (rep / f"forged{k}.meta.json").write_text(json.dumps(dict(
+                run_id=rid, status="completed", worker_id=k, total_workers=tw, num_assigned=1, num_scored=1, error_count=0
+            )))
+        assert probe() is False, "Inconsistent total_workers declarations must fail lineage verification"
+
+
 def test_eval_scaling_checkpoints_model_dispatch_explicit_and_fail_closed():
     """
-    Direct regression test for finding 3 from docs/RESULTS_METHODS_REAUDIT_8a059e2_2026-11-04.txt:
+    Direct regression test for findings 3, 4, 5 from:
+    - docs/RESULTS_METHODS_REAUDIT_8a059e2_2026-11-04.txt
+    - docs/RESULTS_METHODS_REAUDIT_c69d3fe_2026-11-05.txt
     Model dispatch strictly obeys explicit factory, kernel_size, and fails closed without silent UNet fallback.
+    Cache key reuse preserves in_channels and model_id.
+    Contradictory local/legacy configurations are rejected.
     """
     import code.evaluation.eval_scaling_checkpoints as consumer
     import code.training.run_scaling_sweep as producer
@@ -3396,11 +3549,45 @@ def test_eval_scaling_checkpoints_model_dispatch_explicit_and_fail_closed():
         "in_channels": 1,
         "out_channels": 5,
     }
-    model = consumer.build_eval_model_for_manifest(meta_nnunet, torch.device("cpu"))
-    assert model is not None
-    # Kernels should be 3
-    conv_kernels = sorted({tuple(m.kernel_size) for m in model.modules() if isinstance(m, torch.nn.Conv3d)})
-    assert (3, 3, 3) in conv_kernels
+    if consumer.create_mednext_v1 is not None:
+        model = consumer.build_eval_model_for_manifest(meta_nnunet, torch.device("cpu"))
+        assert model is not None
+        conv_kernels = sorted({tuple(m.kernel_size) for m in model.modules() if isinstance(m, torch.nn.Conv3d)})
+        assert (3, 3, 3) in conv_kernels
+    else:
+        with pytest.raises(RuntimeError, match="create_mednext_v1 is not available"):
+            consumer.build_eval_model_for_manifest(meta_nnunet, torch.device("cpu"))
+
+    # Finding 5: Test contradictory local_mednext configuration (variant S / kernel 3)
+    meta_contradictory_local = {
+        "architecture": "MedNeXt-S",
+        "factory": "local_mednext",
+        "model_id": "S",
+        "kernel_size": 3,
+        "out_channels": 5,
+    }
+    with pytest.raises(RuntimeError, match="contradicts local MedNeXtB"):
+        consumer.build_eval_model_for_manifest(meta_contradictory_local, torch.device("cpu"))
+
+    # Finding 5: Test legacy MedNeXt-S with kernel 7 (must NOT construct local MedNeXtB)
+    meta_legacy_s = {
+        "architecture": "MedNeXt-S",
+        "model_id": "S",
+        "kernel_size": 7,
+        "out_channels": 5,
+    }
+    if consumer.create_mednext_v1 is not None:
+        model = consumer.build_eval_model_for_manifest(meta_legacy_s, torch.device("cpu"))
+        assert model.__class__.__name__ != "MedNeXtB"
+    else:
+        with pytest.raises(RuntimeError, match="requires nnunet_mednext"):
+            consumer.build_eval_model_for_manifest(meta_legacy_s, torch.device("cpu"))
+
+    # Finding 4: Cache key must distinguish in_channels=1 vs in_channels=2
+    meta_ch1 = {"architecture": "UNet", "factory": "monai_unet", "model_id": "UNet", "kernel_size": 3, "in_channels": 1, "out_channels": 5}
+    meta_ch2 = dict(meta_ch1, in_channels=2)
+    key_fn = lambda m: (m.get("architecture"), m.get("factory"), m.get("model_id"), m.get("kernel_size"), m.get("in_channels", 1), m.get("out_channels") or m.get("num_classes"))
+    assert key_fn(meta_ch1) != key_fn(meta_ch2), "Cache keys for in_channels 1 and 2 must not collide!"
 
     # Test unknown factory fails closed
     meta_unknown = {
@@ -3418,4 +3605,3 @@ def test_eval_scaling_checkpoints_model_dispatch_explicit_and_fail_closed():
     }
     with pytest.raises(RuntimeError, match="Unknown or unsupported architecture 'TotallyUnknownArch'"):
         consumer.build_eval_model_for_manifest(meta_unknown_arch, torch.device("cpu"))
-

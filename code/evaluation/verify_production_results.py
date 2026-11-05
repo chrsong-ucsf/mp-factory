@@ -458,6 +458,7 @@ def verify_project10_synthesis_and_kinetics():
 
     # 1. Output files must be non-empty and readable NIfTI volumes across all payloads (Findings 4, 7 & 8)
     files_readable = True
+    reg_info = {}
     for p in reg_vols:
         if not os.path.exists(p) or os.path.getsize(p) < 18:
             files_readable = False
@@ -488,6 +489,11 @@ def verify_project10_synthesis_and_kinetics():
             if not np.isfinite(data).all():
                 files_readable = False
                 break
+            stem = Path(p).name.replace("_reg.nii.gz", "").replace(".nii.gz", "")
+            reg_info[stem] = {
+                "spatial_shape": shp[:3],
+                "affine": np.array(img.affine, copy=True),
+            }
         except Exception:
             files_readable = False
             break
@@ -529,6 +535,7 @@ def verify_project10_synthesis_and_kinetics():
             break
 
     # DVF validation: must be a 4D/5D deformation vector field with 3 displacement components
+    # and strictly match registered volume spatial geometry and affine (Finding 3)
     for p in reg_dvfs:
         if not files_readable:
             break
@@ -536,12 +543,31 @@ def verify_project10_synthesis_and_kinetics():
             files_readable = False
             break
         try:
+            stem = Path(p).name.replace("_dvf.nii.gz", "").replace(".nii.gz", "")
+            if stem not in reg_info:
+                files_readable = False
+                break
+            reg_spatial = reg_info[stem]["spatial_shape"]
+            reg_aff = reg_info[stem]["affine"]
+
             img = nib.load(p)
             hdr = img.header
             shp = hdr.get_data_shape()
-            if len(shp) < 4 or 3 not in shp[3:]:
+
+            # Allowed vector layouts: (X, Y, Z, 3) or (X, Y, Z, 1, 3) exactly
+            allowed_shapes = [
+                (reg_spatial[0], reg_spatial[1], reg_spatial[2], 3),
+                (reg_spatial[0], reg_spatial[1], reg_spatial[2], 1, 3),
+            ]
+            if shp not in allowed_shapes:
                 files_readable = False
                 break
+
+            # Spatial geometry / reference identity must match registered grid
+            if not np.allclose(img.affine, reg_aff, atol=1e-3):
+                files_readable = False
+                break
+
             # Stream payload validation via gzip trailer integrity & CRC checksum through EOF (Finding 4)
             if str(p).endswith(".gz"):
                 itemsize = hdr.get_data_dtype().itemsize
@@ -561,6 +587,25 @@ def verify_project10_synthesis_and_kinetics():
             if not np.isfinite(data).all():
                 files_readable = False
                 break
+
+            # Check matching support mask if present
+            supp_p = Path(p).parent / f"{stem}_reg_support.nii.gz"
+            if not supp_p.exists():
+                supp_p = Path(p).parent / f"{stem}_support.nii.gz"
+            if supp_p.exists():
+                s_img = nib.load(supp_p)
+                s_shp = s_img.header.get_data_shape()
+                if s_shp[:3] != reg_spatial or not np.allclose(s_img.affine, reg_aff, atol=1e-3):
+                    files_readable = False
+                    break
+                if str(supp_p).endswith(".gz"):
+                    import gzip
+                    with gzip.open(supp_p, "rb") as gz:
+                        while gz.read(1024 * 1024):
+                            pass
+                if not np.isfinite(np.asanyarray(s_img.dataobj)).all():
+                    files_readable = False
+                    break
         except Exception:
             files_readable = False
             break
@@ -613,120 +658,206 @@ def verify_project10_synthesis_and_kinetics():
                 ]
                 sidecars = list(metrics_csv.parent.glob("*.meta.json"))
                 run_verified = False
-                # Require genuine cohort execution proof and input volume authentication (Findings 1, 2, 3):
-                # 1. Non-empty manifest covering evaluated subjects exactly, with verified input hashes, or
-                # 2. Complete worker metadata sidecars covering all workers without errors and matching assignments exactly
-                evaluated_subjects = set(df_metrics["Subject"].dropna().astype(str).str.strip().unique()) if "Subject" in df_metrics.columns else set()
-                manifest_present_for_run = False
                 manifest_valid = False
+                sidecars_valid = False
+
+                evaluated_subjects = set(df_metrics["Subject"].dropna().astype(str).str.strip().unique()) if "Subject" in df_metrics.columns else set()
+
+                # Step 1: Manifest Validation & Input Authentication (Findings 1, 2)
+                # A valid manifest for the_run_id is MANDATORY
+                the_manifest_obj = None
                 for mc in manifest_candidates:
                     if mc.exists():
                         try:
                             m_obj = json.loads(mc.read_text())
                             if str(m_obj.get("run_id", "")).strip() == the_run_id:
-                                manifest_present_for_run = True
-                                items = m_obj.get("items", [])
-                                total_files = m_obj.get("total_files")
-                                if isinstance(items, list) and len(items) > 0:
-                                    # Finding 1: Total files must agree with items count and metrics row count
-                                    if total_files is not None and (total_files != len(items) or total_files != len(df_metrics)):
-                                        continue
-                                    manifest_subjects = {
-                                        str(it.get("fake_file", it.get("subject", it.get("Subject", "")))).strip()
-                                        for it in items if isinstance(it, dict)
-                                    }
-                                    # Finding 1: Evaluated subjects must EXACTLY match manifest subjects (not merely a subset)
-                                    if not evaluated_subjects or evaluated_subjects != manifest_subjects or len(df_metrics) != len(manifest_subjects):
-                                        continue
+                                the_manifest_obj = m_obj
+                                break
+                        except Exception:
+                            pass
 
-                                    # Finding 2: Authenticate metrics against current source volumes on disk
-                                    # Check recorded fake_sha256 and real_sha256 against actual files on disk
+                if the_manifest_obj is not None:
+                    items = the_manifest_obj.get("items", [])
+                    total_files = the_manifest_obj.get("total_files")
+                    if isinstance(items, list) and len(items) > 0:
+                        # Total files must agree with items count and metrics row count
+                        count_ok = (total_files is None or (total_files == len(items) and total_files == len(df_metrics))) and (len(items) == len(df_metrics))
+                        if count_ok:
+                            manifest_subjects = {
+                                str(it.get("fake_file", it.get("subject", it.get("Subject", "")))).strip()
+                                for it in items if isinstance(it, dict)
+                            }
+                            # Evaluated subjects must EXACTLY match manifest subjects (not merely a subset)
+                            if evaluated_subjects and evaluated_subjects == manifest_subjects and len(df_metrics) == len(manifest_subjects):
+                                reg_dir_path = Path(the_manifest_obj.get("real_dir")) if the_manifest_obj.get("real_dir") else (RESULTS_DIR / "project10" / "registered_volumes")
+                                synth_dir_path = Path(the_manifest_obj.get("fake_dir")) if the_manifest_obj.get("fake_dir") else (RESULTS_DIR / "project10" / "synthetic_volumes")
+
+                                if reg_dir_path.is_dir() and synth_dir_path.is_dir():
                                     hashes_valid = True
-                                    reg_dir_path = Path(m_obj.get("real_dir")) if m_obj.get("real_dir") else (RESULTS_DIR / "project10" / "registered_volumes")
-                                    synth_dir_path = Path(m_obj.get("fake_dir")) if m_obj.get("fake_dir") else (RESULTS_DIR / "project10" / "synthetic_volumes")
-
-                                    for it in items:
-                                        f_name = it.get("fake_file")
-                                        exp_f_sha = it.get("fake_sha256")
-                                        r_name = it.get("real_file")
-                                        exp_r_sha = it.get("real_sha256")
-
-                                        if f_name and exp_f_sha:
-                                            cand_f = synth_dir_path / f_name
-                                            if cand_f.exists():
-                                                with open(cand_f, "rb") as bf:
-                                                    actual_f_sha = hashlib.sha256(bf.read()).hexdigest()
-                                                if actual_f_sha != exp_f_sha:
-                                                    hashes_valid = False
-                                                    break
-
-                                        if r_name and exp_r_sha:
-                                            cand_r = reg_dir_path / r_name
-                                            if cand_r.exists():
-                                                with open(cand_r, "rb") as bf:
-                                                    actual_r_sha = hashlib.sha256(bf.read()).hexdigest()
-                                                if actual_r_sha != exp_r_sha:
-                                                    hashes_valid = False
-                                                    break
+                                    df_metrics_by_subj = {}
+                                    for idx, row in df_metrics.iterrows():
+                                        s_val = str(row.get("Subject", "")).strip()
+                                        if s_val in df_metrics_by_subj:
+                                            hashes_valid = False
+                                            break
+                                        df_metrics_by_subj[s_val] = row
 
                                     if hashes_valid:
-                                        manifest_valid = True
-                                        run_verified = True
+                                        for it in items:
+                                            if not isinstance(it, dict):
+                                                hashes_valid = False
+                                                break
+
+                                            f_name = it.get("fake_file")
+                                            r_name = it.get("real_file")
+                                            exp_f_sha = it.get("fake_sha256")
+                                            exp_r_sha = it.get("real_sha256")
+                                            exp_supp_sha = it.get("support_sha256")
+
+                                            # Mandatory fake and real filenames and sha256 hashes
+                                            if not f_name or not r_name or not exp_f_sha or not exp_r_sha:
+                                                hashes_valid = False
+                                                break
+                                            if len(str(exp_f_sha).strip()) != 64 or len(str(exp_r_sha).strip()) != 64:
+                                                hashes_valid = False
+                                                break
+
+                                            cand_f = synth_dir_path / f_name
+                                            cand_r = reg_dir_path / r_name
+                                            if not cand_f.exists() or not cand_r.exists():
+                                                hashes_valid = False
+                                                break
+
+                                            with open(cand_f, "rb") as bf:
+                                                actual_f_sha = hashlib.sha256(bf.read()).hexdigest()
+                                            if actual_f_sha != exp_f_sha:
+                                                hashes_valid = False
+                                                break
+
+                                            with open(cand_r, "rb") as bf:
+                                                actual_r_sha = hashlib.sha256(bf.read()).hexdigest()
+                                            if actual_r_sha != exp_r_sha:
+                                                hashes_valid = False
+                                                break
+
+                                            # Support mask authentication
+                                            supp_name = it.get("support_file")
+                                            if supp_name:
+                                                supp_cand = reg_dir_path / supp_name
+                                            else:
+                                                supp_cand = reg_dir_path / (cand_r.name.replace("_reg.nii.gz", "_reg_support.nii.gz"))
+                                                if not supp_cand.exists():
+                                                    supp_cand = reg_dir_path / (cand_r.name.replace(".nii.gz", "_support.nii.gz"))
+
+                                            if supp_cand.exists():
+                                                with open(supp_cand, "rb") as bf:
+                                                    actual_supp_sha = hashlib.sha256(bf.read()).hexdigest()
+                                                if not exp_supp_sha or exp_supp_sha != actual_supp_sha:
+                                                    hashes_valid = False
+                                                    break
+                                            else:
+                                                if exp_supp_sha:
+                                                    hashes_valid = False
+                                                    break
+                                                actual_supp_sha = None
+
+                                            # Bind metrics CSV row to manifest and disk
+                                            subj_key = str(it.get("fake_file", it.get("subject", it.get("Subject", "")))).strip()
+                                            if subj_key not in df_metrics_by_subj:
+                                                hashes_valid = False
+                                                break
+                                            m_row = df_metrics_by_subj[subj_key]
+
+                                            if "fake_sha256" in m_row:
+                                                r_f_sha = str(m_row["fake_sha256"]).strip()
+                                                if r_f_sha != exp_f_sha or r_f_sha != actual_f_sha:
+                                                    hashes_valid = False
+                                                    break
+
+                                            if "real_sha256" in m_row:
+                                                r_r_sha = str(m_row["real_sha256"]).strip()
+                                                if r_r_sha != exp_r_sha or r_r_sha != actual_r_sha:
+                                                    hashes_valid = False
+                                                    break
+
+                                            if "support_sha256" in m_row:
+                                                r_s_val = m_row["support_sha256"]
+                                                r_s_sha = str(r_s_val).strip() if (pd.notna(r_s_val) and str(r_s_val).strip() not in ["", "nan", "None"]) else None
+                                                if actual_supp_sha is not None:
+                                                    if r_s_sha != actual_supp_sha or (exp_supp_sha and r_s_sha != exp_supp_sha):
+                                                        hashes_valid = False
+                                                        break
+                                                else:
+                                                    if r_s_sha is not None:
+                                                        hashes_valid = False
+                                                        break
+
+                                            if "real_file" in m_row:
+                                                if str(m_row["real_file"]).strip() != cand_r.name:
+                                                    hashes_valid = False
+                                                    break
+
+                                        if hashes_valid:
+                                            manifest_valid = True
+
+                # Step 2: Strict worker merge contract for sidecars (Finding 2)
+                matching_sidecars = []
+                for sc in sidecars:
+                    try:
+                        sc_obj = json.loads(sc.read_text())
+                        if str(sc_obj.get("run_id", "")).strip() == the_run_id:
+                            matching_sidecars.append(sc_obj)
+                    except Exception:
+                        pass
+
+                if matching_sidecars:
+                    tot_w_declarations = {sc.get("total_workers") for sc in matching_sidecars if sc.get("total_workers") is not None}
+                    # All sidecars must have an identical declared total_workers >= 1
+                    if len(tot_w_declarations) == 1:
+                        tot_w = list(tot_w_declarations)[0]
+                        if isinstance(tot_w, int) and tot_w >= 1 and len(matching_sidecars) == tot_w:
+                            manifest_tw = the_manifest_obj.get("total_workers") if the_manifest_obj else None
+                            if manifest_tw is None or manifest_tw == tot_w:
+                                all_workers_valid = True
+                                total_sidecar_scored = 0
+                                sidecar_subjects = set()
+                                seen_workers = set()
+
+                                for sc_obj in matching_sidecars:
+                                    w_id = sc_obj.get("worker_id", sc_obj.get("array_id"))
+                                    if w_id is None or not isinstance(w_id, int):
+                                        all_workers_valid = False
                                         break
-                        except Exception:
-                            pass
-                if manifest_present_for_run and not manifest_valid:
-                    # An explicit manifest exists for this run_id but failed validation or hash authentication; fail closed
+                                    seen_workers.add(w_id)
+                                    status = str(sc_obj.get("status", "")).lower()
+                                    errors = int(sc_obj.get("error_count", 0))
+                                    n_assigned = int(sc_obj.get("num_assigned", sc_obj.get("total_assigned", -1)))
+                                    n_scored = int(sc_obj.get("num_scored", sc_obj.get("total_scored", -1)))
+
+                                    if status not in ["completed", "success"] or errors > 0 or n_assigned != n_scored or n_assigned <= 0:
+                                        all_workers_valid = False
+                                        break
+                                    total_sidecar_scored += n_scored
+                                    sc_items = sc_obj.get("items", sc_obj.get("cases", []))
+                                    if isinstance(sc_items, list):
+                                        for it in sc_items:
+                                            s_name = it if isinstance(it, str) else it.get("fake_file", it.get("subject", ""))
+                                            if s_name:
+                                                sidecar_subjects.add(str(s_name).strip())
+
+                                # Worker IDs must be strictly 0..tot_w-1
+                                if all_workers_valid and seen_workers == set(range(tot_w)) and total_sidecar_scored == len(df_metrics):
+                                    if sidecar_subjects:
+                                        if evaluated_subjects == sidecar_subjects:
+                                            sidecars_valid = True
+                                    else:
+                                        sidecars_valid = True
+
+                # Step 3: Combined proof: Both manifest AND completion sidecars must be valid
+                if manifest_valid and sidecars_valid:
+                    run_verified = True
+                else:
                     run_verified = False
-                elif not run_verified and sidecars:
-                    # Finding 1: Strict worker merge contract for sidecars
-                    # All workers [0..total_workers-1] must be present, completed with 0 errors, and num_assigned == num_scored
-                    matching_sidecars = []
-                    for sc in sidecars:
-                        try:
-                            sc_obj = json.loads(sc.read_text())
-                            if str(sc_obj.get("run_id", "")).strip() == the_run_id:
-                                matching_sidecars.append(sc_obj)
-                        except Exception:
-                            pass
-
-                    if matching_sidecars:
-                        # Extract total_workers
-                        tot_w = matching_sidecars[0].get("total_workers", len(matching_sidecars))
-                        if len(matching_sidecars) == tot_w:
-                            all_workers_valid = True
-                            total_sidecar_scored = 0
-                            sidecar_subjects = set()
-                            seen_workers = set()
-
-                            for sc_obj in matching_sidecars:
-                                w_id = sc_obj.get("worker_id", sc_obj.get("array_id"))
-                                if w_id is not None:
-                                    seen_workers.add(int(w_id))
-                                status = str(sc_obj.get("status", "")).lower()
-                                errors = int(sc_obj.get("error_count", 0))
-                                n_assigned = int(sc_obj.get("num_assigned", sc_obj.get("total_assigned", -1)))
-                                n_scored = int(sc_obj.get("num_scored", sc_obj.get("total_scored", -1)))
-
-                                if status not in ["completed", "success"] or errors > 0 or n_assigned != n_scored or n_assigned <= 0:
-                                    all_workers_valid = False
-                                    break
-                                total_sidecar_scored += n_scored
-                                sc_items = sc_obj.get("items", sc_obj.get("cases", []))
-                                if isinstance(sc_items, list):
-                                    for it in sc_items:
-                                        s_name = it if isinstance(it, str) else it.get("fake_file", it.get("subject", ""))
-                                        if s_name:
-                                            sidecar_subjects.add(str(s_name).strip())
-
-                            if all_workers_valid and len(seen_workers) == tot_w and total_sidecar_scored == len(df_metrics):
-                                if sidecar_subjects:
-                                    if evaluated_subjects == sidecar_subjects:
-                                        run_verified = True
-                                else:
-                                    # No explicit subject list in sidecar, but counts and workers match exactly
-                                    run_verified = True
-                if not run_verified:
                     cohort_lineage_ok = False
 
             # Strict numeric domains for metrics
