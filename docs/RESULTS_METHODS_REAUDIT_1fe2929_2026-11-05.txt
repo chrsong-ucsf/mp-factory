@@ -1,0 +1,104 @@
+MP-FACTORY: RESULTS AND METHODS REAUDIT
+Date: 2026-11-05 (America/Los_Angeles)
+Audited commit: 1fe2929da3d5b6961776916bcfda1f351390957c
+Comparison: eed3fd3 implementation and 3d11d9d audit.
+
+ASSESSMENT
+
+The preceding three verifier findings and minor model-identity finding have working
+repairs in the tested paths. Required metric-row hashes, per-worker assignment
+counts and valid idle workers now behave as intended. Model architecture/model-ID
+contradiction now rejects. One producer-consumer compatibility regression remains:
+valid explicitly named evaluation runs cannot pass production lineage verification.
+Default automatically generated run IDs pass.
+
+FRESH LOCAL VERIFICATION
+
+- Full configured pytest: 176 passed in 32.69 seconds.
+- All 90 tracked Python files parse; all 76 shell/job files pass bash -n.
+- Pyflakes: 186 diagnostics, no undefined-name diagnostics. Lint is not clean.
+- Sanity: 31 checks, 13 PASS / 17 WARN / 0 FAIL / 1 INFO; 41.9% health score.
+  Missing local production assets are warnings, not successful validation.
+- Initial main checkout was clean and matched origin/main after fetch.
+- Actual synthesis evaluator, strict worker merge and production-verifier functions
+  ran on temporary two-case cohorts, including three workers and an idle shard.
+  These probes isolate cohort_lineage_ok; full production-size gates are untested.
+- Real local MedNeXt serialized checkpoint/authenticated manifest and real MONAI
+  UNet states load strictly into the matching evaluator. Official nnU-Net checkpoint
+  loading remains unavailable because its dependency is not installed locally.
+- No source edits, cluster jobs, production inference, model training or historical
+  cohort regeneration were performed. DDP runtime checks were not repeated.
+
+CONFIRMED REMAINING FINDING
+
+1. [P2] The verifier rejects supported explicitly named evaluation runs.
+   evaluate_synthesis.py:729-732 documents --run_id as a supported option and says
+   deterministic identity is generated when it is omitted. At :817-819, the actual
+   evaluator replaces manifest run_id with that explicit user-provided label.
+   In contrast, verify_production_results.py:726-736 now unconditionally requires
+   both CSV and manifest run_id to equal the computed cohort snapshot digest.
+   The producer and verifier disagree about the identity contract.
+
+   Actual reproduction using otherwise valid temporary data and completion proof:
+   - The default deterministic-ID evaluator output passes lineage verification.
+   - Actual evaluator execution with --run_id audit_named_positive_control succeeds.
+   - Actual strict merge with expected_run_id=audit_named_positive_control succeeds.
+   - Production lineage verification rejects this result. Its computed digest is
+     run_314a03a5f4533a55, while the supported producer label is
+     audit_named_positive_control. Hashes, subjects and completion remain valid.
+
+   This is a demonstrated false rejection of a valid supported evaluator output,
+   not evidence that current default production results are incorrect.
+   Required repair: align the producer/verifier contract. Preserve a separately
+   authenticated content/snapshot identity alongside the user run label, or
+   explicitly change/document supported producer behavior consistently. Retain
+   mandatory row/file hashes, assignment and completion checks; do not restore
+   run-name-only authentication. Test both automatic and explicit labels through
+   actual evaluation, strict merge and verification, including an idle worker.
+
+VERIFIED REPAIRS SINCE eed3fd3
+
+- Dropping all metric-row hash/filename identity columns now rejects. Changing a
+  real CT and refreshing only its manifest hash no longer makes old metrics pass.
+- Missing manifest hashes, nonexistent input directories, contradictory row hashes,
+  changed support, missing completion records and invalid worker IDs/totals remain
+  rejected. The genuine deterministic single-worker positive control passes.
+- Completion records are checked against manifest worker assignment counts.
+  Contradictory worker ownership/counts reject. The supplementary ownership probe
+  recomputes and consistently applies the modified manifest's deterministic run ID,
+  isolating assignment validation from snapshot-name rejection.
+- Actual two-case/three-worker evaluation produces [1,1,0] assigned cases. Its
+  strict merge and production lineage verification now both pass. The idle-worker
+  rejection is closed; zero assignment still requires manifest-backed completion.
+- DVF shifted-grid and extra-axis cases still reject; so do corrupt registration/
+  DVF CRC, NaN registration, partial coverage and a stale present real-input hash.
+- Model architecture=MedNeXt-S with model_id=B now rejects. Correct local/UNet
+  model states load strictly; cache keys continue distinguishing input channels
+  and model IDs. Unknown/unavailable factories fail clearly.
+- A deliberately forced wrong-model state load in the P9 transcript is a control,
+  not a reproduced current cache defect. The new identity disagreement repair is
+  verified without claiming official nnU-Net model compatibility.
+
+NON-BLOCKING MODEL SCHEMA OBSERVATION
+
+Explicit factory=monai_unet still takes precedence if redundant architecture fields
+say MedNeXt (eval_scaling_checkpoints.py:422-427). Current producers emit consistent
+metadata, and no resulting production/default-path failure was demonstrated. Full
+factory/architecture schema cross-checking is advisory; it is not counted as an
+additional material finding in this audit.
+
+ARCHIVE, DOCUMENTATION AND PRODUCTION EVIDENCE
+
+Archive eligibility remains reconciled: 1,598 REJECT / 34 WEAK / 0 CLEAN. The 34-row
+manifest exactly matches eligible subject IDs. All 34 label paths remain unavailable
+locally. Local results/ and logs/ are empty; ten SHOWCASE result/deliverable links
+are unavailable in this checkout. These are local availability observations, not
+assertions of remote absence or corruption.
+
+Historical measurements, clinical claims and affected checkpoint/result lineage
+still require independent source-volume and execution evidence. Passing tests,
+loadable fixtures and corrected archive arithmetic cannot certify production or
+clinical outcomes. No new historical result values were regenerated here.
+
+Evidence: audit_evidence_1fe2929_2026-11-05/. Harnesses stored as .py.txt use temporary
+inputs. Only this report and audit evidence are committed; implementation is unchanged.

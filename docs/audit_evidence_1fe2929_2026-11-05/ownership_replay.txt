@@ -1,0 +1,98 @@
+2026-11-05 11:01:28 [INFO] Evaluation Worker [0/1] starting on device: cpu
+2026-11-05 11:01:28 [INFO] Total synthetic volumes: 2 | Assigned to worker 0: 2 | run_id: run_314a03a5f4533a55
+2026-11-05 11:01:28 [INFO] [1/2] CV_001--CV_101_synthetic_contrast.nii.gz -> SSIM: 1.0000 | PSNR: inf dB | L1: 0.0 HU | Body L1: 0.0 HU | Corr: 1.000
+2026-11-05 11:01:28 [INFO] [2/2] CV_002--CV_102_synthetic_contrast.nii.gz -> SSIM: 1.0000 | PSNR: inf dB | L1: 0.0 HU | Body L1: 0.0 HU | Corr: 1.000
+2026-11-05 11:01:28 [INFO] Worker 0 complete. Assigned: 2, Scored: 2, Errors: 0. Saved to /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpzmx624xp/results/project10/evaluation_reports/synthesis_metrics.csv
+2026-11-05 11:01:28 [INFO] === Overall Summary Metrics ===
+2026-11-05 11:01:28 [INFO] Mean SSIM           : 1.0000
+2026-11-05 11:01:28 [INFO] Mean PSNR           : inf
+2026-11-05 11:01:28 [INFO] Mean L1_Error       : 0.0000
+2026-11-05 11:01:28 [INFO] Mean Body_L1_Error  : 0.0000
+2026-11-05 11:01:28 [INFO] Mean RMSE           : 0.0000
+2026-11-05 11:01:28 [INFO] Mean Pearson_R      : 1.0000
+2026-11-05 11:01:28 [INFO] Mean Reference_Coverage: 1.0000
+2026-11-05 11:01:33 [INFO] Evaluation Worker [0/3] starting on device: cpu
+2026-11-05 11:01:33 [INFO] Total synthetic volumes: 2 | Assigned to worker 0: 1 | run_id: run_14f9b89fbc3a1ff5
+2026-11-05 11:01:33 [INFO] [1/1] CV_001--CV_101_synthetic_contrast.nii.gz -> SSIM: 1.0000 | PSNR: inf dB | L1: 0.0 HU | Body L1: 0.0 HU | Corr: 1.000
+2026-11-05 11:01:33 [INFO] Worker 0 complete. Assigned: 1, Scored: 1, Errors: 0. Saved to /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpzmx624xp/results/project10/evaluation_reports/multi_worker_0.csv
+2026-11-05 11:01:33 [INFO] Evaluation Worker [1/3] starting on device: cpu
+2026-11-05 11:01:33 [INFO] Total synthetic volumes: 2 | Assigned to worker 1: 1 | run_id: run_14f9b89fbc3a1ff5
+2026-11-05 11:01:33 [INFO] [1/1] CV_002--CV_102_synthetic_contrast.nii.gz -> SSIM: 1.0000 | PSNR: inf dB | L1: 0.0 HU | Body L1: 0.0 HU | Corr: 1.000
+2026-11-05 11:01:33 [INFO] Worker 1 complete. Assigned: 1, Scored: 1, Errors: 0. Saved to /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpzmx624xp/results/project10/evaluation_reports/multi_worker_1.csv
+2026-11-05 11:01:33 [INFO] Evaluation Worker [2/3] starting on device: cpu
+2026-11-05 11:01:33 [INFO] Total synthetic volumes: 2 | Assigned to worker 2: 0 | run_id: run_14f9b89fbc3a1ff5
+2026-11-05 11:01:33 [INFO] Worker 2: 0 files assigned (idle worker out of 3 total workers). Writing empty schema-bearing shard to /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpzmx624xp/results/project10/evaluation_reports/multi_worker_2.csv.
+2026-11-05 11:01:33 [INFO] Merging 3 worker CSVs into /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpzmx624xp/results/project10/evaluation_reports/multi.csv...
+/Users/chrissong/research_su26/02_Projects/mp-factory/code/project10/evaluation/evaluate_synthesis.py:462: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.
+  merged_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+2026-11-05 11:01:33 [INFO] Merged CSV saved to /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpzmx624xp/results/project10/evaluation_reports/multi.csv (2 total scans).
+2026-11-05 11:01:33 [INFO] ================== Unified Summary Metrics ==================
+2026-11-05 11:01:33 [INFO]   Mean SSIM           : 1.0000
+2026-11-05 11:01:33 [INFO]   Mean PSNR           : inf
+2026-11-05 11:01:33 [INFO]   Mean L1_Error       : 0.0000
+2026-11-05 11:01:33 [INFO]   Mean Body_L1_Error  : 0.0000
+2026-11-05 11:01:33 [INFO]   Mean RMSE           : 0.0000
+2026-11-05 11:01:33 [INFO]   Mean Pearson_R      : 1.0000
+2026-11-05 11:01:33 [INFO]   Mean Reference_Coverage: 1.0000
+2026-11-05 11:01:33 [INFO] =============================================================
+2026-11-05 11:01:33 [INFO] Evaluation Worker [0/1] starting on device: cpu
+2026-11-05 11:01:33 [INFO] Total synthetic volumes: 2 | Assigned to worker 0: 2 | run_id: audit_named_positive_control
+2026-11-05 11:01:33 [INFO] [1/2] CV_001--CV_101_synthetic_contrast.nii.gz -> SSIM: 1.0000 | PSNR: inf dB | L1: 0.0 HU | Body L1: 0.0 HU | Corr: 1.000
+2026-11-05 11:01:33 [INFO] [2/2] CV_002--CV_102_synthetic_contrast.nii.gz -> SSIM: 1.0000 | PSNR: inf dB | L1: 0.0 HU | Body L1: 0.0 HU | Corr: 1.000
+2026-11-05 11:01:33 [INFO] Worker 0 complete. Assigned: 2, Scored: 2, Errors: 0. Saved to /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpzmx624xp/results/project10/evaluation_reports/synthesis_metrics.csv
+2026-11-05 11:01:33 [INFO] === Overall Summary Metrics ===
+2026-11-05 11:01:33 [INFO] Mean SSIM           : 1.0000
+2026-11-05 11:01:33 [INFO] Mean PSNR           : inf
+2026-11-05 11:01:33 [INFO] Mean L1_Error       : 0.0000
+2026-11-05 11:01:33 [INFO] Mean Body_L1_Error  : 0.0000
+2026-11-05 11:01:33 [INFO] Mean RMSE           : 0.0000
+2026-11-05 11:01:33 [INFO] Mean Pearson_R      : 1.0000
+2026-11-05 11:01:33 [INFO] Mean Reference_Coverage: 1.0000
+2026-11-05 11:01:33 [INFO] Merging 1 worker CSVs into /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpzmx624xp/results/project10/evaluation_reports/synthesis_metrics.csv...
+2026-11-05 11:01:33 [INFO] Merged CSV saved to /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpzmx624xp/results/project10/evaluation_reports/synthesis_metrics.csv (2 total scans).
+2026-11-05 11:01:33 [INFO] ================== Unified Summary Metrics ==================
+2026-11-05 11:01:33 [INFO]   Mean SSIM           : 1.0000
+2026-11-05 11:01:33 [INFO]   Mean PSNR           : inf
+2026-11-05 11:01:33 [INFO]   Mean L1_Error       : 0.0000
+2026-11-05 11:01:33 [INFO]   Mean Body_L1_Error  : 0.0000
+2026-11-05 11:01:33 [INFO]   Mean RMSE           : 0.0000
+2026-11-05 11:01:33 [INFO]   Mean Pearson_R      : 1.0000
+2026-11-05 11:01:33 [INFO]   Mean Reference_Coverage: 1.0000
+2026-11-05 11:01:33 [INFO] =============================================================
+{
+  "legitimate_actual_evaluator_contract": true,
+  "missing_manifest_hashes_and_stale_real_accepted": false,
+  "nonexistent_manifest_input_dirs_bogus_hashes_accepted": false,
+  "metrics_row_hashes_mismatch_manifest_accepted": false,
+  "changed_support_stale_metrics_accepted": false,
+  "manifest_without_any_worker_completion_accepted": false,
+  "sidecar_out_of_range_worker_99_of_1_accepted": false,
+  "sidecar_inconsistent_totals_and_worker_ids_5_6_accepted": false,
+  "missing_all_metrics_row_hash_columns_accepted": false,
+  "stale_metrics_missing_rowhash_rebound_to_new_manifest_real_accepted": false,
+  "removed_support_declared_absent_with_old_runid_accepted": false,
+  "worker_counts_conflict_with_manifest_ownership_accepted": false,
+  "ownership_conflict_with_correct_snapshot_id_accepted": false,
+  "actual_2case_3worker_empty_worker_accepted": true,
+  "actual_multiworker_meta_counts": [
+    1,
+    1,
+    0
+  ],
+  "named_run_actual_evaluator_and_strict_merge_success": true,
+  "named_run_actual_evaluator_contract_accepted_by_verifier": false,
+  "named_run_identity_fields": {
+    "producer_run_id": "audit_named_positive_control",
+    "derived_snapshot_id": "run_314a03a5f4533a55"
+  },
+  "previous_partial_manifest_case_now_rejected": true,
+  "current_present_manifest_hash_mismatch_now_rejected": true,
+  "head": "1fe2929",
+  "scope": "Actual evaluator/verifier temporary two-case integration; lineage flag only, not cohort-size gate",
+  "source_refs": {
+    "named_run_cli": "code/project10/evaluation/evaluate_synthesis.py:729-732",
+    "named_run_override": "code/project10/evaluation/evaluate_synthesis.py:817-819",
+    "verifier_unconditional_digest_identity": "code/evaluation/verify_production_results.py:726-736",
+    "idle_worker_and_assignment_fix": "code/evaluation/verify_production_results.py:908-938"
+  }
+}

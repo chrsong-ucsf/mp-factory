@@ -1,0 +1,20 @@
+HEAD 1fe2929da3d5b6961776916bcfda1f351390957c
+TEMP /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-1fe2929-p9-w8sxu3d8
+NNUNET_AVAILABLE False
+LOCAL_REAL_META {'architecture': 'MedNeXt-B', 'model_id': 'B', 'factory': 'local_mednext', 'kernel_size': 7, 'in_channels': 1, 'out_channels': 5, 'num_classes': 5}
+LOCAL_REAL_STRICT <All keys matched successfully>
+Warning: MedNeXt import failed — falling back to MONAI UNet.
+UNET_REAL_STRICT <All keys matched successfully>
+EXPLICIT_NNUNET REJECTED RuntimeError Manifest specified factory 'nnunet_mednext', but create_mednext_v1 is not available.
+LEGACY_NNUNET REJECTED RuntimeError Legacy MedNeXt-B kernel-3 requires nnunet_mednext (create_mednext_v1), which is not installed.
+UNKNOWN_FACTORY REJECTED RuntimeError Unsupported model factory 'unknown_factory' in manifest.
+UNKNOWN_ARCH REJECTED RuntimeError Unknown or unsupported architecture 'UnknownArchitecture' in manifest; cannot dispatch evaluation model.
+CHANNEL_CONFIGS_DISTINCT_KEYS_EQUAL False ('UNet', 'monai_unet', 'UNet', 3, 1, 5) ('UNet', 'monai_unet', 'UNet', 3, 2, 5)
+TWO_CHANNEL_FRESH_STRICT <All keys matched successfully>
+REUSED_ONE_CHANNEL_STRICT_FAILURE RuntimeError Error(s) in loading state_dict for UNet:
+	size mismatch for model.0.conv.unit0.conv.weight: copying a param with shape torch.Size([16, 2, 3, 3, 3]) from checkpoint, the shape in current model is torch.Size([16, 1, 3, 3, 3]).
+	size mismatch for model.0.residual.weight: copying a param with shape torch.Size([16, 2, 3, 3, 3]) from checkpoint, the shape in current model is torch.Size([16, 1, 3, 3, 3]).
+CONTRADICTORY_LOCAL REJECTED RuntimeError Manifest specified factory 'local_mednext', but declared variant 'S' contradicts local MedNeXtB (variant B).
+LEGACY_S_KERNEL7 REJECTED RuntimeError Legacy MedNeXt-S kernel-7 requires nnunet_mednext (create_mednext_v1), which is not installed.
+ARCH_MODELID_DISAGREEMENT REJECTED RuntimeError Contradictory manifest identity: architecture 'MedNeXt-S' contradicts model_id 'B'.
+FACTORY_ARCH_DISAGREEMENT BUILT <class 'monai.networks.nets.unet.UNet'> KERNELS [(1, 1, 1), (3, 3, 3)]

@@ -1,0 +1,38 @@
+{
+  "audited_commit": "1fe2929da3d5b6961776916bcfda1f351390957c",
+  "comparison_audit_commit": "3d11d9da1f47001a9c5d13e7ba37dfedf9d5272f",
+  "audit_date": "2026-11-05",
+  "timezone": "America/Los_Angeles",
+  "pytest": {
+    "passed": 176,
+    "failed": 0,
+    "elapsed_seconds": 32.69
+  },
+  "syntax": {
+    "python_files": 90,
+    "shell_files": 76,
+    "errors": 0
+  },
+  "lint": {
+    "pyflakes_diagnostics": 186,
+    "undefined_names": []
+  },
+  "sanity": {
+    "checks": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "material_findings": 1,
+  "finding": "Explicitly named supported evaluator runs succeed through strict merge but fail verifier deterministic-ID equality",
+  "source_changes": false,
+  "production_reexecution": false,
+  "boundaries": [
+    "temporary two-case evaluator/strict-merge/verifier probes isolate lineage flag, not production cohort-size gates",
+    "official nnU-Net checkpoint loading unavailable locally",
+    "factory/architecture cross-check is advisory for artificial contradictory metadata, not additional demonstrated default-path failure",
+    "P9 forced wrong-model state load is a control, not current cache defect"
+  ],
+  "reproduce": "From repository root copy *_probe.py.txt or *_harness.py.txt to a temporary .py path and run using project dependencies. Temporary synthetic inputs only."
+}

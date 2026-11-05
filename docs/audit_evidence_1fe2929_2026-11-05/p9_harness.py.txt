@@ -1,0 +1,86 @@
+"""Read-only P9 model dispatch, strict checkpoint loading, and exact production cache-key probe."""
+import sys, pathlib, tempfile, json, hashlib, gc, subprocess, io, contextlib, traceback
+import torch
+sys.path.insert(0, str(pathlib.Path.cwd()))
+sys.path.insert(0, str(pathlib.Path.cwd() / 'code'))
+sys.path.insert(0, str(pathlib.Path.cwd() / 'code' / 'training'))  # mirror producer CLI script path
+import training.run_scaling_sweep as producer
+import evaluation.eval_scaling_checkpoints as consumer
+
+torch.set_num_threads(1)
+root = pathlib.Path(tempfile.mkdtemp(prefix='mp-1fe2929-p9-'))
+report = pathlib.Path('/tmp/mp_factory_audit_1fe2929_p9.txt')
+def kernels(model):
+    return sorted({tuple(m.kernel_size) for m in model.modules() if isinstance(m, torch.nn.Conv3d)})
+
+with report.open('w') as stream, contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
+    print('HEAD', subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip())
+    print('TEMP', root)
+    print('NNUNET_AVAILABLE', consumer.create_mednext_v1 is not None)
+    # Real local producer, saved weights, authenticated manifest, real strict consumer.
+    model, meta = producer.build_model(4, torch.device('cpu'))
+    ckpt = root / 'best_checkpoint.pt'
+    torch.save({'model_state_dict': model.state_dict()}, ckpt)
+    (root / 'train_manifest.json').write_text(json.dumps(dict(meta, train_cases=['CV_1000_P0'], checkpoint_sha256=hashlib.sha256(ckpt.read_bytes()).hexdigest())))
+    authenticated = consumer.validate_checkpoint_manifest(str(ckpt))
+    evaluated = consumer.build_eval_model_for_manifest(authenticated, torch.device('cpu'))
+    state = torch.load(ckpt, weights_only=True)['model_state_dict']
+    print('LOCAL_REAL_META', meta)
+    print('LOCAL_REAL_STRICT', evaluated.load_state_dict(state, strict=True))
+    del model, evaluated, state
+    gc.collect()
+    # Force real supported MONAI fallback on producer side.
+    producer.MedNeXtB = None
+    producer.create_mednext_v1 = None
+    model, meta = producer.build_model(4, torch.device('cpu'))
+    evaluated = consumer.build_eval_model_for_manifest(meta, torch.device('cpu'))
+    print('UNET_REAL_STRICT', evaluated.load_state_dict(model.state_dict(), strict=True))
+    del model, evaluated
+    gc.collect()
+    # Explicit and legacy nnunet declarations must now fail with the dependency absent.
+    for label, manifest in [
+        ('EXPLICIT_NNUNET', dict(architecture='MedNeXt-B', factory='nnunet_mednext', model_id='B', kernel_size=3, out_channels=5)),
+        ('LEGACY_NNUNET', dict(architecture='MedNeXt-B', model_id='B', kernel_size=3, out_channels=5)),
+        ('UNKNOWN_FACTORY', dict(architecture='UnknownArchitecture', factory='unknown_factory', out_channels=5)),
+        ('UNKNOWN_ARCH', dict(architecture='UnknownArchitecture', out_channels=5)),
+    ]:
+        try:
+            model = consumer.build_eval_model_for_manifest(manifest, torch.device('cpu'))
+            print(label, 'BUILT', type(model))
+            del model
+        except Exception as error:
+            print(label, 'REJECTED', type(error).__name__, str(error))
+    # Build both legitimate input-channel configurations. Exact production cache-key expression.
+    meta1 = dict(architecture='UNet', factory='monai_unet', model_id='UNet', kernel_size=3, in_channels=1, out_channels=5)
+    meta2 = dict(meta1, in_channels=2)
+    source = pathlib.Path('code/evaluation/eval_scaling_checkpoints.py').read_text()
+    key_line = next(line.strip() for line in source.splitlines() if line.strip().startswith('model_key = '))
+    key_expression = key_line.split('=', 1)[1].strip()
+    key1 = eval(key_expression, {'minfo': meta1})
+    key2 = eval(key_expression, {'minfo': meta2})
+    first = consumer.build_eval_model_for_manifest(meta1, torch.device('cpu'))
+    second = consumer.build_eval_model_for_manifest(meta2, torch.device('cpu'))
+    print('CHANNEL_CONFIGS_DISTINCT_KEYS_EQUAL', key1 == key2, key1, key2)
+    print('TWO_CHANNEL_FRESH_STRICT', second.load_state_dict(second.state_dict(), strict=True))
+    try:
+        first.load_state_dict(second.state_dict(), strict=True)
+        print('REUSED_ONE_CHANNEL_UNEXPECTED_SUCCESS')
+    except Exception as error:
+        print('REUSED_ONE_CHANNEL_STRICT_FAILURE', type(error).__name__, str(error))
+    del first, second
+    gc.collect()
+    # Prior contradictory configurations must now reject safely.
+    for label, manifest in [
+        ('CONTRADICTORY_LOCAL', dict(architecture='MedNeXt-S', factory='local_mednext', model_id='S', kernel_size=3, out_channels=5)),
+        ('LEGACY_S_KERNEL7', dict(architecture='MedNeXt-S', model_id='S', kernel_size=7, out_channels=5)),
+        ('ARCH_MODELID_DISAGREEMENT', dict(architecture='MedNeXt-S', factory='local_mednext', model_id='B', kernel_size=7, out_channels=5)),
+        ('FACTORY_ARCH_DISAGREEMENT', dict(architecture='MedNeXt-B', factory='monai_unet', model_id='B', kernel_size=3, out_channels=5)),
+    ]:
+        try:
+            model = consumer.build_eval_model_for_manifest(manifest, torch.device('cpu'))
+            print(label, 'BUILT', type(model), 'KERNELS', kernels(model))
+            del model
+            gc.collect()
+        except Exception as error:
+            print(label, 'REJECTED', type(error).__name__, str(error))
+print(report)
