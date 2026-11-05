@@ -1,0 +1,19 @@
+{
+  "legitimate_actual_evaluator_contract": true,
+  "missing_manifest_hashes_and_stale_real_accepted": true,
+  "nonexistent_manifest_input_dirs_bogus_hashes_accepted": true,
+  "metrics_row_hashes_mismatch_manifest_accepted": true,
+  "changed_support_stale_metrics_accepted": true,
+  "manifest_without_any_worker_completion_accepted": true,
+  "sidecar_out_of_range_worker_99_of_1_accepted": true,
+  "sidecar_inconsistent_totals_and_worker_ids_5_6_accepted": true,
+  "previous_partial_manifest_case_now_rejected": true,
+  "current_present_manifest_hash_mismatch_now_rejected": true,
+  "head": "c69d3fe",
+  "scope": "Actual evaluator/verifier temporary two-case integration; lineage flag only, not cohort-size gate",
+  "source_refs": {
+    "optional_hash_and_exists_bypass": "code/evaluation/verify_production_results.py:648-674",
+    "manifest_no_completion": "code/evaluation/verify_production_results.py:672-675",
+    "sidecar_worker_id_range_and_totals": "code/evaluation/verify_production_results.py:695-728"
+  }
+}

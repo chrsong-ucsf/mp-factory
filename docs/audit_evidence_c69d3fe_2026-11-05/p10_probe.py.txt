@@ -1,0 +1,53 @@
+"""Temporary two-case evaluator/verifier integration probes. Run from mp-factory."""
+import sys,pathlib,tempfile,json,copy,contextlib,io,unittest.mock as mock
+sys.path.insert(0,str(pathlib.Path.cwd()))
+import numpy as np,pandas as pd,nibabel as nib
+import code.project10.evaluation.evaluate_synthesis as ev
+import code.evaluation.verify_production_results as vr
+results={}
+with tempfile.TemporaryDirectory() as td:
+ p=pathlib.Path(td);res=p/'results';reg=res/'project10/registered_volumes';synth=res/'project10/synthetic_volumes';rep=res/'project10/evaluation_reports';man=res/'project10/manifests'
+ for x in [reg,synth,rep,man]:x.mkdir(parents=True)
+ pairs=[];arr=np.arange(4096,dtype=np.float32).reshape(16,16,16)%100
+ for i in [1,2]:
+  name=f'CV_00{i}--CV_10{i}';pairs.append(dict(subject_p0=f'CV_00{i}',subject_target=f'CV_10{i}',patient_id=f'P0{i}'))
+  for path,a in [(reg/f'{name}_reg.nii.gz',arr),(synth/f'{name}_synthetic_contrast.nii.gz',arr),(reg/f'{name}_dvf.nii.gz',np.zeros((16,16,16,1,3),np.float32)),(reg/f'{name}_reg_support.nii.gz',np.ones((16,16,16),np.uint8))]:nib.save(nib.Nifti1Image(a,np.eye(4)),path)
+ pd.DataFrame(pairs).to_csv(man/'multiphase_pairs.csv',index=False)
+ csv=rep/'synthesis_metrics.csv';manifest=rep/'synthesis_metrics_manifest.json'
+ with mock.patch.object(sys,'argv',['eval','--fake_dir',str(synth),'--real_dir',str(reg),'--output_csv',str(csv),'--device','cpu']):ev.main()
+ df=pd.read_csv(csv);payload=json.loads(manifest.read_text());rid=df.run_id.iloc[0];metas={f.name:f.read_text() for f in rep.glob('*.meta.json')}
+ def reset():
+  df.to_csv(csv,index=False);manifest.write_text(json.dumps(payload))
+  for f in rep.glob('*.meta.json'):f.unlink()
+  for n,s in metas.items():(rep/n).write_text(s)
+  for i in [1,2]:
+   nib.save(nib.Nifti1Image(arr,np.eye(4)),reg/f'CV_00{i}--CV_10{i}_reg.nii.gz')
+   nib.save(nib.Nifti1Image(np.ones((16,16,16),np.uint8),np.eye(4)),reg/f'CV_00{i}--CV_10{i}_reg_support.nii.gz')
+ def probe():
+  with contextlib.redirect_stdout(io.StringIO()):return vr.verify_project10_synthesis_and_kinetics()['cohort_lineage_ok']
+ with mock.patch.object(vr,'RESULTS_DIR',res),mock.patch.object(vr,'DOCS_DIR',p/'docs'):
+  results['legitimate_actual_evaluator_contract']=probe()
+  reset();broken=copy.deepcopy(payload)
+  for it in broken['items']:
+   for key in ['fake_sha256','real_sha256']:it.pop(key,None)
+  manifest.write_text(json.dumps(broken));nib.save(nib.Nifti1Image(arr+500,np.eye(4)),reg/'CV_001--CV_101_reg.nii.gz');results['missing_manifest_hashes_and_stale_real_accepted']=probe()
+  reset();broken=copy.deepcopy(payload);broken.update(fake_dir=str(p/'nonexistent_fake'),real_dir=str(p/'nonexistent_real'))
+  for it in broken['items']:it.update(fake_sha256='0'*64,real_sha256='1'*64)
+  manifest.write_text(json.dumps(broken));results['nonexistent_manifest_input_dirs_bogus_hashes_accepted']=probe()
+  reset();bad=df.copy();bad['fake_sha256']='0'*64;bad['real_sha256']='1'*64;bad['support_sha256']='2'*64;bad.to_csv(csv,index=False);results['metrics_row_hashes_mismatch_manifest_accepted']=probe()
+  reset();half=np.ones((16,16,16),np.uint8);half[:8]=0;nib.save(nib.Nifti1Image(half,np.eye(4)),reg/'CV_001--CV_101_reg_support.nii.gz');results['changed_support_stale_metrics_accepted']=probe()
+  reset()
+  for f in rep.glob('*.meta.json'):f.unlink()
+  results['manifest_without_any_worker_completion_accepted']=probe()
+  reset();manifest.unlink()
+  for f in rep.glob('*.meta.json'):f.unlink()
+  (rep/'forged.meta.json').write_text(json.dumps(dict(run_id=rid,status='completed',worker_id=99,total_workers=1,num_assigned=2,num_scored=2,error_count=0)))
+  results['sidecar_out_of_range_worker_99_of_1_accepted']=probe()
+  (rep/'forged.meta.json').unlink()
+  for k,tw in [(5,2),(6,999)]:
+   (rep/f'forged{k}.meta.json').write_text(json.dumps(dict(run_id=rid,status='completed',worker_id=k,total_workers=tw,num_assigned=1,num_scored=1,error_count=0)))
+  results['sidecar_inconsistent_totals_and_worker_ids_5_6_accepted']=probe()
+  reset();df.iloc[:1].to_csv(csv,index=False);results['previous_partial_manifest_case_now_rejected']=not probe()
+  reset();nib.save(nib.Nifti1Image(arr+500,np.eye(4)),reg/'CV_001--CV_101_reg.nii.gz');results['current_present_manifest_hash_mismatch_now_rejected']=not probe()
+results['head']='c69d3fe';results['scope']='Actual evaluator/verifier temporary two-case integration; lineage flag only, not cohort-size gate';results['source_refs']={'optional_hash_and_exists_bypass':'code/evaluation/verify_production_results.py:648-674','manifest_no_completion':'code/evaluation/verify_production_results.py:672-675','sidecar_worker_id_range_and_totals':'code/evaluation/verify_production_results.py:695-728'}
+path=pathlib.Path('/tmp/mp_factory_audit_c69d3fe_p10.txt');path.write_text(json.dumps(results,indent=2)+'\n');print(json.dumps(results,indent=2))

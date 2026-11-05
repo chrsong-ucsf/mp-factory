@@ -1,0 +1,141 @@
+MP-FACTORY: RESULTS AND METHODS REAUDIT
+Date: 2026-11-05 (America/Los_Angeles)
+Audited commit: c69d3fe3d81d98cae238d4ace523a7c8a2822a65
+Comparison: 8a059e2 implementation and 80ef2b5 audit.
+
+ASSESSMENT
+
+The previous exact failure cases are repaired: corrupt gzip checksums reject,
+partial manifest coverage rejects, recorded real-input hash mismatch rejects,
+and explicit model factories are honored or rejected clearly when unavailable.
+The audit remains open. Input authentication is optional and incomplete,
+completion proof is still bypassable, worker identities are not fully checked,
+and DVF geometry does not establish compatibility with the registered grid.
+Secondary model-configuration/reuse gaps and a local test dependency failure are
+recorded separately below. Source code was not edited.
+
+FRESH VERIFICATION
+
+- Full configured pytest: 1 FAILED, 171 PASSED in 31.42 seconds. The failing test
+  is test_eval_scaling_checkpoints_model_dispatch_explicit_and_fail_closed.
+  It unconditionally constructs nnunet_mednext, which is not installed locally.
+  The application correctly raises an explicit unavailable-factory RuntimeError.
+  This is a local dependency/test portability limitation, not evidence that the
+  repaired dispatch silently chooses the wrong model. Do not report all tests pass.
+- All 90 tracked Python files parse. All 76 shell/job files pass bash -n.
+- Pyflakes: 183 diagnostics, no undefined-name diagnostics. Lint is not clean.
+- Sanity: 31 checks, 13 PASS / 17 WARN / 0 FAIL / 1 INFO; 41.9% health score.
+  Missing production assets are warnings; exit 0 does not certify production.
+- Initial checkout was clean and matched origin/main after fetch.
+- Temporary two-case cohorts ran actual evaluate_synthesis and production-verifier
+  functions with accepted positive controls. Their results isolate the lineage
+  flag; they do not exercise the full 1,500/1,000/250 production size gates.
+- Real local MedNeXt and MONAI UNet checkpoint compatibility was checked. Official
+  nnU-Net model construction/reload remains unavailable in this environment.
+- No cluster jobs, production inference, cohort regeneration or training were run.
+  No DDP or historical cohort-performance claim is inferred from these checks.
+
+CONFIRMED REMAINING VERIFIER FINDINGS
+
+1. [P1] Authentication can be skipped and is disconnected from metric/support rows.
+   code/evaluation/verify_production_results.py:648-670 checks a hash only when the
+   manifest supplies its filename and hash AND the candidate file exists. Missing
+   hashes and missing files leave hashes_valid=True. The block does not join CSV
+   input hashes to the manifest, nor authenticate support masks against current
+   data. These are not strict mandatory input checks.
+   Actual accepted counterexamples, starting from real two-case evaluator output:
+   - Remove manifest fake/real hashes, then change a finite registered CT.
+   - Point fake_dir/real_dir to nonexistent paths and supply bogus hashes.
+   - Replace metric-row fake/real/support hashes with contradictory values.
+   - Change a support mask while retaining recorded metrics and hashes.
+   All return cohort_lineage_ok=True. In contrast, a present recorded real hash
+   mismatch at an existing path now correctly rejects.
+   Required repair: require every path/hash/row identity, reject missing files,
+   bind each scored row to the manifest/current fake/reference/support payloads,
+   and authenticate model/checkpoint/config identity where required by the claim.
+
+2. [P1] Completion proof remains optional; alternative worker identity is incomplete.
+   At verify_production_results.py:672-675 a hash-valid discovery manifest alone
+   sets run_verified=True. Deleting all completion sidecars still passes the
+   actual evaluator-to-verifier positive control. Cohort discovery and matching
+   volume identities do not demonstrate completed successful metric execution.
+   The fallback at :695-728 compares distinct worker count with total_workers,
+   but not the actual set 0..N-1 or consistent totals across sidecars. Counts may
+   substitute for subject lists. Actual lineage PASS occurs for worker 99 of 1,
+   and workers 5/6 whose declarations say total_workers 2/999.
+   Required repair: require complete, consistent execution metadata as well as the
+   manifest, verify exact worker IDs/ownership and subject assignments, and check
+   completion, errors, counts and row provenance together. Reuse the evaluator's
+   strict merge contract rather than a weaker independent approximation.
+
+3. [P2] A finite/readable DVF can have the wrong physical grid or vector dimensions.
+   verify_production_results.py:541-544 only checks len(shape)>=4 and whether any
+   trailing dimension equals 3. It never compares DVF spatial shape/affine with
+   the corresponding registered volume or expected reference grid.
+   With otherwise accepted real evaluator output, changing only the DVF affine
+   by 100 mm still yields lineage PASS. A DVF shaped (16,16,16,2,3), with an
+   invalid extra non-singleton axis, also passes. CRC and finite values remain
+   valid in both probes, isolating geometry/vector-layout validation.
+   The registration producer explicitly uses the fixed reference image for its
+   displacement field (register_multiphase_pairs.py:258-260) and writes registered
+   CT/support on that grid (:300-315). The verifier does not establish this
+   producer contract. These probes do not establish registration accuracy.
+   Required repair: validate an allowed vector layout (XYZ,3 or XYZ,1,3), exactly
+   three components, finite displacements, and spatial geometry/reference identity
+   for every matched CT/DVF/support set.
+
+SECONDARY MODEL CONFIGURATION FINDINGS
+
+4. [P3] Cache reuse omits constructor inputs.
+   eval_scaling_checkpoints.py:527 omits in_channels and model_id from model_key.
+   Two UNet declarations with one versus two input channels collide. Both real
+   models load their matching states independently, but reuse of the one-channel
+   model for the two-channel checkpoint raises parameter-shape mismatches.
+   This is a general multi-checkpoint API gap; the current single-channel CT path
+   was not demonstrated to fail. Key reuse on complete validated configuration.
+
+5. [P3] Contradictory local/legacy configuration is accepted.
+   eval_scaling_checkpoints.py:347-349 ignores declared local variant/kernel;
+   :383-387 selects local B whenever a legacy MedNeXt declaration has kernel 7.
+   Actual declarations for local MedNeXt-S/kernel 3 and legacy MedNeXt-S/kernel 7
+   both construct local B/kernel 7. Correctly emitted local-B metadata works.
+   Reject contradictory declarations and avoid inferring factory from kernel size
+   alone when variant/factory identity is ambiguous. The previously reported
+   explicit-factory precedence and unknown-factory fallback bugs are closed.
+
+VERIFIED REPAIRS SINCE 8a059e2
+
+- Gzip CRC corruption is now rejected independently for registration and DVF.
+  A legitimate positive control passes; full gzip decompression rejects corrupted
+  fixtures, and the production lineage flag now rejects them too.
+- NaN registration payload still rejects. Finite payloads are not sufficient proof
+  of current metric identity or DVF geometry (findings 1 and 3).
+- One-of-two manifest coverage, bad total_files and the prior incomplete/errorful
+  sidecar counterexample now reject. Broader completion/worker gaps remain item 2.
+- A changed finite real reference rejects when its correct original manifest hash
+  remains present and its file exists. Optional-hash/missing-path gaps remain item 1.
+- Explicit nnunet_mednext and legacy kernel-3 MedNeXt clearly reject unavailable
+  dependencies rather than choosing local MedNeXt. Unknown factory and architecture
+  declarations reject. Phase 1/2 MedNeXt producers now record nnunet_mednext factory.
+- Real local MedNeXt producer -> serialized checkpoint -> hash-authenticated
+  manifest -> evaluator strict state loading passes. Real MONAI UNet fallback
+  checkpoint also loads strictly. No official nnU-Net checkpoint was locally tested.
+
+TEST AND ARCHIVE ACCEPTANCE BOUNDARIES
+
+Make the nnU-Net test dependency explicit in the test environment, or verify the
+unavailable-dependency rejection path when absent and run real nnU-Net compatibility
+in a documented complete environment. Do not weaken application fail-closed behavior
+just to make the missing-dependency test pass. Use accepted positive controls and
+change one property per negative test for hashes, support, completion and geometry.
+
+Archive remains 1,598 REJECT / 34 WEAK / 0 CLEAN; its 34-row manifest exactly matches
+eligible subject IDs. All 34 label paths are unavailable locally. Local results/
+and logs/ are empty. Ten SHOWCASE result/deliverable links are unavailable in this
+checkout. These are local evidence limits, not assertions of remote absence.
+Historical measurements, clinical claims and affected model/result lineage still
+require independent source-volume and execution evidence; reconciled counts and
+local tests cannot establish production or clinical validation.
+
+Evidence: audit_evidence_c69d3fe_2026-11-05/. Harnesses are stored as .py.txt audit
+artifacts and use temporary synthetic inputs. Source code was not changed.

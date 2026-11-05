@@ -1,0 +1,37 @@
+{
+  "audited_commit": "c69d3fe3d81d98cae238d4ace523a7c8a2822a65",
+  "audit_date": "2026-11-05",
+  "timezone": "America/Los_Angeles",
+  "pytest": {
+    "passed": 171,
+    "failed": 1,
+    "elapsed_seconds": 31.42,
+    "failure": "test_eval_scaling_checkpoints_model_dispatch_explicit_and_fail_closed",
+    "cause": "nnunet_mednext unavailable; test unconditionally constructs optional factory; application correctly rejects unavailable factory"
+  },
+  "syntax": {
+    "python_files": 90,
+    "shell_files": 76,
+    "errors": 0
+  },
+  "lint": {
+    "pyflakes_diagnostics": 183,
+    "undefined_names": []
+  },
+  "sanity": {
+    "checks": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "findings": {
+    "primary_verifier": 3,
+    "secondary_model_P3": 2
+  },
+  "production_reexecution": false,
+  "source_changes": false,
+  "scope": "Temporary two-case actual evaluator/verifier integration isolates lineage flag, not full production size gates. Real local/UNet model checkpoint compatibility; official nnU-Net unavailable.",
+  "replay_metadata_note": "CRC/payload raw stdout preserves inherited previous-audit source_refs; corrected JSON and harness source_refs describe c69d3fe.",
+  "reproduce": "From repository root copy a *_probe.py.txt or *_harness.py.txt file to a temporary .py path and run in the project Python environment. All data is temporary."
+}

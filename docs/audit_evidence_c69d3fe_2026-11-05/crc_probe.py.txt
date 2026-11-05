@@ -1,0 +1,97 @@
+"""Reproduce the c69d3fe Project 10 verifier probes using temporary artifacts.
+Run from the mp-factory checkout with its Python dependencies installed.
+This is the inline harness used for the audit, preserved without rerunning it.
+"""
+import tempfile
+import pathlib
+import numpy as np
+import nibabel as nib
+import pandas as pd
+import json
+import unittest.mock as mock
+import sys
+import copy
+
+sys.path.insert(0, str(pathlib.Path.cwd()))
+import code.project10.evaluation.evaluate_synthesis as ev
+import code.evaluation.verify_production_results as vr
+
+outcome = {}
+with tempfile.TemporaryDirectory() as td:
+    p = pathlib.Path(td)
+    res = p / 'results'
+    reg = res / 'project10/registered_volumes'
+    synth = res / 'project10/synthetic_volumes'
+    rep = res / 'project10/evaluation_reports'
+    man = res / 'project10/manifests'
+    for x in [reg, synth, rep, man]:
+        x.mkdir(parents=True)
+    pairs = []
+    for i in [1, 2]:
+        name = f'CV_00{i}--CV_10{i}'
+        pairs.append({'subject_p0': f'CV_00{i}', 'subject_target': f'CV_10{i}', 'patient_id': f'P0{i}'})
+        arr = np.arange(16**3, dtype=np.float32).reshape(16, 16, 16) % 100
+        for path, a in [
+            (reg / f'{name}_reg.nii.gz', arr),
+            (synth / f'{name}_synthetic_contrast.nii.gz', arr),
+            (reg / f'{name}_dvf.nii.gz', np.zeros((16, 16, 16, 1, 3), np.float32)),
+            (reg / f'{name}_reg_support.nii.gz', np.ones((16, 16, 16), np.uint8)),
+        ]:
+            nib.save(nib.Nifti1Image(a, np.eye(4)), path)
+    pd.DataFrame(pairs).to_csv(man / 'multiphase_pairs.csv', index=False)
+    csv = rep / 'synthesis_metrics.csv'
+    manifest = rep / 'synthesis_metrics_manifest.json'
+    with mock.patch.object(sys, 'argv', ['eval', '--fake_dir', str(synth), '--real_dir', str(reg), '--output_csv', str(csv), '--device', 'cpu']):
+        ev.main()
+    df = pd.read_csv(csv)
+    payload = json.loads(manifest.read_text())
+    rid = df.run_id.iloc[0]
+    with mock.patch.object(vr, 'RESULTS_DIR', res), mock.patch.object(vr, 'DOCS_DIR', p / 'docs'):
+        def probe():
+            return vr.verify_project10_synthesis_and_kinetics()['cohort_lineage_ok']
+        outcome['legitimate_actual_evaluator_contract'] = probe()
+        import gzip
+        for suffix in ['reg', 'dvf']:
+            target = reg / f'CV_001--CV_101_{suffix}.nii.gz'
+            original = target.read_bytes()
+            broken = bytearray(original)
+            broken[-8] ^= 1
+            target.write_bytes(broken)
+            try:
+                gzip.decompress(target.read_bytes())
+                crc_detected = False
+            except gzip.BadGzipFile:
+                crc_detected = True
+            outcome[f'{suffix}_crc_corrupt_full_gzip_rejects'] = crc_detected
+            outcome[f'{suffix}_crc_corrupt_lineage_accepted'] = probe()
+            target.write_bytes(original)
+        df.iloc[:1].to_csv(csv, index=False)
+        outcome['partial_metrics_one_of_two_manifest_cases_accepted'] = probe()
+        df.to_csv(csv, index=False)
+        broken = copy.deepcopy(payload)
+        broken['total_files'] = 999
+        for item in broken['items']:
+            item.update(fake_sha256='0' * 64, real_sha256='1' * 64, support_sha256='2' * 64)
+        manifest.write_text(json.dumps(broken))
+        outcome['wrong_manifest_counts_and_hashes_accepted'] = probe()
+        manifest.unlink()
+        for f in rep.glob('*.meta.json'):
+            f.unlink()
+        (rep / 'fake.meta.json').write_text(json.dumps({'run_id': rid, 'status': 'completed', 'num_assigned': 100, 'num_scored': 1, 'error_count': 99, 'total_workers': 8, 'array_id': 7}))
+        outcome['incomplete_errorful_no_subjects_worker_accepted'] = probe()
+        (rep / 'fake.meta.json').unlink()
+        manifest.write_text(json.dumps(payload))
+        rp = reg / 'CV_001--CV_101_reg.nii.gz'
+        nib.save(nib.Nifti1Image(np.full((16, 16, 16), 500, np.float32), np.eye(4)), rp)
+        outcome['changed_finite_real_input_stale_metrics_accepted'] = probe()
+        bad = np.zeros((16, 16, 16), np.float32)
+        bad[0, 0, 0] = np.nan
+        nib.save(nib.Nifti1Image(bad, np.eye(4)), rp)
+        outcome['nonfinite_registration_now_rejected'] = not probe()
+outcome['head'] = 'c69d3fe'
+outcome['scope'] = 'Actual evaluator and verifier with temporary two-case cohort; lineage flag only, not full 1500/250 production size gates'
+outcome['source_refs'] = {'manifest_coverage_and_hashes': 'code/evaluation/verify_production_results.py:622-675', 'sidecar_worker_checks': 'code/evaluation/verify_production_results.py:695-728'}
+path = pathlib.Path('/tmp/mp_factory_audit_c69d3fe_crc.txt')
+path.write_text(json.dumps(outcome, indent=2) + '\n')
+print(json.dumps(outcome, indent=2))
+print('EVIDENCE', path)

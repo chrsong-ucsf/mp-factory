@@ -1,0 +1,32 @@
+2026-11-05 09:53:17 [INFO] Evaluation Worker [0/1] starting on device: cpu
+2026-11-05 09:53:17 [INFO] Total synthetic volumes: 2 | Assigned to worker 0: 2 | run_id: run_314a03a5f4533a55
+2026-11-05 09:53:17 [INFO] [1/2] CV_001--CV_101_synthetic_contrast.nii.gz -> SSIM: 1.0000 | PSNR: inf dB | L1: 0.0 HU | Body L1: 0.0 HU | Corr: 1.000
+2026-11-05 09:53:17 [INFO] [2/2] CV_002--CV_102_synthetic_contrast.nii.gz -> SSIM: 1.0000 | PSNR: inf dB | L1: 0.0 HU | Body L1: 0.0 HU | Corr: 1.000
+2026-11-05 09:53:17 [INFO] Worker 0 complete. Assigned: 2, Scored: 2, Errors: 0. Saved to /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpxmccnf7z/results/project10/evaluation_reports/synthesis_metrics.csv
+2026-11-05 09:53:17 [INFO] === Overall Summary Metrics ===
+2026-11-05 09:53:17 [INFO] Mean SSIM           : 1.0000
+2026-11-05 09:53:17 [INFO] Mean PSNR           : inf
+2026-11-05 09:53:17 [INFO] Mean L1_Error       : 0.0000
+2026-11-05 09:53:17 [INFO] Mean Body_L1_Error  : 0.0000
+2026-11-05 09:53:17 [INFO] Mean RMSE           : 0.0000
+2026-11-05 09:53:17 [INFO] Mean Pearson_R      : 1.0000
+2026-11-05 09:53:17 [INFO] Mean Reference_Coverage: 1.0000
+{
+  "legitimate_actual_evaluator_contract": true,
+  "missing_manifest_hashes_and_stale_real_accepted": true,
+  "nonexistent_manifest_input_dirs_bogus_hashes_accepted": true,
+  "metrics_row_hashes_mismatch_manifest_accepted": true,
+  "changed_support_stale_metrics_accepted": true,
+  "manifest_without_any_worker_completion_accepted": true,
+  "sidecar_out_of_range_worker_99_of_1_accepted": true,
+  "sidecar_inconsistent_totals_and_worker_ids_5_6_accepted": true,
+  "previous_partial_manifest_case_now_rejected": true,
+  "current_present_manifest_hash_mismatch_now_rejected": true,
+  "head": "c69d3fe",
+  "scope": "Actual evaluator/verifier temporary two-case integration; lineage flag only, not cohort-size gate",
+  "source_refs": {
+    "optional_hash_and_exists_bypass": "code/evaluation/verify_production_results.py:648-674",
+    "manifest_no_completion": "code/evaluation/verify_production_results.py:672-675",
+    "sidecar_worker_id_range_and_totals": "code/evaluation/verify_production_results.py:695-728"
+  }
+}
