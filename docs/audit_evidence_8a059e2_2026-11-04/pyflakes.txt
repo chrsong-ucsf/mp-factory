@@ -1,0 +1,180 @@
+code/manuscript/compile_manuscript_tables.py:275:31: f-string is missing placeholders
+code/active_learning/loop.py:13:1: 'sys' imported but unused
+code/active_learning/loop.py:16:1: 'torch.nn' imported but unused
+code/training/mednext.py:4:1: 'typing.Tuple' imported but unused
+code/training/mednext.py:4:1: 'typing.Type' imported but unused
+code/training/mednext.py:4:1: 'typing.Union' imported but unused
+code/training/train_mednext.py:4:1: 're' imported but unused
+code/training/train_mednext.py:17:1: 'monai' imported but unused
+code/training/train_mednext.py:44:1: 'subprocess' imported but unused
+code/training/test_metrics.py:26:13: local variable 'e' is assigned to but never used
+code/training/train_swin_unetr.py:4:1: 're' imported but unused
+code/training/train_swin_unetr.py:18:1: 'monai' imported but unused
+code/training/train_swin_unetr.py:23:1: 'monai.transforms.RandGaussianNoised' imported but unused
+code/training/train_mednext_phase2.py:50:1: 'schema_mapping.GI_IGNORE_INDEX' imported but unused
+code/training/run_scaling_sweep.py:50:1: 'monai.transforms.Lambdad' imported but unused
+code/training/run_scaling_sweep.py:68:1: 'monai.metrics.compute_hausdorff_distance' imported but unused
+code/training/run_scaling_sweep.py:1010:9: 'nrrd' imported but unused
+code/training/train_swin_unetr_phase2.py:35:1: 'monai' imported but unused
+code/training/train_swin_unetr_phase2.py:51:1: 'schema_mapping.GI_IGNORE_INDEX' imported but unused
+code/prediction/run_totalsegmentator_batch.py:17:1: 'os' imported but unused
+code/prediction/run_totalsegmentator_batch.py:83:13: local variable 'res' is assigned to but never used
+code/prediction/predict_swin_unetr.py:46:1: 'monai.data.Dataset' imported but unused
+code/prediction/predict_swin_unetr.py:46:1: 'monai.data.DataLoader' imported but unused
+code/prediction/predict_swin_unetr.py:46:1: 'monai.data.decollate_batch' imported but unused
+code/utilities/monitor_sweep_val.py:21:1: 'sys' imported but unused
+code/utilities/monitor_sweep_val.py:25:1: 'pathlib.Path' imported but unused
+code/utilities/quick_val_eval.py:16:1: 'glob' imported but unused
+code/utilities/test_unified_gastro_dataset.py:10:1: 'shutil' imported but unused
+code/utilities/test_unified_gastro_dataset.py:13:1: 'json' imported but unused
+code/utilities/test_unified_gastro_dataset.py:14:1: 'numpy as np' imported but unused
+code/utilities/diagnose_labels.py:19:1: 'glob' imported but unused
+code/utilities/diagnose_labels.py:55:9: local variable 'fg_voxels' is assigned to but never used
+code/utilities/diagnose_labels.py:80:27: f-string is missing placeholders
+code/utilities/diagnose_labels.py:81:27: f-string is missing placeholders
+code/utilities/diagnose_labels.py:90:7: f-string is missing placeholders
+code/utilities/diagnose_labels.py:102:7: f-string is missing placeholders
+code/utilities/diagnose_labels.py:119:7: f-string is missing placeholders
+code/utilities/diagnose_labels.py:123:5: 'monai.data.DataLoader' imported but unused
+code/utilities/diagnose_labels.py:134:15: f-string is missing placeholders
+code/utilities/diagnose_labels.py:137:9: 'torch' imported but unused
+code/utilities/test_hard_threshold_autolabel.py:10:1: 'shutil' imported but unused
+code/utilities/test_hard_threshold_autolabel.py:14:1: 'pandas as pd' imported but unused
+code/utilities/test_hard_threshold_autolabel.py:68:9: 'nibabel' imported but unused
+code/utilities/test_val_loop_smoke.py:25:1: 'torch.nn' imported but unused
+code/utilities/test_val_loop_smoke.py:166:15: f-string is missing placeholders
+code/utilities/compare_models.py:21:1: 'sys' imported but unused
+code/utilities/compare_models.py:22:1: 'glob' imported but unused
+code/utilities/compare_models.py:234:11: f-string is missing placeholders
+code/utilities/generate_showcase.py:14:1: 'sys' imported but unused
+code/utilities/generate_showcase.py:15:1: 'glob' imported but unused
+code/utilities/generate_showcase.py:16:1: 'json' imported but unused
+code/utilities/generate_showcase.py:21:1: 'nibabel as nib' imported but unused
+code/utilities/generate_showcase.py:30:1: 'matplotlib.colors.ListedColormap' imported but unused
+code/utilities/generate_showcase.py:94:17: f-string is missing placeholders
+code/utilities/generate_showcase.py:472:23: f-string is missing placeholders
+code/utilities/generate_showcase.py:485:23: f-string is missing placeholders
+code/utilities/generate_showcase.py:504:23: f-string is missing placeholders
+code/utilities/generate_showcase.py:568:11: f-string is missing placeholders
+code/utilities/generate_showcase.py:570:11: f-string is missing placeholders
+code/utilities/generate_showcase.py:779:15: f-string is missing placeholders
+code/utilities/generate_showcase.py:781:15: f-string is missing placeholders
+code/utilities/test_ensemble_evaluation.py:154:9: 'nibabel' imported but unused
+code/utilities/legacy_fixes/check_align.py:2:1: 'numpy as np' imported but unused
+code/utilities/legacy_fixes/fix_one_consensus.py:1:1: 'os' imported but unused
+code/project10/common_spatial.py:8:1: 'os' imported but unused
+code/project10/common_spatial.py:9:1: 'typing.Dict' imported but unused
+code/project10/common_spatial.py:9:1: 'typing.Any' imported but unused
+code/project10/common_spatial.py:9:1: 'typing.Optional' imported but unused
+code/project10/common_spatial.py:11:1: 'torch' imported but unused
+code/project10/common_spatial.py:12:1: 'SimpleITK as sitk' imported but unused
+code/project10/common_spatial.py:13:1: 'nibabel as nib' imported but unused
+code/project10/common_spatial.py:14:1: 'monai.transforms.ScaleIntensityRanged' imported but unused
+code/project10/kinetics/multiphase_tumor_kinetics.py:49:1: 'dataclasses.field' imported but unused
+code/project10/kinetics/multiphase_tumor_kinetics.py:53:1: 'scipy.ndimage.label as nd_label' imported but unused
+code/project10/kinetics/multiphase_tumor_kinetics.py:67:5: 'TumorGenerated.utils.get_predefined_texture' imported but unused
+code/project10/kinetics/multiphase_tumor_kinetics.py:67:5: 'TumorGenerated.utils.get_ellipsoid' imported but unused
+code/project10/kinetics/generate_multiphase_tumors.py:15:1: 'glob' imported but unused
+code/project10/kinetics/generate_multiphase_tumors.py:20:1: 'typing.Dict' imported but unused
+code/project10/training/train_stage1_autoencoder.py:39:1: 'json' imported but unused
+code/project10/training/train_stage1_autoencoder.py:46:1: 'typing.List' imported but unused
+code/project10/training/train_stage1_autoencoder.py:46:1: 'typing.Optional' imported but unused
+code/project10/training/train_stage1_autoencoder.py:51:1: 'torch.nn' imported but unused
+code/project10/training/train_stage1_autoencoder.py:63:1: 'code.project10.models.autoencoder_3d.denormalise_hu' imported but unused
+code/project10/training/train_stage1_autoencoder.py:262:18: f-string is missing placeholders
+code/project10/training/train_stage2_synthesis.py:61:1: 'torch.utils.data.Dataset' imported but unused
+code/project10/datasets/register_multiphase_pairs.py:37:1: 'pathlib.Path' imported but unused
+code/project10/datasets/register_multiphase_pairs.py:40:1: 'numpy as np' imported but unused
+code/project10/datasets/register_multiphase_pairs.py:374:9: local variable 'phase_tag' is assigned to but never used
+code/project10/datasets/multiphase_paired_dataset.py:22:1: 'csv' imported but unused
+code/project10/datasets/multiphase_paired_dataset.py:36:1: 'monai.transforms.EnsureChannelFirstd' imported but unused
+code/project10/datasets/discover_multiphase_cohort.py:33:1: 'pathlib.Path' imported but unused
+code/project10/datasets/discover_multiphase_cohort.py:34:1: 'itertools.combinations' imported but unused
+code/project10/datasets/discover_multiphase_cohort.py:38:1: 'numpy as np' imported but unused
+code/project10/datasets/discover_multiphase_cohort.py:295:14: f-string is missing placeholders
+code/project10/datasets/discover_multiphase_cohort.py:313:14: f-string is missing placeholders
+code/project10/models/autoencoder_3d.py:45:1: 'math' imported but unused
+code/project10/models/autoencoder_3d.py:46:1: 'os' imported but unused
+code/project10/models/autoencoder_3d.py:48:1: 'dataclasses.field' imported but unused
+code/project10/models/autoencoder_3d.py:49:1: 'typing.Dict' imported but unused
+code/project10/models/autoencoder_3d.py:56:5: 'monai.networks.nets.AutoEncoder' imported but unused
+code/project10/models/synthesis_net.py:108:11: f-string is missing placeholders
+code/project10/models/synthesis_net.py:116:11: f-string is missing placeholders
+code/project10/models/synthesis_net.py:126:11: f-string is missing placeholders
+code/project10/evaluation/plot_tumor_kinetics.py:62:9: local variable 'bp' is assigned to but never used
+code/project10/evaluation/plot_tumor_kinetics.py:99:11: f-string is missing placeholders
+code/project10/evaluation/run_clinical_turing_test.py:31:1: 'typing.Union' imported but unused
+code/project10/evaluation/run_clinical_turing_test.py:36:1: 'SimpleITK as sitk' imported but unused
+code/project10/evaluation/run_clinical_turing_test.py:38:1: 'torch.nn.functional as F' imported but unused
+code/project10/evaluation/generate_project10_showcase_figures.py:14:1: 'sys' imported but unused
+code/project10/evaluation/generate_project10_showcase_figures.py:99:23: f-string is missing placeholders
+code/project10/evaluation/generate_project10_showcase_figures.py:104:23: f-string is missing placeholders
+code/project10/evaluation/generate_project10_showcase_figures.py:110:23: f-string is missing placeholders
+code/project10/evaluation/generate_project10_showcase_figures.py:181:23: f-string is missing placeholders
+code/project10/evaluation/generate_project10_showcase_figures.py:188:9: f-string is missing placeholders
+code/project10/evaluation/evaluate_synthesis.py:12:1: 'glob' imported but unused
+code/project10/evaluation/evaluate_synthesis.py:24:1: 'SimpleITK as sitk' imported but unused
+code/project10/evaluation/evaluate_synthesis.py:26:1: 'skimage.metrics.peak_signal_noise_ratio as psnr' imported but unused
+code/project10/evaluation/sample_multiphase_diffusion.py:22:1: 'typing.List' imported but unused
+code/project10/evaluation/sample_multiphase_diffusion.py:22:1: 'typing.Dict' imported but unused
+code/project10/evaluation/sample_multiphase_diffusion.py:37:1: 'code.project10.models.autoencoder_3d.build_autoencoder' imported but unused
+code/project10/evaluation/stress_test_contrast_perturbation.py:41:1: 'torch.nn.functional as F' imported but unused
+code/slurm_scripts/run_totalseg_bdmap.py:10:1: 'subprocess' imported but unused
+code/evaluation/test_totalseg_label_maps.py:1:1: 'os' imported but unused
+code/evaluation/test_totalseg_label_maps.py:19:1: 'evaluation.evaluate_multi_model_ensemble as ensemble' imported but unused
+code/evaluation/statistical_significance_test.py:23:1: 'sys' imported but unused
+code/evaluation/statistical_significance_test.py:186:9: local variable 't_stat' is assigned to but never used
+code/evaluation/statistical_significance_test.py:191:9: local variable 'w_stat' is assigned to but never used
+code/evaluation/statistical_significance_test.py:341:11: f-string is missing placeholders
+code/evaluation/evaluate_gi_masks.py:12:1: 'skimage.metrics.adapted_rand_error' imported but unused
+code/evaluation/evaluate_gi_masks.py:196:15: f-string is missing placeholders
+code/evaluation/evaluate_gi_masks.py:223:23: f-string is missing placeholders
+code/evaluation/worst_case_outlier_audit.py:18:1: 'sys' imported but unused
+code/evaluation/worst_case_outlier_audit.py:164:11: f-string is missing placeholders
+code/evaluation/verify_production_results.py:733:15: f-string is missing placeholders
+code/evaluation/verify_production_results.py:734:15: f-string is missing placeholders
+code/evaluation/plot_scaling_curves.py:14:1: 'numpy as np' imported but unused
+code/evaluation/unified_gastro_dataset.py:33:1: 'glob' imported but unused
+code/evaluation/unified_gastro_dataset.py:35:1: 'json' imported but unused
+code/evaluation/unified_gastro_dataset.py:36:1: 'traceback' imported but unused
+code/evaluation/unified_gastro_dataset.py:40:1: 'torch.utils.data.Dataset' imported but unused
+code/evaluation/unified_gastro_dataset.py:180:5: local variable 'done' is assigned to but never used
+code/evaluation/unified_gastro_dataset.py:222:11: f-string is missing placeholders
+code/evaluation/unified_gastro_dataset.py:265:5: local variable 'n_indexed' is assigned to but never used
+code/evaluation/eval_scaling_checkpoints.py:21:1: 'monai' imported but unused
+code/evaluation/eval_scaling_checkpoints.py:23:1: 'monai.metrics.compute_hausdorff_distance' imported but unused
+code/evaluation/diagnose_small_bowel.py:5:1: 'torch' imported but unused
+code/evaluation/verify_pipeline_run.py:27:11: f-string is missing placeholders
+code/evaluation/verify_pipeline_run.py:54:11: f-string is missing placeholders
+code/evaluation/verify_pipeline_run.py:74:23: f-string is missing placeholders
+code/evaluation/verify_pipeline_run.py:79:15: f-string is missing placeholders
+code/evaluation/project_wide_sanity_check.py:133:26: f-string is missing placeholders
+code/evaluation/project_wide_sanity_check.py:138:26: f-string is missing placeholders
+code/evaluation/evaluate_jhu_radiologist_set.py:19:1: 'code.evaluation.evaluate_jhu_radiologist_gpu.find_jhu_dir' imported but unused
+code/evaluation/hard_threshold_autolabel.py:51:1: 'nibabel as nib' imported but unused
+code/evaluation/hard_threshold_autolabel.py:56:1: 'schema_mapping.GI_IGNORE_INDEX' imported but unused
+code/evaluation/hard_threshold_autolabel.py:104:5: redefinition of unused 'nib' from line 51
+code/evaluation/hard_threshold_autolabel.py:105:5: 'nibabel.processing as nip' imported but unused
+code/evaluation/evaluate_multi_model_ensemble.py:34:1: 're' imported but unused
+code/evaluation/evaluate_multi_model_ensemble.py:41:1: 'scipy.ndimage.zoom' imported but unused
+code/evaluation/evaluate_multi_model_ensemble.py:42:1: 'scipy.stats.entropy' imported but unused
+code/evaluation/evaluate_multi_model_ensemble.py:58:1: redefinition of unused 'sys' from line 32
+code/evaluation/evaluate_multi_model_ensemble.py:62:1: 'schema_mapping.check_physical_overlap' imported but unused
+code/evaluation/evaluate_multi_model_ensemble.py:62:1: 'schema_mapping.GI_IGNORE_INDEX' imported but unused
+code/evaluation/evaluate_jhu_radiologist_gpu.py:33:1: 'gc' imported but unused
+code/evaluation/evaluate_jhu_radiologist_gpu.py:37:1: 'nibabel as nib' imported but unused
+code/evaluation/evaluate_jhu_radiologist_gpu.py:236:13: local variable 'test_t' is assigned to but never used
+code/evaluation/evaluate_jhu_radiologist_gpu.py:245:11: f-string is missing placeholders
+code/evaluation/compute_scaling_law.py:2:1: 'numpy as np' imported but unused
+code/evaluation/compute_scaling_law.py:4:1: 'json' imported but unused
+code/evaluation/schema_mapping.py:36:1: 'typing.Union' imported but unused
+code/evaluation/schema_mapping.py:36:1: 'typing.Any' imported but unused
+tests/test_audit_remediation_regressions.py:848:5: local variable 'data_range' is assigned to but never used
+tests/test_audit_remediation_regressions.py:1857:5: local variable 'arr_a' is assigned to but never used
+tests/test_audit_remediation_regressions.py:2265:5: 'code.project10.evaluation.sample_multiphase_diffusion.PHASE_NAME_TO_ID' imported but unused
+tests/test_audit_remediation_regressions.py:2347:9: local variable 'p2_train' is assigned to but never used
+tests/test_audit_remediation_regressions.py:2481:5: 'code.training.train_mednext.main as mednext_main' imported but unused
+tests/test_audit_remediation_regressions.py:2482:5: 'code.training.train_swin_unetr.main as swin_main' imported but unused
+tests/test_audit_remediation_regressions.py:2486:9: local variable 'mod' is assigned to but never used
+tests/test_audit_remediation_regressions.py:2524:5: 'logging' imported but unused
+tests/test_audit_remediation_regressions.py:2562:5: 'json' imported but unused

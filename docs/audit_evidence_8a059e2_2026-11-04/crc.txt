@@ -1,0 +1,18 @@
+{
+  "legitimate_actual_evaluator_contract": true,
+  "reg_crc_corrupt_full_gzip_rejects": true,
+  "reg_crc_corrupt_lineage_accepted": true,
+  "dvf_crc_corrupt_full_gzip_rejects": true,
+  "dvf_crc_corrupt_lineage_accepted": true,
+  "partial_metrics_one_of_two_manifest_cases_accepted": true,
+  "wrong_manifest_counts_and_hashes_accepted": true,
+  "incomplete_errorful_no_subjects_worker_accepted": true,
+  "changed_finite_real_input_stale_metrics_accepted": true,
+  "nonfinite_registration_now_rejected": true,
+  "head": "8a059e2",
+  "scope": "Actual evaluator and verifier with temporary two-case cohort; lineage flag only, not full 1500/250 production size gates",
+  "source_refs": {
+    "manifest_subset_only": "code/evaluation/verify_production_results.py:605-612",
+    "sidecar_incomplete_no_coverage": "code/evaluation/verify_production_results.py:625-642"
+  }
+}

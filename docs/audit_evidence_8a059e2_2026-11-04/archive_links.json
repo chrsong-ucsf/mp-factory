@@ -1,0 +1,23 @@
+{
+  "triage_counts": {
+    "NOISE_REJECT": 1598,
+    "WEAK_COARSE": 34
+  },
+  "manifest_rows": 34,
+  "manifest_subjects_match_eligible": true,
+  "manifest_local_label_files_present": 0,
+  "local_results_files": 0,
+  "local_log_files": 0,
+  "showcase_local_links_missing": [
+    "../results/showcase_phase3/",
+    "../results/showcase/interactive_3d/BDMAP_00242131_3d_interactive.html",
+    "../results/showcase/interactive_3d/BDMAP_00242114_3d_interactive.html",
+    "../results/showcase/interactive_3d/BDMAP_00242136_3d_interactive.html",
+    "../results/showcase/interactive_3d/BDMAP_00394224_3d_interactive.html",
+    "../results/showcase/3d_meshes/BDMAP_00242131/all_gi_organs.obj",
+    "../results/showcase/nifti_masks/BDMAP_00242131_gi_multiclass.nii.gz",
+    "../results/showcase/nifti_masks/BDMAP_00242114_gi_multiclass.nii.gz",
+    "../results/showcase/nifti_masks/BDMAP_00242136_gi_multiclass.nii.gz",
+    "../results/showcase/nifti_masks/BDMAP_00394224_gi_multiclass.nii.gz"
+  ]
+}

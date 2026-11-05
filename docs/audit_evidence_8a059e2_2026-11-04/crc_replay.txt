@@ -1,0 +1,96 @@
+2026-11-04 20:39:47 [INFO] Evaluation Worker [0/1] starting on device: cpu
+2026-11-04 20:39:47 [INFO] Total synthetic volumes: 2 | Assigned to worker 0: 2 | run_id: run_314a03a5f4533a55
+2026-11-04 20:39:47 [INFO] [1/2] CV_001--CV_101_synthetic_contrast.nii.gz -> SSIM: 1.0000 | PSNR: inf dB | L1: 0.0 HU | Body L1: 0.0 HU | Corr: 1.000
+2026-11-04 20:39:47 [INFO] [2/2] CV_002--CV_102_synthetic_contrast.nii.gz -> SSIM: 1.0000 | PSNR: inf dB | L1: 0.0 HU | Body L1: 0.0 HU | Corr: 1.000
+2026-11-04 20:39:47 [INFO] Worker 0 complete. Assigned: 2, Scored: 2, Errors: 0. Saved to /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp0gv9gzp5/results/project10/evaluation_reports/synthesis_metrics.csv
+2026-11-04 20:39:47 [INFO] === Overall Summary Metrics ===
+2026-11-04 20:39:47 [INFO] Mean SSIM           : 1.0000
+2026-11-04 20:39:47 [INFO] Mean PSNR           : inf
+2026-11-04 20:39:47 [INFO] Mean L1_Error       : 0.0000
+2026-11-04 20:39:47 [INFO] Mean Body_L1_Error  : 0.0000
+2026-11-04 20:39:47 [INFO] Mean RMSE           : 0.0000
+2026-11-04 20:39:47 [INFO] Mean Pearson_R      : 1.0000
+2026-11-04 20:39:47 [INFO] Mean Reference_Coverage: 1.0000
+
+[+] Auditing Project 10 Contrast Synthesis & Tumor Kinetics...
+  - Multi-Phase Pairs         : 2 CTs across 2 unique patients
+  - Deformable Registrations  : 2 volumes & 2 DVFs (Matched: 2)
+  - Synthesized Volumes       : 2 3D volumes
+  - Evaluated Synthesis Scans : 2 | Mean Pearson R: 1.0000
+  - Dynamic Kinetics Test     : PASS (0.0 HU bleed)
+  - Cohort Lineage Integrity  : PASS
+
+[+] Auditing Project 10 Contrast Synthesis & Tumor Kinetics...
+  - Multi-Phase Pairs         : 2 CTs across 2 unique patients
+  - Deformable Registrations  : 2 volumes & 2 DVFs (Matched: 2)
+  - Synthesized Volumes       : 2 3D volumes
+  - Evaluated Synthesis Scans : 2 | Mean Pearson R: 1.0000
+  - Dynamic Kinetics Test     : PASS (0.0 HU bleed)
+  - Cohort Lineage Integrity  : PASS
+
+[+] Auditing Project 10 Contrast Synthesis & Tumor Kinetics...
+  - Multi-Phase Pairs         : 2 CTs across 2 unique patients
+  - Deformable Registrations  : 2 volumes & 2 DVFs (Matched: 2)
+  - Synthesized Volumes       : 2 3D volumes
+  - Evaluated Synthesis Scans : 2 | Mean Pearson R: 1.0000
+  - Dynamic Kinetics Test     : PASS (0.0 HU bleed)
+  - Cohort Lineage Integrity  : PASS
+
+[+] Auditing Project 10 Contrast Synthesis & Tumor Kinetics...
+  - Multi-Phase Pairs         : 2 CTs across 2 unique patients
+  - Deformable Registrations  : 2 volumes & 2 DVFs (Matched: 2)
+  - Synthesized Volumes       : 2 3D volumes
+  - Evaluated Synthesis Scans : 1 | Mean Pearson R: 1.0000
+  - Dynamic Kinetics Test     : PASS (0.0 HU bleed)
+  - Cohort Lineage Integrity  : PASS
+
+[+] Auditing Project 10 Contrast Synthesis & Tumor Kinetics...
+  - Multi-Phase Pairs         : 2 CTs across 2 unique patients
+  - Deformable Registrations  : 2 volumes & 2 DVFs (Matched: 2)
+  - Synthesized Volumes       : 2 3D volumes
+  - Evaluated Synthesis Scans : 2 | Mean Pearson R: 1.0000
+  - Dynamic Kinetics Test     : PASS (0.0 HU bleed)
+  - Cohort Lineage Integrity  : PASS
+
+[+] Auditing Project 10 Contrast Synthesis & Tumor Kinetics...
+  - Multi-Phase Pairs         : 2 CTs across 2 unique patients
+  - Deformable Registrations  : 2 volumes & 2 DVFs (Matched: 2)
+  - Synthesized Volumes       : 2 3D volumes
+  - Evaluated Synthesis Scans : 2 | Mean Pearson R: 1.0000
+  - Dynamic Kinetics Test     : PASS (0.0 HU bleed)
+  - Cohort Lineage Integrity  : PASS
+
+[+] Auditing Project 10 Contrast Synthesis & Tumor Kinetics...
+  - Multi-Phase Pairs         : 2 CTs across 2 unique patients
+  - Deformable Registrations  : 2 volumes & 2 DVFs (Matched: 2)
+  - Synthesized Volumes       : 2 3D volumes
+  - Evaluated Synthesis Scans : 2 | Mean Pearson R: 1.0000
+  - Dynamic Kinetics Test     : PASS (0.0 HU bleed)
+  - Cohort Lineage Integrity  : PASS
+
+[+] Auditing Project 10 Contrast Synthesis & Tumor Kinetics...
+  - Multi-Phase Pairs         : 2 CTs across 2 unique patients
+  - Deformable Registrations  : 2 volumes & 2 DVFs (Matched: 2)
+  - Synthesized Volumes       : 2 3D volumes
+  - Evaluated Synthesis Scans : 2 | Mean Pearson R: 1.0000
+  - Dynamic Kinetics Test     : PASS (0.0 HU bleed)
+  - Cohort Lineage Integrity  : FAIL
+{
+  "legitimate_actual_evaluator_contract": true,
+  "reg_crc_corrupt_full_gzip_rejects": true,
+  "reg_crc_corrupt_lineage_accepted": true,
+  "dvf_crc_corrupt_full_gzip_rejects": true,
+  "dvf_crc_corrupt_lineage_accepted": true,
+  "partial_metrics_one_of_two_manifest_cases_accepted": true,
+  "wrong_manifest_counts_and_hashes_accepted": true,
+  "incomplete_errorful_no_subjects_worker_accepted": true,
+  "changed_finite_real_input_stale_metrics_accepted": true,
+  "nonfinite_registration_now_rejected": true,
+  "head": "8a059e2",
+  "scope": "Actual evaluator and verifier with temporary two-case cohort; lineage flag only, not full 1500/250 production size gates",
+  "source_refs": {
+    "manifest_subset_only": "code/evaluation/verify_production_results.py:605-612",
+    "sidecar_incomplete_no_coverage": "code/evaluation/verify_production_results.py:625-642"
+  }
+}
+EVIDENCE /tmp/mp_factory_audit_8a059e2_crc.txt

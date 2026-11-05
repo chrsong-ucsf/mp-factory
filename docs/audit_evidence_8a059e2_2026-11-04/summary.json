@@ -1,0 +1,38 @@
+{
+  "audited_commit": "8a059e23d0704e525d0fcf37668ada369c97ba9c",
+  "comparison_audit_commit": "03f9dbe89267fa60743ad274348152264edbe38c",
+  "audit_date": "2026-11-04",
+  "timezone": "America/Los_Angeles",
+  "pytest": {
+    "passed": 170,
+    "elapsed_seconds": 45.9
+  },
+  "python_parse": {
+    "files": 90,
+    "errors": 0
+  },
+  "shell_syntax": {
+    "files": 76,
+    "errors": 0
+  },
+  "pyflakes": {
+    "diagnostics": 180,
+    "undefined_names": []
+  },
+  "sanity": {
+    "checks": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "production_reexecution": false,
+  "source_changes": false,
+  "boundaries": [
+    "temporary two-case verifier probes isolate lineage flag, not full production size gates",
+    "no official nnunet_mednext dependency for real checkpoint reload",
+    "no production data or logs locally",
+    "DDP training and historical cohort metrics not rerun"
+  ],
+  "reproduce": "From repository root, copy a *_probe.py.txt or *_harness.py.txt evidence file to a temporary .py path and run with project Python dependencies. P9 companion harness focuses on factory dispatch/state compatibility; p9.txt also records CLI/serialization probes."
+}

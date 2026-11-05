@@ -1,0 +1,38 @@
+"""Read-only model dispatch/state compatibility probe. Run from mp-factory root."""
+import gc
+import sys
+from pathlib import Path
+import torch
+sys.path.insert(0, str(Path.cwd() / "code"))
+sys.path.insert(0, str(Path.cwd()))
+import training.run_scaling_sweep as producer
+import evaluation.eval_scaling_checkpoints as consumer
+
+torch.set_num_threads(1)
+def kernels(model):
+    return sorted({tuple(m.kernel_size) for m in model.modules() if isinstance(m, torch.nn.Conv3d)})
+
+print("nnunet_available", consumer.create_mednext_v1 is not None)
+model, meta = producer.build_model(4, torch.device("cpu"))
+eval_model = consumer.build_eval_model_for_manifest(meta, torch.device("cpu"))
+print("local_metadata", meta)
+print("local_strict", eval_model.load_state_dict(model.state_dict(), strict=True))
+del model, eval_model
+gc.collect()
+
+producer.MedNeXtB = None
+producer.create_mednext_v1 = None
+model, meta = producer.build_model(4, torch.device("cpu"))
+eval_model = consumer.build_eval_model_for_manifest(meta, torch.device("cpu"))
+print("unet_metadata", meta)
+print("unet_strict", eval_model.load_state_dict(model.state_dict(), strict=True))
+del model, eval_model
+gc.collect()
+
+meta = {"architecture": "MedNeXt-B", "factory": "nnunet_mednext", "model_id": "B", "kernel_size": 3, "in_channels": 1, "out_channels": 5}
+model = consumer.build_eval_model_for_manifest(meta, torch.device("cpu"))
+print("explicit_nnunet_actual", type(model), kernels(model))
+del model
+gc.collect()
+model = consumer.build_eval_model_for_manifest({"architecture": "UnknownArchitecture", "factory": "not_a_supported_factory", "out_channels": 5}, torch.device("cpu"))
+print("unknown_factory_actual", type(model))

@@ -1,0 +1,30 @@
+HEAD 8a059e23d0704e525d0fcf37668ada369c97ba9c
+Temporary root /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-8a059e2-p9-b84i16zd
+NNUNET_AVAILABLE False
+ACTUAL_SWIN_CLI ['/opt/anaconda3/bin/python', 'code/training/train_swin_unetr.py', '--data_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-8a059e2-p9-b84i16zd/data', '--out_dir', '/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-8a059e2-p9-b84i16zd/swin', '--epochs', '0']
+EXIT 0
+Using compute device: cpu | Total GPU Cores Detected: 0
+Discovered 10 scanning pairs for training/validation.
+[Standard 80/20 Patient Split] Train scans: 8 (8 pts) | Full Val pool: 2 (2 pts)
+
+Starting Swin-UNETR Training Loop from epoch 1 to 0...
+
+Training Complete! Best Validation Dice: -1.0000
+
+/opt/anaconda3/lib/python3.12/site-packages/monai/utils/deprecate_utils.py:320: FutureWarning: monai.transforms.spatial.dictionary Orientationd.__init__:labels: Current default value of argument `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` was changed in version None from `labels=(('L', 'R'), ('P', 'A'), ('I', 'S'))` to `labels=None`. Default value changed to None meaning that the transform now uses the 'space' of a meta-tensor, if applicable, to determine appropriate axis labels.
+  warn_deprecated(argname, msg, warning_category)
+/Users/chrissong/research_su26/02_Projects/mp-factory/code/training/train_swin_unetr.py:383: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = torch.cuda.amp.GradScaler()
+/opt/anaconda3/lib/python3.12/site-packages/torch/cuda/amp/grad_scaler.py:31: UserWarning: torch.cuda.amp.GradScaler is enabled, but CUDA is not available.  Disabling.
+  super().__init__(
+
+LOCAL_PRODUCER_META {"architecture": "MedNeXt-B", "model_id": "B", "factory": "local_mednext", "kernel_size": 7, "in_channels": 1, "out_channels": 5, "num_classes": 5}
+LOCAL_PRODUCER_KERNELS [(1, 1, 1), (2, 2, 2), (7, 7, 7)]
+LOCAL_CHECKPOINT_BYTES 22119027
+LOCAL_REAL_STRICT_LOAD <All keys matched successfully>
+LOCAL_REAL_FORWARD_SHAPE (1, 5, 16, 16, 16)
+UNET_PRODUCER_META {"architecture": "UNet", "model_id": "UNet", "factory": "monai_unet", "kernel_size": 3, "in_channels": 1, "out_channels": 5, "num_classes": 5}
+UNET_REAL_STRICT_LOAD <All keys matched successfully>
+NNUNET_DECLARED_ACTUAL_CLASS mednext.MedNeXt
+NNUNET_DECLARED_ACTUAL_KERNELS [(1, 1, 1), (2, 2, 2), (7, 7, 7)]
+UNKNOWN_FACTORY_ACCEPTED_AS monai.networks.nets.unet.UNet

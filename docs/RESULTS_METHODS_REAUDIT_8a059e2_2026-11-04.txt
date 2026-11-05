@@ -1,0 +1,144 @@
+MP-FACTORY: RESULTS AND METHODS REAUDIT
+Date: 2026-11-04 (America/Los_Angeles)
+Audited commit: 8a059e23d0704e525d0fcf37668ada369c97ba9c
+Comparison: 5464671 implementation and 03f9dbe audit.
+
+ASSESSMENT
+
+The Swin startup failure is repaired. The default local scaling model now has
+truthful configuration metadata and can hand a real serialized checkpoint to its
+evaluator. Compressed registration NaNs are rejected. The audit remains open:
+completion proof and current metric-input identities are still insufficient, and
+model dispatch does not honor all producer configurations. Gzip checksum
+corruption is also still accepted despite the repaired NaN check.
+
+FRESH LOCAL VERIFICATION
+
+- Full configured suite: 170 passed in 45.90 seconds.
+- All 90 tracked Python files parse; all 76 shell/job files pass bash -n.
+- Pyflakes: 180 diagnostics; no undefined-name diagnostics. Lint is not clean.
+- Sanity: 31 checks, 13 PASS / 17 WARN / 0 FAIL / 1 INFO (41.9%). Missing
+  production assets remain warnings, so exit 0 is not production validation.
+- Initial main checkout was clean and matched origin/main after fetch.
+- Real model construction, checkpoint serialization/loading and a small forward
+  pass were tested locally. Temporary synthetic cohorts exercised the actual
+  synthesis evaluator and production-verifier lineage flag. These are not measured
+  production segmentation accuracy, synthesis quality or clinical validation.
+- Production cohort-size gates were not satisfied or certified by the small
+  producer-consumer fixtures. No cluster job or production model training was run.
+- Only this report and evidence are changed; implementation is not edited.
+
+CONFIRMED FINDINGS
+
+1. [P1] Incomplete or unsuccessful execution still passes run-proof verification.
+   code/evaluation/verify_production_results.py:605-612 accepts evaluated subjects
+   as a subset of manifest subjects, without exact cohort coverage, total_files
+   consistency, worker assignments or mandatory successful completion metadata.
+   The alternative sidecar branch at :625-640 checks only positive assigned and
+   scored counts plus a success-like status. It does not require equal counts,
+   zero errors or all workers; :639 explicitly accepts missing subject coverage.
+   Actual two-case evaluator output first passes normally. Removing one of its
+   two metric rows still passes cohort_lineage_ok. Removing the manifest and
+   substituting one sidecar with assigned=100, scored=1, error_count=99, worker 7
+   of 8 and no case list also passes. These are isolated lineage-flag probes;
+   they do not establish that every production gate passes.
+   Required repair: use the evaluator's strict manifest/worker merge contract,
+   require exact complete assignments and coverage, and reject failed, missing,
+   contradictory or incomplete workers by default.
+
+2. [P2] Metrics are not authenticated against current source volumes and support.
+   The same verifier run-proof block (:598-640) ignores recorded fake/real/support
+   hashes and execution configuration. A manifest with total_files=999 and bogus
+   fake, real and support hashes is accepted. Replacing a registered reference
+   with different finite voxel values also leaves cohort_lineage_ok=True while
+   existing metrics and input hashes remain stale.
+   The NaN fix checks usable numeric payloads; it does not prove those payloads
+   were the ones scored. Revalidate current metric input hashes, reference/support
+   identities, model/checkpoint/config identities and complete row provenance.
+   A genuine evaluator-produced two-case result is the positive control here.
+
+3. [P2] Evaluation factory selection still overrides explicit model provenance.
+   code/evaluation/eval_scaling_checkpoints.py:345 selects local MedNeXt whenever
+   architecture is MedNeXt-B, even when factory explicitly says nnunet_mednext.
+   Thus a declared nnU-Net kernel-3 model becomes the local kernel-7 model.
+   Actual probe confirms the selected class is mednext.MedNeXt with 7-cube kernels.
+   Existing Phase 1/2 MedNeXt producers also use create_mednext_v1 with default
+   kernel 3 and emit architecture/model_id/kernel_size without factory:
+   train_mednext.py:392-405,442-447 and train_mednext_phase2.py:557-560,616-619.
+   Those configurations encounter the same local-first selection when available.
+   Conversely, :352 tries nnU-Net without checking whether the manifest declared
+   UNet, and :365 silently falls back to UNet for unknown architecture/factory.
+   An actual unknown-configuration probe was accepted as MONAI UNet.
+   This can make supported checkpoints fail loading rather than yield valid
+   evaluation. No silent wrong production scores were demonstrated. The official
+   nnunet_mednext dependency is absent locally, so its real checkpoint round trip
+   remains untested; dispatch precedence is verified independently of that absence.
+   Required repair: dispatch on explicit factory, define a compatible legacy
+   manifest policy, validate full configuration, and fail when the requested
+   implementation is unavailable instead of substituting another architecture.
+
+4. [P2] Complete gzip checksum validation is still missing.
+   code/evaluation/verify_production_results.py:469-489,528-542 checks trailer
+   size and materializes voxel arrays, but does not explicitly validate the CRC.
+   On this environment, reading the voxel array does not consume/validate the
+   gzip trailer. With otherwise accepted actual two-case evaluator evidence,
+   flipping one CRC byte of a registration, then independently a DVF, leaves
+   cohort_lineage_ok=True. Python gzip.decompress rejects both as corrupt.
+   This fixture preserves the voxel bytes; it demonstrates missed container
+   corruption detection, not that incorrect voxel values were measured.
+   Required repair: read each required compressed stream through EOF with checksum
+   validation (or equivalent), in addition to geometry, payload and finite checks.
+
+VERIFIED REPAIRS AND EVIDENCE BOUNDARIES
+
+- Swin actual CLI with ten valid temporary scans and zero epochs exits 0 after
+  manifest creation and network initialization. The NUM_CLASSES NameError is
+  closed. Zero epochs establishes startup, not successful model training.
+- Real default local scaling producer emits local_mednext, kernel 7, five
+  classes including background (five output channels; one CT input channel).
+  Its real roughly 22 MB checkpoint and bound manifest load into the evaluator
+  with strict=True and all keys matched. A small real forward pass produces
+  shape (1, 5, 16, 16, 16).
+- Forced MONAI UNet training fallback emits UNet/monai_unet metadata and its real
+  checkpoint loads strictly into the current local evaluator where nnU-Net is
+  unavailable. This does not close the alternate dispatch paths in finding 3.
+- Null/blank-only configuration identity now rejects; checkpoint hash binding
+  remains covered. A nonempty identity alone does not validate full compatibility.
+- Empty manifest and run-ID-only sidecar bypasses are blocked. Genuine evaluator
+  output passes, while broader completion/hash issues remain findings 1 and 2.
+- Nonfinite compressed registered CT is rejected with otherwise genuine evaluator
+  evidence, rather than only in an already-invalid missing-metrics fixture.
+
+REGRESSION COVERAGE
+
+The new tests establish useful improvements but do not certify every claimed fix.
+The model regression only asserts that a non-null evaluation model is constructed,
+not strict checkpoint compatibility across every factory. The new NaN regression
+(tests/test_audit_remediation_regressions.py:3238-3275) creates no metrics or run
+proof, so its lineage check would also fail for unrelated missing evidence.
+Use a complete accepted positive control, then change exactly one property for
+NaN/DVF, worker completion, cohort coverage and stale-input tests. Add strict real
+producer-to-consumer model checks for each supported factory and legacy manifest.
+
+ARCHIVE, DOCUMENTATION AND PRODUCTION EVIDENCE
+
+Current archive remains reconciled: 1,598 REJECT / 34 WEAK / 0 CLEAN. The 34-row
+training manifest exactly matches the eligible archive subject IDs. This closes
+the old arithmetic/membership mismatch; do not reintroduce the old 151-case finding.
+All 34 declared label files are absent locally. Local results/ and logs/ contain
+no files. Ten SHOWCASE local result/deliverable links are unavailable in this
+checkout; tracked illustrative assets are distinct from those missing outputs.
+These are local availability boundaries, not proof of remote absence or corruption.
+Historical cohort measurements, clinical claims, checkpoint exposure and fresh
+source-volume verification remain unverified. Current metadata reconciliation and
+local test passes cannot certify historical performance or production execution.
+
+NEXT ACCEPTANCE GATE
+
+Enforce exact complete execution proof and current input hashes, honor explicit
+model factory/configuration, validate gzip checksums through EOF, and test valid
+producer-consumer runs and their
+single-property failure cases. Then independently validate the production volumes,
+cohort outputs and affected model/result lineage using available execution evidence.
+
+Evidence: audit_evidence_8a059e2_2026-11-04/.
