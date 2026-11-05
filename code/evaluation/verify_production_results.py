@@ -469,7 +469,7 @@ def verify_project10_synthesis_and_kinetics():
             if len(shp) < 3 or min(shp[:3]) < 4:
                 files_readable = False
                 break
-            # Stream payload validation via gzip trailer integrity (Finding 4)
+            # Stream payload validation via gzip trailer integrity & CRC checksum through EOF (Finding 4)
             if str(p).endswith(".gz"):
                 itemsize = hdr.get_data_dtype().itemsize
                 vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
@@ -480,6 +480,10 @@ def verify_project10_synthesis_and_kinetics():
                 if isize != expected_isize:
                     files_readable = False
                     break
+                import gzip
+                with gzip.open(p, "rb") as gz:
+                    while gz.read(1024 * 1024):
+                        pass
             data = np.asanyarray(img.dataobj)
             if not np.isfinite(data).all():
                 files_readable = False
@@ -501,6 +505,20 @@ def verify_project10_synthesis_and_kinetics():
             if len(shp) < 3 or min(shp[:3]) < 4:
                 files_readable = False
                 break
+            if str(p).endswith(".gz"):
+                itemsize = hdr.get_data_dtype().itemsize
+                vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
+                expected_isize = (int(np.prod(shp)) * itemsize + vox_offset) % (2**32)
+                with open(p, "rb") as f:
+                    f.seek(-8, 2)
+                    crc, isize = struct.unpack("<II", f.read(8))
+                if isize != expected_isize:
+                    files_readable = False
+                    break
+                import gzip
+                with gzip.open(p, "rb") as gz:
+                    while gz.read(1024 * 1024):
+                        pass
             # Read full voxel payload and verify finiteness (Finding 4)
             data = np.asanyarray(img.dataobj)
             if not np.isfinite(data).all():
@@ -524,7 +542,7 @@ def verify_project10_synthesis_and_kinetics():
             if len(shp) < 4 or 3 not in shp[3:]:
                 files_readable = False
                 break
-            # Stream payload validation via gzip trailer integrity & vector components (Finding 4)
+            # Stream payload validation via gzip trailer integrity & CRC checksum through EOF (Finding 4)
             if str(p).endswith(".gz"):
                 itemsize = hdr.get_data_dtype().itemsize
                 vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
@@ -535,6 +553,10 @@ def verify_project10_synthesis_and_kinetics():
                 if isize != expected_isize:
                     files_readable = False
                     break
+                import gzip
+                with gzip.open(p, "rb") as gz:
+                    while gz.read(1024 * 1024):
+                        pass
             data = np.asanyarray(img.dataobj)
             if not np.isfinite(data).all():
                 files_readable = False
@@ -591,53 +613,119 @@ def verify_project10_synthesis_and_kinetics():
                 ]
                 sidecars = list(metrics_csv.parent.glob("*.meta.json"))
                 run_verified = False
-                # Require genuine cohort execution proof (Finding 3):
-                # 1. Non-empty manifest covering evaluated subjects, or
-                # 2. Complete worker metadata sidecars with successful completion and assigned/scored counts
+                # Require genuine cohort execution proof and input volume authentication (Findings 1, 2, 3):
+                # 1. Non-empty manifest covering evaluated subjects exactly, with verified input hashes, or
+                # 2. Complete worker metadata sidecars covering all workers without errors and matching assignments exactly
                 evaluated_subjects = set(df_metrics["Subject"].dropna().astype(str).str.strip().unique()) if "Subject" in df_metrics.columns else set()
+                manifest_present_for_run = False
+                manifest_valid = False
                 for mc in manifest_candidates:
                     if mc.exists():
                         try:
                             m_obj = json.loads(mc.read_text())
                             if str(m_obj.get("run_id", "")).strip() == the_run_id:
+                                manifest_present_for_run = True
                                 items = m_obj.get("items", [])
+                                total_files = m_obj.get("total_files")
                                 if isinstance(items, list) and len(items) > 0:
+                                    # Finding 1: Total files must agree with items count and metrics row count
+                                    if total_files is not None and (total_files != len(items) or total_files != len(df_metrics)):
+                                        continue
                                     manifest_subjects = {
                                         str(it.get("fake_file", it.get("subject", it.get("Subject", "")))).strip()
                                         for it in items if isinstance(it, dict)
                                     }
-                                    # Evaluated subjects must be covered by manifest items
-                                    if evaluated_subjects and evaluated_subjects.issubset(manifest_subjects):
+                                    # Finding 1: Evaluated subjects must EXACTLY match manifest subjects (not merely a subset)
+                                    if not evaluated_subjects or evaluated_subjects != manifest_subjects or len(df_metrics) != len(manifest_subjects):
+                                        continue
+
+                                    # Finding 2: Authenticate metrics against current source volumes on disk
+                                    # Check recorded fake_sha256 and real_sha256 against actual files on disk
+                                    hashes_valid = True
+                                    reg_dir_path = Path(m_obj.get("real_dir")) if m_obj.get("real_dir") else (RESULTS_DIR / "project10" / "registered_volumes")
+                                    synth_dir_path = Path(m_obj.get("fake_dir")) if m_obj.get("fake_dir") else (RESULTS_DIR / "project10" / "synthetic_volumes")
+
+                                    for it in items:
+                                        f_name = it.get("fake_file")
+                                        exp_f_sha = it.get("fake_sha256")
+                                        r_name = it.get("real_file")
+                                        exp_r_sha = it.get("real_sha256")
+
+                                        if f_name and exp_f_sha:
+                                            cand_f = synth_dir_path / f_name
+                                            if cand_f.exists():
+                                                with open(cand_f, "rb") as bf:
+                                                    actual_f_sha = hashlib.sha256(bf.read()).hexdigest()
+                                                if actual_f_sha != exp_f_sha:
+                                                    hashes_valid = False
+                                                    break
+
+                                        if r_name and exp_r_sha:
+                                            cand_r = reg_dir_path / r_name
+                                            if cand_r.exists():
+                                                with open(cand_r, "rb") as bf:
+                                                    actual_r_sha = hashlib.sha256(bf.read()).hexdigest()
+                                                if actual_r_sha != exp_r_sha:
+                                                    hashes_valid = False
+                                                    break
+
+                                    if hashes_valid:
+                                        manifest_valid = True
                                         run_verified = True
                                         break
-                                elif m_obj.get("total_files", 0) > 0 and not items:
-                                    # Items key missing or empty with nonzero total_files without coverage is insufficient
-                                    pass
                         except Exception:
                             pass
-                if not run_verified and sidecars:
-                    valid_sidecars = 0
-                    sidecar_subjects = set()
+                if manifest_present_for_run and not manifest_valid:
+                    # An explicit manifest exists for this run_id but failed validation or hash authentication; fail closed
+                    run_verified = False
+                elif not run_verified and sidecars:
+                    # Finding 1: Strict worker merge contract for sidecars
+                    # All workers [0..total_workers-1] must be present, completed with 0 errors, and num_assigned == num_scored
+                    matching_sidecars = []
                     for sc in sidecars:
                         try:
                             sc_obj = json.loads(sc.read_text())
                             if str(sc_obj.get("run_id", "")).strip() == the_run_id:
-                                status = str(sc_obj.get("status", "")).lower()
-                                n_assigned = sc_obj.get("num_assigned", sc_obj.get("total_assigned", 0))
-                                n_scored = sc_obj.get("num_scored", sc_obj.get("total_scored", 0))
-                                # Sidecar must prove actual successful execution with scored cases
-                                if status in ["success", "completed"] and n_assigned > 0 and n_scored > 0:
-                                    valid_sidecars += 1
-                                    sc_items = sc_obj.get("items", sc_obj.get("cases", []))
-                                    if isinstance(sc_items, list):
-                                        for it in sc_items:
-                                            s_name = it if isinstance(it, str) else it.get("fake_file", it.get("subject", ""))
-                                            if s_name:
-                                                sidecar_subjects.add(str(s_name).strip())
+                                matching_sidecars.append(sc_obj)
                         except Exception:
                             pass
-                    if valid_sidecars > 0 and (not evaluated_subjects or evaluated_subjects.issubset(sidecar_subjects) or not sidecar_subjects):
-                        run_verified = True
+
+                    if matching_sidecars:
+                        # Extract total_workers
+                        tot_w = matching_sidecars[0].get("total_workers", len(matching_sidecars))
+                        if len(matching_sidecars) == tot_w:
+                            all_workers_valid = True
+                            total_sidecar_scored = 0
+                            sidecar_subjects = set()
+                            seen_workers = set()
+
+                            for sc_obj in matching_sidecars:
+                                w_id = sc_obj.get("worker_id", sc_obj.get("array_id"))
+                                if w_id is not None:
+                                    seen_workers.add(int(w_id))
+                                status = str(sc_obj.get("status", "")).lower()
+                                errors = int(sc_obj.get("error_count", 0))
+                                n_assigned = int(sc_obj.get("num_assigned", sc_obj.get("total_assigned", -1)))
+                                n_scored = int(sc_obj.get("num_scored", sc_obj.get("total_scored", -1)))
+
+                                if status not in ["completed", "success"] or errors > 0 or n_assigned != n_scored or n_assigned <= 0:
+                                    all_workers_valid = False
+                                    break
+                                total_sidecar_scored += n_scored
+                                sc_items = sc_obj.get("items", sc_obj.get("cases", []))
+                                if isinstance(sc_items, list):
+                                    for it in sc_items:
+                                        s_name = it if isinstance(it, str) else it.get("fake_file", it.get("subject", ""))
+                                        if s_name:
+                                            sidecar_subjects.add(str(s_name).strip())
+
+                            if all_workers_valid and len(seen_workers) == tot_w and total_sidecar_scored == len(df_metrics):
+                                if sidecar_subjects:
+                                    if evaluated_subjects == sidecar_subjects:
+                                        run_verified = True
+                                else:
+                                    # No explicit subject list in sidecar, but counts and workers match exactly
+                                    run_verified = True
                 if not run_verified:
                     cohort_lineage_ok = False
 

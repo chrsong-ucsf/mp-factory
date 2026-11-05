@@ -335,22 +335,22 @@ def validate_checkpoint_manifest(
 
 def build_eval_model_for_manifest(minfo: dict, device):
     """Construct model matching training manifest architecture, factory, and configuration."""
-    arch = minfo.get("architecture") or minfo.get("model_id") or "MedNeXt-B"
+    arch = str(minfo.get("architecture") or minfo.get("model_id") or "").strip()
     factory = minfo.get("factory")
+    if factory is not None:
+        factory = str(factory).strip()
     k_size = minfo.get("kernel_size", 7)
     out_ch = minfo.get("out_channels") or minfo.get("num_classes", NUM_CLASSES)
     in_ch = minfo.get("in_channels", 1)
 
-    # 1. Local MedNeXtB factory (e.g. kernel_size 7)
-    if (factory == "local_mednext" or arch in ["MedNeXt-B", "MedNeXtB"]) and MedNeXtB is not None:
-        try:
+    # 1. Explicit factory dispatch
+    if factory == "local_mednext":
+        if MedNeXtB is not None:
             return MedNeXtB(in_channels=in_ch, n_channels=32, n_classes=out_ch).to(device)
-        except Exception:
-            pass
+        raise RuntimeError("Manifest specified factory 'local_mednext', but local MedNeXtB is not available.")
 
-    # 2. nnUNet MedNeXt implementation
-    if create_mednext_v1 is not None:
-        try:
+    if factory == "nnunet_mednext":
+        if create_mednext_v1 is not None:
             return create_mednext_v1(
                 num_input_channels=in_ch,
                 num_classes=out_ch,
@@ -358,17 +358,47 @@ def build_eval_model_for_manifest(minfo: dict, device):
                 kernel_size=k_size if isinstance(k_size, int) else 3,
                 deep_supervision=False,
             ).to(device)
-        except Exception:
-            pass
+        raise RuntimeError("Manifest specified factory 'nnunet_mednext', but create_mednext_v1 is not available.")
 
-    # 3. MONAI UNet fallback
-    if UNet is not None:
-        return UNet(
-            spatial_dims=3, in_channels=in_ch, out_channels=out_ch,
-            channels=(16, 32, 64, 128, 256), strides=(2, 2, 2, 2), num_res_units=2,
-        ).to(device)
+    if factory in ["monai_unet", "monai"]:
+        if UNet is not None:
+            return UNet(
+                spatial_dims=3, in_channels=in_ch, out_channels=out_ch,
+                channels=(16, 32, 64, 128, 256), strides=(2, 2, 2, 2), num_res_units=2,
+            ).to(device)
+        raise RuntimeError("Manifest specified factory 'monai_unet', but MONAI UNet is not available.")
 
-    raise RuntimeError(f"Could not build evaluation model for manifest architecture '{arch}' (factory '{factory}')")
+    if factory is not None:
+        raise RuntimeError(f"Unsupported model factory '{factory}' in manifest.")
+
+    # 2. Legacy manifests without explicit factory: dispatch based on architecture / kernel_size
+    if arch in ["UNet", "MONAI-UNet"]:
+        if UNet is not None:
+            return UNet(
+                spatial_dims=3, in_channels=in_ch, out_channels=out_ch,
+                channels=(16, 32, 64, 128, 256), strides=(2, 2, 2, 2), num_res_units=2,
+            ).to(device)
+        raise RuntimeError("Manifest specified UNet architecture, but MONAI UNet is not available.")
+
+    if arch in ["MedNeXt-B", "MedNeXtB", "MedNeXt_B"] or arch.startswith("MedNeXt-"):
+        # If kernel_size is 7, it corresponds to local_mednext (MedNeXtB)
+        if k_size == 7:
+            if MedNeXtB is not None:
+                return MedNeXtB(in_channels=in_ch, n_channels=32, n_classes=out_ch).to(device)
+            raise RuntimeError("Legacy MedNeXt kernel-7 architecture requires local MedNeXtB, which is unavailable.")
+        # If kernel_size is 3 or other, it corresponds to nnunet_mednext
+        if create_mednext_v1 is not None:
+            return create_mednext_v1(
+                num_input_channels=in_ch,
+                num_classes=out_ch,
+                model_id=str(minfo.get("model_id", "B")),
+                kernel_size=k_size if isinstance(k_size, int) else 3,
+                deep_supervision=False,
+            ).to(device)
+        # If create_mednext_v1 is not installed, fail explicitly rather than silently substituting wrong architecture
+        raise RuntimeError(f"Legacy MedNeXt kernel-{k_size} requires nnunet_mednext (create_mednext_v1), which is not installed.")
+
+    raise RuntimeError(f"Unknown or unsupported architecture '{arch}' in manifest; cannot dispatch evaluation model.")
 
 
 def main():

@@ -394,6 +394,7 @@ def main():
         "num_folds": args.num_folds,
         "architecture": f"MedNeXt-{args.model_id}",
         "model_id": args.model_id,
+        "factory": "nnunet_mednext",
         "kernel_size": args.kernel_size,
         "num_classes": NUM_CLASSES,
         "train_patients": sorted(list(train_patients)),
