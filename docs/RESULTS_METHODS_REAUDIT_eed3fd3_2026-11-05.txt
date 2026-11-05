@@ -1,0 +1,129 @@
+MP-FACTORY: RESULTS AND METHODS REAUDIT
+Date: 2026-11-05 (America/Los_Angeles)
+Audited commit: eed3fd3b81a4798c5b7523588596605a71c1590e
+Comparison: c69d3fe implementation and 7a8313c audit.
+
+ASSESSMENT
+
+The preceding five findings have substantial working repairs. Previous optional
+manifest-hash/missing-path, support-mutation, missing-completion, invalid-worker-ID,
+DVF-grid and model-cache failure cases no longer reproduce. The local suite is
+now green, including the missing-nnU-Net dependency branch.
+
+Three narrower verifier defects remain: metric-row identity columns are optional,
+completion counts are not bound to per-worker manifest assignments, and legitimate
+empty workers are rejected. A minor contradictory model-identity case is recorded
+separately. Source code is unchanged by this audit.
+
+FRESH VERIFICATION
+
+- Full configured pytest: 173 passed in 33.73 seconds.
+- All 90 tracked Python files parse; all 76 shell/job files pass bash -n.
+- Pyflakes: 185 diagnostics, no undefined-name diagnostics. Lint is not clean.
+- Sanity: 31 checks, 13 PASS / 17 WARN / 0 FAIL / 1 INFO; 41.9% health score.
+  Production assets are missing locally; warnings and exit 0 do not certify them.
+- Initial main checkout was clean and matched origin/main after fetch.
+- Actual synthesis evaluator, strict worker merge and production-verifier functions
+  ran on temporary two-case cohorts. The verifier probes isolate cohort_lineage_ok;
+  they do not satisfy or certify full production cohort-size gates.
+- Real local MedNeXt and MONAI UNet checkpoints load strictly with the matching
+  evaluator. Official nnU-Net checkpoints remain untested locally because that
+  dependency is unavailable; its absence now has a passing fail-closed test path.
+- No cluster jobs, production inference, model training or historical cohort
+  regeneration were run. No DDP runtime behavior was revalidated in this pass.
+
+CONFIRMED REMAINING FINDINGS
+
+1. [P2] Metric-row input identity is optional despite mandatory manifest hashes.
+   code/evaluation/verify_production_results.py:771-798 checks fake_sha256,
+   real_sha256, support_sha256 and real_file only when those CSV columns exist.
+   The required schema does not require them, so dropping every identity column
+   still yields lineage PASS with a valid manifest and completion records.
+   Actual positive-control derivative: remove row identity columns, change a
+   finite registered CT, and update its manifest real_sha256. The old perfect
+   metrics and old run ID remain unchanged, yet lineage still passes. The current
+   manifest matches disk, but the metric rows no longer identify their scored input.
+   Required repair: mandate the producer's per-row file/hash identity schema and
+   verify it against manifest/current inputs; preserve explicit absent-support
+   semantics. Validate run/input identity using the actual evaluator contract,
+   without treating the matching run-ID string alone as proof of re-evaluation.
+   The producer permits absent-support fallback, so absence of support alone is
+   not reported as a separate defect. A support-removal probe in the evidence is
+   another identity-boundary check, not proof that fallback itself is invalid.
+
+2. [P2] Completion records are not checked against individual manifest ownership.
+   verify_production_results.py:826-854 validates global counts, worker range,
+   status and aggregate coverage, but never derives each worker's expected cases
+   from manifest items' worker_id assignments. Subject lists are optional.
+   Actual counterexample keeps all cohort/file hashes valid and declares two
+   workers in the manifest, assigning both cases to worker 0. Sidecars claim one
+   assigned/scored case for worker 0 and one for worker 1. Global totals agree,
+   so the verifier accepts contradictory per-worker completion evidence.
+   Required repair: derive exact per-worker subject sets and counts from the
+   manifest and verify each corresponding completion record/shard. Check row
+   ownership and zero-error successful completion together, reusing the strict
+   merge contract rather than a weaker count-based approximation.
+
+3. [P2] Legitimately idle workers are rejected by the verifier.
+   verify_production_results.py:837 rejects num_assigned<=0. The evaluator
+   explicitly emits a completed schema-bearing empty shard for idle workers
+   (evaluate_synthesis.py:820-844), with assigned=0/scored=0/error_count=0.
+   Actual two-case/three-worker execution produces assignment counts [1,1,0].
+   Its real strict merge succeeds, but production-verifier lineage fails.
+   Required repair: permit zero assignments only when that worker has an empty
+   expected assignment set in the manifest, while requiring its completion record
+   and all other worker/row proofs. This affects supported small/heavily sharded
+   cohorts; no currently running large production cohort was shown to fail.
+
+MINOR MODEL METADATA FOLLOW-UP
+
+4. [P3] Architecture and explicit model_id can still contradict each other.
+   eval_scaling_checkpoints.py:348-353 only derives variant from architecture when
+   model_id is absent. Actual architecture=MedNeXt-S, model_id=B, local_mednext,
+   kernel_size=7 constructs local B. Current producers do not emit this contradiction,
+   and no new material failure was found in the tested default P9 configuration.
+   Cross-check redundant identity fields and reject disagreement. This does not
+   reopen the repaired explicit-factory, kernel, legacy-variant or cache findings.
+
+VERIFIED REPAIRS SINCE c69d3fe
+
+- Missing manifest hashes, nonexistent manifest input directories, contradictory
+  present row hashes, and changed support masks now reject with otherwise valid
+  actual evaluator evidence. Prior bypasses are closed in their tested forms.
+- A valid manifest alone cannot pass: removing all worker completion records
+  rejects. Invalid worker 99 of 1 and inconsistent worker totals now reject.
+- DVFs with a 100 mm shifted affine or extra non-singleton vector axis now reject.
+  The valid registered/DVF/support positive control passes.
+- CRC-corrupt registration and DVF files still reject, as do NaN registrations,
+  partial manifest coverage, wrong manifest totals and a stale present real hash.
+- Model reuse keys now include model_id and input channels. One- and two-channel
+  declarations no longer collide. A deliberately forced wrong-model state load
+  in the raw P9 transcript is a control, not a current main-loop reuse failure.
+- Contradictory local S/kernel-3 declaration rejects; legacy S/kernel 7 requires
+  nnU-Net rather than silently choosing local B. Unknown factories and architecture
+  declarations continue to reject. Correct local and UNet models load strictly.
+- The nnU-Net regression handles unavailable dependencies and the full suite passes.
+
+ARCHIVE, DOCUMENTATION AND PRODUCTION BOUNDARIES
+
+Current archive remains 1,598 REJECT / 34 WEAK / 0 CLEAN. The 34-row manifest exactly
+matches eligible subject IDs. All 34 label paths remain unavailable locally, and
+local results/ and logs/ contain no files. Ten SHOWCASE result/deliverable links
+remain unavailable in this checkout. These are local availability observations,
+not evidence that remote outputs are missing or corrupt.
+
+Historical measurements, clinical claims and affected model/result lineage remain
+unverified without source-volume and execution evidence. Corrected eligibility
+arithmetic, loadable local fixtures and passing tests do not certify production
+or clinical outcomes. No new historical result values were regenerated here.
+
+NEXT ACCEPTANCE CHECK
+
+Require metric-row identity, validate each worker against manifest ownership,
+and accept proven empty assignments. Exercise accepted single-worker and idle-
+worker runs as positive controls, then test one changed property at a time.
+Independently verify production volumes, scored input identities and execution
+metadata before promoting historical or current performance claims.
+
+Evidence: audit_evidence_eed3fd3_2026-11-05/. Reproducible harnesses are stored as
+.py.txt audit artifacts and use temporary inputs. Only audit docs/evidence changed.

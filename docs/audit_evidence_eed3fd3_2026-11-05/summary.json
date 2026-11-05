@@ -1,0 +1,41 @@
+{
+  "audited_commit": "eed3fd3b81a4798c5b7523588596605a71c1590e",
+  "comparison_audit_commit": "7a8313c52ee046b07e593a8ac6dbbee8a0051677",
+  "audit_date": "2026-11-05",
+  "timezone": "America/Los_Angeles",
+  "pytest": {
+    "passed": 173,
+    "failed": 0,
+    "elapsed_seconds": 33.73
+  },
+  "syntax": {
+    "python_files": 90,
+    "shell_files": 76,
+    "errors": 0
+  },
+  "lint": {
+    "pyflakes_diagnostics": 185,
+    "undefined_names": []
+  },
+  "sanity": {
+    "checks": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "findings": {
+    "verifier_P2": 3,
+    "minor_metadata_P3": 1
+  },
+  "source_changes": false,
+  "production_reexecution": false,
+  "boundaries": [
+    "temporary two-case evaluator/strict-merge/verifier probes isolate lineage flag, not production cohort-size gates",
+    "idle worker regression demonstrated on two cases across three workers, not an observed cluster failure",
+    "official nnU-Net checkpoint reload unavailable locally",
+    "support absence alone is permitted by evaluator fallback, not labeled a defect",
+    "forced mismatched P9 state load is a control, not current cache failure"
+  ],
+  "reproduce": "From repository root copy a *_probe.py.txt or *_harness.py.txt file to a temporary .py path and run using project dependencies. Harnesses use temporary synthetic inputs."
+}

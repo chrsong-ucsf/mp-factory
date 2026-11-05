@@ -1,0 +1,16 @@
+{
+  "legitimate_actual_evaluator_contract": true,
+  "dvf_100mm_shifted_grid_accepted": false,
+  "dvf_invalid_extra_axis_accepted": false,
+  "reg_crc_corrupt_full_gzip_rejects": true,
+  "reg_crc_corrupt_lineage_accepted": false,
+  "dvf_crc_corrupt_full_gzip_rejects": true,
+  "dvf_crc_corrupt_lineage_accepted": false,
+  "partial_metrics_one_of_two_manifest_cases_accepted": false,
+  "wrong_manifest_counts_and_hashes_accepted": false,
+  "incomplete_errorful_no_subjects_worker_accepted": false,
+  "changed_finite_real_input_stale_metrics_accepted": false,
+  "nonfinite_registration_now_rejected": true,
+  "head": "eed3fd3",
+  "scope": "Actual evaluator and verifier with temporary two-case cohort; lineage flag only, not full 1500/250 production size gates"
+}

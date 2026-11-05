@@ -1,0 +1,29 @@
+{
+  "legitimate_actual_evaluator_contract": true,
+  "missing_manifest_hashes_and_stale_real_accepted": false,
+  "nonexistent_manifest_input_dirs_bogus_hashes_accepted": false,
+  "metrics_row_hashes_mismatch_manifest_accepted": false,
+  "changed_support_stale_metrics_accepted": false,
+  "manifest_without_any_worker_completion_accepted": false,
+  "sidecar_out_of_range_worker_99_of_1_accepted": false,
+  "sidecar_inconsistent_totals_and_worker_ids_5_6_accepted": false,
+  "missing_all_metrics_row_hash_columns_accepted": true,
+  "stale_metrics_missing_rowhash_rebound_to_new_manifest_real_accepted": true,
+  "removed_support_declared_absent_with_old_runid_accepted": true,
+  "worker_counts_conflict_with_manifest_ownership_accepted": true,
+  "actual_2case_3worker_empty_worker_accepted": false,
+  "actual_multiworker_meta_counts": [
+    1,
+    1,
+    0
+  ],
+  "previous_partial_manifest_case_now_rejected": true,
+  "current_present_manifest_hash_mismatch_now_rejected": true,
+  "head": "eed3fd3",
+  "scope": "Actual evaluator/verifier temporary two-case integration; lineage flag only, not cohort-size gate",
+  "source_refs": {
+    "optional_metrics_row_hash_columns": "code/evaluation/verify_production_results.py:770-798",
+    "empty_worker_and_ownership": "code/evaluation/verify_production_results.py:826-854",
+    "producer_accepts_empty_worker": "code/project10/evaluation/evaluate_synthesis.py:820-844"
+  }
+}
