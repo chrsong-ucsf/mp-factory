@@ -1,0 +1,39 @@
+{
+  "audited_commit": "8660ec1a5234ba9946ecf979c8e3c2bdce3ca905",
+  "implementation_commit": "1fe2929da3d5b6961776916bcfda1f351390957c",
+  "implementation_changes_since_last_audit": false,
+  "audit_date": "2026-11-05",
+  "timezone": "America/Los_Angeles",
+  "pytest": {
+    "passed": 176,
+    "failed": 0,
+    "elapsed_seconds": 39.73
+  },
+  "syntax": {
+    "python_files": 90,
+    "shell_files": 76,
+    "errors": 0
+  },
+  "lint": {
+    "pyflakes_diagnostics": 186,
+    "undefined_names": []
+  },
+  "sanity": {
+    "checks": 31,
+    "pass": 13,
+    "warn": 17,
+    "fail": 0,
+    "info": 1
+  },
+  "open_material_findings": 1,
+  "finding": "Explicit named evaluator/strict-merge output remains rejected by verifier deterministic-ID equality",
+  "source_changes": false,
+  "production_reexecution": false,
+  "boundaries": [
+    "Temporary two-case integration isolates lineage flag, not full production cohort-size gates",
+    "No separate P9 real checkpoint roundtrip or DDP check in this documentation-only re-audit",
+    "No new historical result measurements",
+    "Official nnU-Net checkpoint loading remains unavailable locally"
+  ],
+  "reproduce": "Copy p10_probe.py.txt to a temporary .py path and run from repository root using project dependencies. Synthetic temporary inputs only."
+}

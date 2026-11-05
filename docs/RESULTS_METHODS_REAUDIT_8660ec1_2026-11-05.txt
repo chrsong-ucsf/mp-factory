@@ -1,0 +1,81 @@
+MP-FACTORY: RESULTS AND METHODS REAUDIT
+Date: 2026-11-05 (America/Los_Angeles)
+Audited commit: 8660ec1a5234ba9946ecf979c8e3c2bdce3ca905
+Implementation commit: 1fe2929da3d5b6961776916bcfda1f351390957c
+
+ASSESSMENT
+
+There have been no implementation changes since the preceding audit. All 19
+changed paths between 1fe2929 and audited HEAD are audit documentation/evidence.
+The fetched origin/main matched the clean local checkout. This pass freshly reran
+verification and preserves the existing unresolved finding; no repair is inferred
+from the documentation-only commit.
+
+FRESH VERIFICATION
+
+- Full configured pytest: 176 passed in 39.73 seconds.
+- All 90 tracked Python files parse; all 76 shell/job files pass bash -n.
+- Pyflakes: 186 diagnostics, no undefined-name diagnostics. Lint is not clean.
+- Sanity: 31 checks, 13 PASS / 17 WARN / 0 FAIL / 1 INFO; 41.9% health score.
+  Missing local production assets remain warnings, not successful validation.
+- Actual evaluator, strict merge and production-verifier probes were replayed
+  with temporary two-case inputs. These isolate cohort_lineage_ok, not the full
+  production cohort-size gates. Default deterministic-run output passes.
+- Actual two-case/three-worker output with assignments [1,1,0] still passes strict
+  merge and lineage verification. Earlier malformed-evidence probes remain blocked.
+- No source edits, production training/inference, cluster jobs, DDP runtime checks
+  or historical cohort regeneration occurred. No separate P9 checkpoint roundtrip
+  was rerun in this pass; its implementation is unchanged and the full suite ran.
+
+CONFIRMED OPEN FINDING
+
+1. [P2] Supported explicitly named evaluation runs still fail verification.
+   The evaluator documents --run_id as a supported option at
+   code/project10/evaluation/evaluate_synthesis.py:729-732 and replaces manifest
+   run_id with that label at :817-819. The verifier unconditionally requires both
+   CSV and manifest run_id to equal a computed snapshot digest at
+   code/evaluation/verify_production_results.py:726-736.
+
+   Fresh actual reproduction:
+   - Default deterministic-ID evaluator output: lineage PASS.
+   - Evaluator with --run_id audit_named_positive_control: success.
+   - Strict merge with expected_run_id=audit_named_positive_control: success.
+   - Verifier: lineage FAIL, while the derived snapshot ID is
+     run_314a03a5f4533a55 and the producer label is audit_named_positive_control.
+
+   This is a false rejection of a supported evaluator output, not evidence of
+   incorrect default production measurements. The finding is unchanged.
+   Align producer and verifier semantics: preserve a separately authenticated
+   snapshot identity alongside the user label, or explicitly change/document the
+   supported producer contract. Retain mandatory row hashes and completion proof.
+   Add actual automatic-ID and explicit-ID producer/merge/verifier positive tests,
+   including idle workers, plus changed-input negative tests.
+
+RETAINED VERIFIED BEHAVIOR AND ADVISORY
+
+The fresh replay rejects missing row identity columns, stale metrics rebound to a
+changed manifest, missing manifest hashes, nonexistent input directories, conflicting
+present row hashes, changed support, missing completion metadata, invalid worker
+IDs/totals, conflicting ownership/counts, partial coverage and a stale present hash.
+The default valid positive control and legitimate idle worker remain accepted.
+
+Model cache/identity code has no new changes. The preceding report's non-blocking
+factory/architecture consistency advisory remains unchanged; no new material P9
+runtime finding is claimed. Official nnU-Net checkpoint compatibility remains
+unverified locally because the dependency is unavailable.
+
+ARCHIVE AND PRODUCTION EVIDENCE
+
+Fresh archive checks remain reconciled: 1,598 REJECT / 34 WEAK / 0 CLEAN. The
+34-row manifest exactly matches eligible subject IDs. All 34 label paths remain
+unavailable locally; results/ and logs/ are empty. Ten SHOWCASE result/deliverable
+links remain unavailable in this checkout. These are local observations, not proof
+of remote absence or corruption.
+
+Historical measurements, clinical claims and affected checkpoint/result lineage
+remain unverified without source-volume and execution evidence. Passing local
+tests, reconciled counts and a documentation commit do not certify production
+or clinical outcomes. No new historical result values were regenerated.
+
+Evidence: audit_evidence_8660ec1_2026-11-05/. Harnesses stored as .py.txt use temporary
+inputs. This commit contains only the audit report and freshly collected evidence.
