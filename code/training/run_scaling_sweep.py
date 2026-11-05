@@ -430,11 +430,21 @@ def build_transforms(roi_size=DEFAULT_ROI_SIZE, is_train=True):
 
 
 def build_model(num_classes, device):
-    """Build MedNeXt-B; fall back to create_mednext_v1 or UNet if needed."""
+    """Build MedNeXt-B; fall back to create_mednext_v1 or UNet if needed. Returns (model, meta_dict)."""
     model = None
+    meta = {}
     if MedNeXtB is not None:
         try:
             model = MedNeXtB(in_channels=1, n_channels=32, n_classes=num_classes + 1)
+            meta = {
+                "architecture": "MedNeXt-B",
+                "model_id": "B",
+                "factory": "local_mednext",
+                "kernel_size": 7,
+                "in_channels": 1,
+                "out_channels": num_classes + 1,
+                "num_classes": num_classes + 1,
+            }
         except Exception:
             pass
 
@@ -446,6 +456,15 @@ def build_model(num_classes, device):
                 kernel_size=3,
                 deep_supervision=False,
             )
+            meta = {
+                "architecture": "MedNeXt-B",
+                "model_id": "B",
+                "factory": "nnunet_mednext",
+                "kernel_size": 3,
+                "in_channels": 1,
+                "out_channels": num_classes + 1,
+                "num_classes": num_classes + 1,
+            }
         except Exception:
             pass
 
@@ -455,13 +474,22 @@ def build_model(num_classes, device):
             spatial_dims=3, in_channels=1, out_channels=num_classes + 1,
             channels=(16, 32, 64, 128, 256), strides=(2, 2, 2, 2), num_res_units=2,
         )
+        meta = {
+            "architecture": "UNet",
+            "model_id": "UNet",
+            "factory": "monai_unet",
+            "kernel_size": 3,
+            "in_channels": 1,
+            "out_channels": num_classes + 1,
+            "num_classes": num_classes + 1,
+        }
 
     model = model.to(device)
     if device.type == "cuda" and torch.cuda.device_count() > 1:
         print(f"Enabling torch.nn.DataParallel across {torch.cuda.device_count()} GPUs!")
         model = torch.nn.DataParallel(model)
 
-    return model
+    return model, meta
 
 
 
@@ -660,6 +688,9 @@ def run_single_sweep(
     os.makedirs(run_dir, exist_ok=True)
     n_dir = run_dir
 
+    # Instantiate model first so manifest reflects actual constructed architecture
+    model, model_meta = build_model(NUM_CLASSES, device)
+
     # Save training membership manifest into run_dir
     train_scan_names = [c.get("name", "") for c in train_cases]
     manifest_info = {
@@ -670,10 +701,13 @@ def run_single_sweep(
         "n_val_scans": n_val,
         "n_val_patients": len({extract_patient_id(c.get('name', '')) for c in val_cases}),
         "seed": seed,
-        "architecture": "MedNeXt-B",
-        "model_id": "B",
-        "kernel_size": 3,
-        "num_classes": NUM_CLASSES,
+        "architecture": model_meta.get("architecture", "MedNeXt-B"),
+        "model_id": model_meta.get("model_id", "B"),
+        "factory": model_meta.get("factory", "local_mednext"),
+        "kernel_size": model_meta.get("kernel_size", 7),
+        "in_channels": model_meta.get("in_channels", 1),
+        "out_channels": model_meta.get("out_channels", NUM_CLASSES + 1),
+        "num_classes": model_meta.get("num_classes", NUM_CLASSES + 1),
         "roi_size": list(roi_size),
         "data_fingerprint": hashlib.sha256("::".join(sorted(train_scan_names)).encode()).hexdigest(),
         "train_patients": sorted(list({extract_patient_id(c.get('name', '')) for c in train_cases})),
@@ -696,8 +730,6 @@ def run_single_sweep(
         collate_fn=monai.data.list_data_collate,
     )
     val_loader = DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=0)
-
-    model = build_model(NUM_CLASSES, device)
     if pretrained_weights and os.path.exists(pretrained_weights):
         print(f"  Loading pretrained weights from {pretrained_weights}")
         checkpoint = torch.load(pretrained_weights, map_location=device)

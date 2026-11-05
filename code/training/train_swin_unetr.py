@@ -72,6 +72,8 @@ class RemapGILabelTargets(MapTransform):
                     d[key] = remapped
         return d
 
+NUM_CLASSES = 5  # 0: Background, 1: Stomach, 2: Duodenum, 3: Small Bowel, 4: Colon
+
 ORGAN_ALIASES = {
     1: ['stomach'],
     2: ['duodenum'],

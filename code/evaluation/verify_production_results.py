@@ -480,11 +480,10 @@ def verify_project10_synthesis_and_kinetics():
                 if isize != expected_isize:
                     files_readable = False
                     break
-            else:
-                data = np.asanyarray(img.dataobj)
-                if not np.isfinite(data).all():
-                    files_readable = False
-                    break
+            data = np.asanyarray(img.dataobj)
+            if not np.isfinite(data).all():
+                files_readable = False
+                break
         except Exception:
             files_readable = False
             break
@@ -536,11 +535,10 @@ def verify_project10_synthesis_and_kinetics():
                 if isize != expected_isize:
                     files_readable = False
                     break
-            else:
-                data = np.asanyarray(img.dataobj)
-                if not np.isfinite(data).all():
-                    files_readable = False
-                    break
+            data = np.asanyarray(img.dataobj)
+            if not np.isfinite(data).all():
+                files_readable = False
+                break
         except Exception:
             files_readable = False
             break
@@ -593,26 +591,52 @@ def verify_project10_synthesis_and_kinetics():
                 ]
                 sidecars = list(metrics_csv.parent.glob("*.meta.json"))
                 run_verified = False
+                # Require genuine cohort execution proof (Finding 3):
+                # 1. Non-empty manifest covering evaluated subjects, or
+                # 2. Complete worker metadata sidecars with successful completion and assigned/scored counts
+                evaluated_subjects = set(df_metrics["Subject"].dropna().astype(str).str.strip().unique()) if "Subject" in df_metrics.columns else set()
                 for mc in manifest_candidates:
                     if mc.exists():
                         try:
                             m_obj = json.loads(mc.read_text())
                             if str(m_obj.get("run_id", "")).strip() == the_run_id:
-                                if "items" in m_obj or "total_files" in m_obj:
-                                    run_verified = True
-                                    break
+                                items = m_obj.get("items", [])
+                                if isinstance(items, list) and len(items) > 0:
+                                    manifest_subjects = {
+                                        str(it.get("fake_file", it.get("subject", it.get("Subject", "")))).strip()
+                                        for it in items if isinstance(it, dict)
+                                    }
+                                    # Evaluated subjects must be covered by manifest items
+                                    if evaluated_subjects and evaluated_subjects.issubset(manifest_subjects):
+                                        run_verified = True
+                                        break
+                                elif m_obj.get("total_files", 0) > 0 and not items:
+                                    # Items key missing or empty with nonzero total_files without coverage is insufficient
+                                    pass
                         except Exception:
                             pass
                 if not run_verified and sidecars:
-                    matching_sidecars = 0
+                    valid_sidecars = 0
+                    sidecar_subjects = set()
                     for sc in sidecars:
                         try:
                             sc_obj = json.loads(sc.read_text())
                             if str(sc_obj.get("run_id", "")).strip() == the_run_id:
-                                matching_sidecars += 1
+                                status = str(sc_obj.get("status", "")).lower()
+                                n_assigned = sc_obj.get("num_assigned", sc_obj.get("total_assigned", 0))
+                                n_scored = sc_obj.get("num_scored", sc_obj.get("total_scored", 0))
+                                # Sidecar must prove actual successful execution with scored cases
+                                if status in ["success", "completed"] and n_assigned > 0 and n_scored > 0:
+                                    valid_sidecars += 1
+                                    sc_items = sc_obj.get("items", sc_obj.get("cases", []))
+                                    if isinstance(sc_items, list):
+                                        for it in sc_items:
+                                            s_name = it if isinstance(it, str) else it.get("fake_file", it.get("subject", ""))
+                                            if s_name:
+                                                sidecar_subjects.add(str(s_name).strip())
                         except Exception:
                             pass
-                    if matching_sidecars > 0:
+                    if valid_sidecars > 0 and (not evaluated_subjects or evaluated_subjects.issubset(sidecar_subjects) or not sidecar_subjects):
                         run_verified = True
                 if not run_verified:
                     cohort_lineage_ok = False

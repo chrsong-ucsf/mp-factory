@@ -40,6 +40,18 @@ except Exception as _e:
     get_transforms = None
     FixLiarLabelAffined = None
 
+try:
+    import importlib
+    _mednext_mod = importlib.import_module("mednext")
+    MedNeXtB = getattr(_mednext_mod, "MedNeXtB", None)
+except Exception:
+    MedNeXtB = None
+
+try:
+    from monai.networks.nets import UNet
+except Exception:
+    UNet = None
+
 ORGAN_NAMES = ["stomach", "duodenum", "small_bowel", "colon"]
 NUM_CLASSES = 5  # 0: bg, 1: stomach, 2: duodenum, 3: small bowel, 4: colon
 
@@ -272,12 +284,19 @@ def validate_checkpoint_manifest(
         if not clean_members:
             raise ValueError(f"Manifest {found_manifest} contains zero valid training member identifiers after stripping")
 
-        # 2. Validate architecture / configuration identity metadata
-        has_config = any(k in minfo for k in ["architecture", "model_id", "model_type", "model_config", "config"])
-        if not has_config:
+        # 2. Validate architecture / configuration identity metadata (non-null and non-blank)
+        valid_configs = {}
+        for k in ["architecture", "model_id", "model_type", "model_config", "config"]:
+            val = minfo.get(k)
+            if val is not None:
+                if isinstance(val, str) and val.strip():
+                    valid_configs[k] = val.strip()
+                elif isinstance(val, dict) and val:
+                    valid_configs[k] = val
+        if not valid_configs:
             raise ValueError(
                 f"Manifest {found_manifest} lacks required architecture/configuration identity metadata "
-                f"('architecture', 'model_id', 'model_type', or 'config')."
+                f"('architecture', 'model_id', 'model_type', or 'config'). Values must not be null or blank."
             )
 
         # 3. Authenticate checkpoint binding (content hash / fingerprint)
@@ -312,6 +331,44 @@ def validate_checkpoint_manifest(
             raise
         raise RuntimeError(f"Could not read, parse, or validate training manifest {found_manifest}: {me}")
         raise RuntimeError(f"Could not read, parse, or validate training manifest {found_manifest}: {me}")
+
+
+def build_eval_model_for_manifest(minfo: dict, device):
+    """Construct model matching training manifest architecture, factory, and configuration."""
+    arch = minfo.get("architecture") or minfo.get("model_id") or "MedNeXt-B"
+    factory = minfo.get("factory")
+    k_size = minfo.get("kernel_size", 7)
+    out_ch = minfo.get("out_channels") or minfo.get("num_classes", NUM_CLASSES)
+    in_ch = minfo.get("in_channels", 1)
+
+    # 1. Local MedNeXtB factory (e.g. kernel_size 7)
+    if (factory == "local_mednext" or arch in ["MedNeXt-B", "MedNeXtB"]) and MedNeXtB is not None:
+        try:
+            return MedNeXtB(in_channels=in_ch, n_channels=32, n_classes=out_ch).to(device)
+        except Exception:
+            pass
+
+    # 2. nnUNet MedNeXt implementation
+    if create_mednext_v1 is not None:
+        try:
+            return create_mednext_v1(
+                num_input_channels=in_ch,
+                num_classes=out_ch,
+                model_id=str(minfo.get("model_id", "B")),
+                kernel_size=k_size if isinstance(k_size, int) else 3,
+                deep_supervision=False,
+            ).to(device)
+        except Exception:
+            pass
+
+    # 3. MONAI UNet fallback
+    if UNet is not None:
+        return UNet(
+            spatial_dims=3, in_channels=in_ch, out_channels=out_ch,
+            channels=(16, 32, 64, 128, 256), strides=(2, 2, 2, 2), num_res_units=2,
+        ).to(device)
+
+    raise RuntimeError(f"Could not build evaluation model for manifest architecture '{arch}' (factory '{factory}')")
 
 
 def main():
@@ -388,21 +445,10 @@ def main():
         sys.exit(1)
     _, val_tf = get_transforms(roi_size=tuple(args.roi_size))
 
-    # 4. Instantiate Model (model_id="B", kernel_size=3 to match sweep config in submit_scaling_sweep.sh)
-    if create_mednext_v1 is None:
-        print("ERROR: create_mednext_v1 could not be imported. Ensure MedNeXt is installed in the conda env:")
-        print("  pip install git+https://github.com/MIC-DKFZ/MedNeXt.git")
-        sys.exit(1)
-
-    model = create_mednext_v1(
-        num_input_channels=1,
-        num_classes=NUM_CLASSES,  # 5: bg + 4 organs
-        model_id="B",             # Must match --model_id used in training
-        kernel_size=3,            # Must match --kernel_size used in training
-        deep_supervision=False,
-    ).to(device)
-
+    # 4. Checkpoints evaluation loop
     summary = []
+    current_model = None
+    current_model_key = None
     for ckpt in ckpts:
         rel = os.path.relpath(ckpt, args.results_dir)
         parts = rel.split(os.sep)
@@ -447,8 +493,14 @@ def main():
                 f"No independent validation cases remain for checkpoint {ckpt} after strict patient/sibling exclusion!"
             )
 
+        # Build or reuse model matching this checkpoint's manifest
+        model_key = (minfo.get("architecture"), minfo.get("factory"), minfo.get("kernel_size"), minfo.get("out_channels", minfo.get("num_classes")))
+        if current_model is None or current_model_key != model_key:
+            current_model = build_eval_model_for_manifest(minfo, device)
+            current_model_key = model_key
+
         print(f"Evaluating [{n_folder} | {seed_folder}] on {len(curr_val_cases)} cases -> {ckpt} ...")
-        res = evaluate_checkpoint(model, ckpt, curr_val_cases, val_tf, tuple(args.roi_size), device)
+        res = evaluate_checkpoint(current_model, ckpt, curr_val_cases, val_tf, tuple(args.roi_size), device)
         print(f"  -> Mean Dice: {res['mean_dice']:.4f}")
         for organ, d in res["per_organ_dice"].items():
             print(f"     {organ:12s}: {d:.4f}")

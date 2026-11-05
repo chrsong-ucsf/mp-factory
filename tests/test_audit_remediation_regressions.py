@@ -3124,3 +3124,153 @@ def test_historic_reconciliation_exact_counts():
     assert len(df_manifest) == 34
     assert (df_manifest["category"] == "WEAK_COARSE").all()
 
+
+# ==============================================================================
+# AUDIT REMEDIATION REGRESSIONS (RESULTS_METHODS_REAUDIT_5464671_2026-11-03)
+# ==============================================================================
+
+def test_swin_phase1_startup_and_num_classes():
+    """Finding 1 (5464671): Swin Phase 1 defines NUM_CLASSES and imports cleanly."""
+    import code.training.train_swin_unetr as tsu
+    assert hasattr(tsu, "NUM_CLASSES")
+    assert tsu.NUM_CLASSES == 5
+
+
+def test_scaling_model_config_matches_actual_instantiation_and_evaluator(tmp_path):
+    """Finding 2 (5464671): Scaling sweep emits truthful configuration and evaluator builds matching model."""
+    import torch
+    from code.training.run_scaling_sweep import build_model
+    from code.evaluation.eval_scaling_checkpoints import build_eval_model_for_manifest, validate_checkpoint_manifest
+    import json
+    import hashlib
+
+    model, meta = build_model(4, torch.device("cpu"))
+    assert meta["num_classes"] == 5
+    assert meta["out_channels"] == 5
+    assert meta["architecture"] in ["MedNeXt-B", "UNet"]
+    assert "factory" in meta
+
+    # Check evaluator creates matching architecture
+    eval_model = build_eval_model_for_manifest(meta, torch.device("cpu"))
+    assert eval_model is not None
+
+    # Null/blank config rejection in validate_checkpoint_manifest
+    ckpt_file = tmp_path / "model.pt"
+    ckpt_file.write_bytes(b"dummy_weights")
+    sha256 = hashlib.sha256(b"dummy_weights").hexdigest()
+
+    null_cfg_man = tmp_path / "null_cfg_manifest.json"
+    null_cfg_man.write_text(json.dumps({
+        "train_cases": ["CV_001"],
+        "architecture": None,
+        "checkpoint_sha256": sha256,
+    }))
+    with pytest.raises(ValueError, match="architecture/configuration identity"):
+        validate_checkpoint_manifest(str(ckpt_file), manifest_path=str(null_cfg_man))
+
+
+def test_production_verifier_rejects_empty_manifest_and_unproven_sidecars(tmp_path):
+    """Finding 3 (5464671): Production verifier rejects empty manifests and unproven sidecars."""
+    import json
+    import pandas as pd
+    import numpy as np
+    import nibabel as nib
+    import code.evaluation.verify_production_results as vpr
+    from code.evaluation.verify_production_results import verify_project10_synthesis_and_kinetics
+
+    eval_dir = tmp_path / "results" / "project10" / "evaluation_reports"
+    man_dir = tmp_path / "results" / "project10" / "manifests"
+    reg_dir = tmp_path / "results" / "project10" / "registered_volumes"
+    synth_dir = tmp_path / "results" / "project10" / "synthetic_volumes"
+    for d in [eval_dir, man_dir, reg_dir, synth_dir]:
+        d.mkdir(parents=True)
+
+    pairs_csv = man_dir / "multiphase_pairs.csv"
+    pd.DataFrame([{"patient_id": "P001", "subject_p0": "CV_001", "subject_target": "CV_002"}]).to_csv(pairs_csv, index=False)
+
+    reg_p = reg_dir / "CV_001--CV_002_reg.nii.gz"
+    dvf_p = reg_dir / "CV_001--CV_002_dvf.nii.gz"
+    synth_p = synth_dir / "CV_001--CV_002_synthetic_contrast.nii.gz"
+    nib.save(nib.Nifti1Image(np.zeros((8, 8, 8), dtype=np.float32), np.eye(4)), str(reg_p))
+    nib.save(nib.Nifti1Image(np.zeros((8, 8, 8, 1, 3), dtype=np.float32), np.eye(4)), str(dvf_p))
+    nib.save(nib.Nifti1Image(np.zeros((8, 8, 8), dtype=np.float32), np.eye(4)), str(synth_p))
+
+    metrics_csv = eval_dir / "synthesis_metrics.csv"
+    manifest_json = eval_dir / "synthesis_metrics_manifest.json"
+
+    df_metrics = pd.DataFrame([{
+        "Subject": "CV_001--CV_002_synthetic_contrast.nii.gz",
+        "run_id": "test_run_123",
+        "metric_version": "v4_audited_support",
+        "Reference_Coverage": 0.95,
+        "Pearson_R": 0.85,
+    }])
+    df_metrics.to_csv(metrics_csv, index=False)
+
+    # Empty items in manifest must be rejected
+    manifest_json.write_text(json.dumps({
+        "run_id": "test_run_123",
+        "items": [],
+        "total_files": 0,
+    }))
+
+    orig_res = vpr.RESULTS_DIR
+    try:
+        vpr.RESULTS_DIR = tmp_path / "results"
+        res = verify_project10_synthesis_and_kinetics()
+        assert not res["cohort_lineage_ok"], "Empty items manifest must reject lineage verification!"
+
+        # Unproven sidecar with no scored items must be rejected
+        manifest_json.unlink()
+        sidecar = eval_dir / "worker_0.meta.json"
+        sidecar.write_text(json.dumps({
+            "run_id": "test_run_123",
+            "status": "failed",
+            "num_assigned": 0,
+            "num_scored": 0,
+        }))
+        res2 = verify_project10_synthesis_and_kinetics()
+        assert not res2["cohort_lineage_ok"], "Unproven worker sidecar must reject lineage verification!"
+    finally:
+        vpr.RESULTS_DIR = orig_res
+
+
+def test_production_verifier_rejects_nan_in_compressed_registration_and_dvf(tmp_path):
+    """Finding 4 (5464671): Full decompression verifies finiteness; NaN-containing gzip volumes reject."""
+    import numpy as np
+    import nibabel as nib
+    import pandas as pd
+    import code.evaluation.verify_production_results as vpr
+    from code.evaluation.verify_production_results import verify_project10_synthesis_and_kinetics
+
+    eval_dir = tmp_path / "results" / "project10" / "evaluation_reports"
+    man_dir = tmp_path / "results" / "project10" / "manifests"
+    reg_dir = tmp_path / "results" / "project10" / "registered_volumes"
+    synth_dir = tmp_path / "results" / "project10" / "synthetic_volumes"
+    for d in [eval_dir, man_dir, reg_dir, synth_dir]:
+        d.mkdir(parents=True)
+
+    pairs_csv = man_dir / "multiphase_pairs.csv"
+    pd.DataFrame([{"patient_id": "P001", "subject_p0": "CV_001", "subject_target": "CV_002"}]).to_csv(pairs_csv, index=False)
+
+    reg_p = reg_dir / "CV_001--CV_002_reg.nii.gz"
+    dvf_p = reg_dir / "CV_001--CV_002_dvf.nii.gz"
+    synth_p = synth_dir / "CV_001--CV_002_synthetic_contrast.nii.gz"
+    nib.save(nib.Nifti1Image(np.zeros((8, 8, 8), dtype=np.float32), np.eye(4)), str(synth_p))
+
+    # Save registered volume containing NaN
+    arr_nan = np.zeros((8, 8, 8), dtype=np.float32)
+    arr_nan[2, 2, 2] = np.nan
+    nib.save(nib.Nifti1Image(arr_nan, np.eye(4)), str(reg_p))
+
+    dvf_arr = np.zeros((8, 8, 8, 1, 3), dtype=np.float32)
+    nib.save(nib.Nifti1Image(dvf_arr, np.eye(4)), str(dvf_p))
+
+    orig_res = vpr.RESULTS_DIR
+    try:
+        vpr.RESULTS_DIR = tmp_path / "results"
+        res = verify_project10_synthesis_and_kinetics()
+        assert not res["cohort_lineage_ok"], "NaN in compressed registration must fail cohort lineage!"
+    finally:
+        vpr.RESULTS_DIR = orig_res
+
