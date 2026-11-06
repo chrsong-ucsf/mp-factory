@@ -13,4 +13,4 @@ eval "$(mamba shell hook --shell bash)"
 mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 
 # Run worker script across array tasks
-python /mnt/scratch/user/chrsong/mp-factory/code/run_totalseg_gi_array.py $SLURM_ARRAY_TASK_ID 4
+python /mnt/scratch/user/chrsong/mp-factory/code/slurm_scripts/run_totalseg_gi_array.py $SLURM_ARRAY_TASK_ID 4

@@ -15,4 +15,4 @@ module load miniforge3/26.3.2-3
 eval "$(mamba shell hook --shell bash)"
 mamba activate /mnt/scratch/user/chrsong/envs/mp-factory
 
-python -u /mnt/scratch/user/chrsong/mp-factory/code/run_totalseg_bdmap.py ${SLURM_ARRAY_TASK_ID} 4
+python -u /mnt/scratch/user/chrsong/mp-factory/code/slurm_scripts/run_totalseg_bdmap.py ${SLURM_ARRAY_TASK_ID} 4

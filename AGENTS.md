@@ -191,13 +191,16 @@ sbatch code/slurm_scripts/run_jhu_radiologist_eval_gpu.sbatch
 - **Paths:** scripts hardcode cluster paths under `/mnt/scratch/user/chrsong/mp-factory`; when editing locally, keep those defaults unless the task says otherwise.
 - **SLURM ↔ script coupling:** `slurm_scripts/*.sbatch` reference scripts by absolute path. After the subdirectory reorg, **12 of the 13** `.sbatch` jobs still point at the old flat `code/<script>.py` location (only `run_jhu_radiologist_eval_gpu.sbatch` was updated to the new `code/evaluation/...` path). Fix the `python -u ...` target to the correct subdirectory (e.g. `code/training/train_mednext.py`, `code/evaluation/evaluate_multi_model_ensemble.py`) before submitting any job.
 - **Organ label map is fixed** (`0..4` above); keep it consistent across training, prediction, and evaluation.
-- **GPU Cluster Hardware & Partition Allocation (CRITICAL):**
-  - **Do NOT restrict GPU jobs to `ggpu1`!** The cluster has multiple GPU hardware tiers available:
-    - `ggpu4-[01-06]`: NVIDIA **H100 NVL** (94GB, highest throughput) in `partition=gpu`
-    - `ggpu1-[06-12]`: NVIDIA **L40S** (48GB) in `partition=gpu`
-    - `ggpu1-[13-19]`: NVIDIA **RTX 6000 Ada** (48GB) in `partition=gpu`
-    - `ggpu3-[17-29]` & `ggpu5-[01-03]`: NVIDIA **H200 / H200 NVL** (141GB) in `partition=large_gpu`
-  - In Slurm `.sbatch` configurations, never pin jobs to specific nodes with `--nodelist` or restrict exclusively to `ggpu1`. Use general resource requests (`#SBATCH --partition=gpu` with `#SBATCH --qos=gpu` and `#SBATCH --gres=gpu:1`) to allow the scheduler to dispatch immediately across all available H100 NVL, L40S, and RTX 6000 Ada GPUs as slots open up. (Do NOT specify `large_gpu` unless using an authorized lab QOS like `yang_lab_qos`, as `large_gpu` rejects general `qos=gpu`).
+- **SLURM Execution for All Workloads (GPU & CPU):**
+  - **All jobs and heavy operations must run through Slurm, including CPU jobs and verification suites.** Running heavy audits, test suites, or verifications directly on the login node is prohibited and slow. Dedicated runners `code/slurm_scripts/run_pytest.sbatch` and `code/slurm_scripts/run_verify_production_results.sbatch` are provided.
+  - **CPU Cluster Partition Allocation:** Use `#SBATCH --partition=community,community_short,cpu` with `#SBATCH --qos=hpc_core` (or `#SBATCH --qos=cmnt` when community-exclusive) so CPU tasks dispatch immediately across idle cluster compute nodes (`ccpu1-*`, `gcpu2-*`).
+  - **GPU Cluster Hardware & Partition Allocation (CRITICAL):**
+    - **Do NOT restrict GPU jobs to `ggpu1`!** The cluster has multiple GPU hardware tiers available:
+      - `ggpu4-[01-06]`: NVIDIA **H100 NVL** (94GB, highest throughput) in `partition=gpu`
+      - `ggpu1-[06-12]`: NVIDIA **L40S** (48GB) in `partition=gpu`
+      - `ggpu1-[13-19]`: NVIDIA **RTX 6000 Ada** (48GB) in `partition=gpu`
+      - `ggpu3-[17-29]` & `ggpu5-[01-03]`: NVIDIA **H200 / H200 NVL** (141GB) in `partition=large_gpu`
+    - In Slurm `.sbatch` configurations, never pin jobs to specific nodes with `--nodelist` or restrict exclusively to `ggpu1`. Use general resource requests (`#SBATCH --partition=gpu` with `#SBATCH --qos=gpu` and `#SBATCH --gres=gpu:1`) to allow the scheduler to dispatch immediately across all available H100 NVL, L40S, and RTX 6000 Ada GPUs as slots open up. (Do NOT specify `large_gpu` unless using an authorized lab QOS like `yang_lab_qos`, as `large_gpu` rejects general `qos=gpu`).
 - **Knowledge graph:** `graphify-out/GRAPH_REPORT.md` is a generated map of modules/relationships; regenerate rather than hand-edit.
 - **Proactive Specialized Subagents (PERMISSION GRANTED):**
   - **Proactively define and spin up specialized subagents** (`define_subagent` and `invoke_subagent`) whenever a repetitive, intensive, multi-step, or heavy background task is needed (e.g. codebase AST indexing, knowledge graph synchronization, dataset integrity auditing, log analysis, parallel sweeps, evaluation monitoring, or batch data preprocessing).

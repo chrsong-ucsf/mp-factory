@@ -2,7 +2,7 @@
 #SBATCH --job-name=jhu_eval_fast
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_eval_fast_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/jhu_eval_fast_%j.err
-#SBATCH --partition=cpu
+#SBATCH --partition=community,community_short,cpu
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G

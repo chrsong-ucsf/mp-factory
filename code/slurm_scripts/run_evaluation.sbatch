@@ -2,7 +2,7 @@
 #SBATCH --job-name=eval_ensemble
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/eval_ensemble_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/eval_ensemble_%j.err
-#SBATCH --partition=cpu
+#SBATCH --partition=community,community_short,cpu
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH --time=08:00:00

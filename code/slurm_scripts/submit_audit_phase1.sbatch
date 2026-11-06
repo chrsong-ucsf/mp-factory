@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=phase1_audit
-#SBATCH --partition=cpu
+#SBATCH --partition=community,community_short,cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
@@ -20,10 +20,10 @@ GT_DIR="/mnt/scratch/user/chrsong/mp-factory/CancerVerse_dbox"
 TOTALSEG_DIR="/mnt/scratch/user/chrsong/mp-factory/results/totalseg_gi_masks_bdmap"
 OUT_CSV="/mnt/scratch/user/chrsong/mp-factory/results/phase1_audit_summary.csv"
 
-python /mnt/scratch/user/chrsong/mp-factory/code/audit_phase1_gi.py \
+python /mnt/scratch/user/chrsong/mp-factory/code/utilities/audit_phase1_gi.py \
     --gt_dir "${GT_DIR}" \
     --totalseg_dir "${TOTALSEG_DIR}" \
     --out_csv "${OUT_CSV}" \
     --num_workers 32
 
-python /mnt/scratch/user/chrsong/mp-factory/code/analyze_audit_results.py "${OUT_CSV}"
+python /mnt/scratch/user/chrsong/mp-factory/code/utilities/analyze_audit_results.py "${OUT_CSV}"

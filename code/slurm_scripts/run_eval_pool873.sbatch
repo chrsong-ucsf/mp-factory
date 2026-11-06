@@ -2,7 +2,7 @@
 #SBATCH --job-name=eval_p873
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/eval_pool873_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/eval_pool873_%j.err
-#SBATCH --partition=cpu
+#SBATCH --partition=community,community_short,cpu
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00

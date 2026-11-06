@@ -2,8 +2,8 @@
 #SBATCH --job-name=p10_eval_synth
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/p10_eval_synth_%A_%a.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/p10_eval_synth_%A_%a.err
-#SBATCH --partition=cpu
-#SBATCH --qos=cpu
+#SBATCH --partition=community,community_short,cpu
+#SBATCH --qos=hpc_core
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=04:00:00

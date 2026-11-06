@@ -2,8 +2,8 @@
 #SBATCH --job-name=autolabel_p2
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/autolabel_p2_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/autolabel_p2_%j.err
-#SBATCH --partition=cpu
-#SBATCH --qos=cpu
+#SBATCH --partition=community,community_short,cpu
+#SBATCH --qos=hpc_core
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=120G
 #SBATCH --time=04:00:00

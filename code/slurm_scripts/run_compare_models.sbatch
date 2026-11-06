@@ -2,7 +2,7 @@
 #SBATCH --job-name=model_compare
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/model_compare_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/model_compare_%j.err
-#SBATCH --partition=cpu
+#SBATCH --partition=community,community_short,cpu
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=4:00:00
