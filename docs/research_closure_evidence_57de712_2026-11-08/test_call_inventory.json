@@ -1,0 +1,89 @@
+{
+  "test_t01_marginal_loss_heterogeneous_batch_and_fail_closed": [
+    "MarginalDiceCELoss",
+    "loss.backward",
+    "loss_fn",
+    "loss_marginalized.item",
+    "loss_penalized.item",
+    "pytest.raises",
+    "torch.all",
+    "torch.isfinite",
+    "torch.no_grad",
+    "torch.randint",
+    "torch.randn",
+    "torch.tensor",
+    "torch.zeros"
+  ],
+  "test_t02_swin_phase1_constructor_syntax": [
+    "ast.parse",
+    "ast.walk",
+    "f.read",
+    "isinstance",
+    "open",
+    "os.path.join",
+    "type"
+  ],
+  "test_t03_schema_compatibility_and_provenance_separation": [
+    "audit_case",
+    "case_dir.mkdir",
+    "json.dump",
+    "nib.Nifti1Image",
+    "nib.save",
+    "np.eye",
+    "np.zeros",
+    "open",
+    "str"
+  ],
+  "test_t04_lesion_benchmark_fail_closed_and_leakage": [
+    "json.load",
+    "open",
+    "pytest.raises",
+    "run_benchmark",
+    "str"
+  ],
+  "test_t05_registration_loader_and_session_separation": [
+    "len",
+    "nib.Nifti1Image",
+    "nib.save",
+    "np.eye",
+    "np.zeros",
+    "pd.DataFrame",
+    "pd.DataFrame(rows, columns=headers).to_csv",
+    "pd.read_csv",
+    "str"
+  ],
+  "test_t06_surface_hd95_and_permutation": [
+    "compute_hd95_numpy",
+    "np.zeros",
+    "paired_cluster_bootstrap",
+    "pd.DataFrame",
+    "pytest.approx",
+    "range",
+    "records_10pt.append"
+  ],
+  "test_t07_scaling_law_patient_axis_and_safeguard": [
+    "fit_scaling_models",
+    "pd.DataFrame",
+    "pd.DataFrame(rows).to_csv",
+    "str"
+  ],
+  "test_t08_spatial_support_normalization": [
+    "normalized_weights[0, 0, 0, 0].item",
+    "normalized_weights[0, 0, 0, 1].item",
+    "normalized_weights[1, 0, 0, 0].item",
+    "normalized_weights[1, 0, 0, 1].item",
+    "pytest.approx",
+    "torch.tensor",
+    "torch.where",
+    "torch.zeros_like",
+    "weighted_support.sum",
+    "weights.view"
+  ],
+  "test_t09_quarantine_registry_integrity": [
+    "json.load",
+    "len",
+    "open",
+    "os.path.exists",
+    "os.path.join"
+  ]
+}

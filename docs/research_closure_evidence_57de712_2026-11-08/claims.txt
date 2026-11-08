@@ -1,0 +1,107 @@
+{
+  "head": "57de712",
+  "scope": "tiny synthetic controls temporary output only; no model imports/training/cluster work",
+  "unmodified_perfect_predictions": {
+    "summary_status": "INCOMPLETE_PREDICTIONS",
+    "missing_predictions": 4,
+    "row_statuses": [
+      "CORRUPTED_PREDICTION: name 'compute_betti0_error' is not defined"
+    ]
+  },
+  "betti_alias_isolation_displaced1000mm": {
+    "status": "COMPLETED",
+    "refpresent_dice": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "betti_alias_isolation_empty_predictions": {
+    "status": "COMPLETED",
+    "rows": [
+      {
+        "dice": 0.0,
+        "surface_hd95": NaN,
+        "is_failure_penalty": false,
+        "status": "OK"
+      },
+      {
+        "dice": 0.0,
+        "surface_hd95": NaN,
+        "is_failure_penalty": false,
+        "status": "OK"
+      },
+      {
+        "dice": 0.0,
+        "surface_hd95": NaN,
+        "is_failure_penalty": false,
+        "status": "OK"
+      },
+      {
+        "dice": 0.0,
+        "surface_hd95": NaN,
+        "is_failure_penalty": false,
+        "status": "OK"
+      }
+    ]
+  },
+  "scaling_requested_missing_annotation_budget_scanIDs": {
+    "Ns": [
+      2,
+      3,
+      5,
+      10
+    ],
+    "cluster_col": "scan_id",
+    "bootstrap": "patient_cluster",
+    "cluster_count": 8
+  }
+}
+
+UNMODIFIED denominator probe: one corruptGT + one allbackgroundGT withfourmatchingbackgroundpredictions:
+{
+  "status": "COMPLETED",
+  "n_cases": 2,
+  "total_evaluations_planned": 4,
+  "successful_evaluations": 4,
+  "missing_predictions": 0,
+  "completion_rate": 1.0,
+  "matched_arms": [
+    "Teacher_TotalSegmentator_v2",
+    "Majority_Vote_Consensus",
+    "Weighted_Ensemble",
+    "Student_MedNeXt_Phase2"
+  ],
+  "comparisons": {
+    "Student_vs_Teacher": {
+      "status": "NO_PAIRED_DATA",
+      "delta_mean": null,
+      "p_value": null
+    },
+    "Student_vs_Weighted_Ensemble": {
+      "status": "NO_PAIRED_DATA",
+      "delta_mean": null,
+      "p_value": null
+    },
+    "Weighted_Ensemble_vs_Majority": {
+      "status": "NO_PAIRED_DATA",
+      "delta_mean": null,
+      "p_value": null
+    }
+  },
+  "predictions_csv": "/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpo2racy5s/out/p9_matched_predictions.csv"
+}
+
+Exact source notes:
+1. Unmodified runtime defect benchmark_p9_independent_study.py348 calls undefinedcompute_betti0_error; onlycompute_betti0_numpy defined57. Catch370-385 misclassifies validpredictionsascorrupt; actualperfectGT+4matchingpredictionsallpenalized. Downstream geometry/emptybehavior probes used ONLY an in-memory alias to existinghelper; sourceunmodified.
+2. Physical reference331-335 comparesonlyshape, resamplesmismatchtounitidentityratherthantrueGTaffine; identicalshape/displaced1000mm evaluatedasDice1 in alias-isolatedcontrol. NRRDclassschema/authoritativepatient/exposuremanifestsnotvalidated; patientid280derivedfilename.
+3. Emptyavailableprediction/refpresent computesHD95NaN64-70/347 and marksOK/failureFalse; missingfilegetsdiagonalpenalty310-325. Do notdropmissingorganfailuresfromHD95metrics.
+4. CorruptGT294-296 skipped beforetotal_evals301-302; summary397-405doesnotcountGTfailuresdespiten_casesincludingallfilenames. Actualunmodified1corrupt+1backgroundGT withmatchingbackgroundpreds reportsCOMPLETED/n_cases2/successful4/completion1/noeligiblepaireddata.
+5. P9independentdata provenance gate227-231testsfilesexistonly; no signedreference schema/untouchedexposuremanifest. HistoricalGToption doesnotestablishindependence. Reader151-204onlytemplate, groupedbystratumwithnoreaderanalysis/lifecycleclaimclosure.
+6. SurfaceHD95shell64-87andpatientlevelpermutation105-136arefixedasmethods; singlepatient/lessthan10nowdeclinesinference. Thresholdisoperationalnotasamplesize/powerresult.
+7. Scaling84-102defaultpatientaxisfixedwhenpropercolumnexistsbutmissingannotationbudgetfallsbackpatients/scanssilently.125-130treatsscan_idaspatient; operational5patientgate212-227cannotensureactualindependence. Actual8uniqueScanIDsonepatientcanpatient_clusterbootstrap8entities.
+8. run_scaling_sweepbest_epochdefined781andupdated884(notundefined). annotation_organ_count961/980constantNUM_CLASSESdoesnotmeasuretotalreviewedpatient-organs/timebudget.
+9. DocsQUARANTINE_REGISTRY.md8claimsstrictdownstreamexclusionbutno sourcecodeconsumerofregistry. jsonQR0019-14existence_verifiedtrue/emptybytesSHA/1598falseREJECTcausalclaimrequireactualartifactproof. No empiricalreinterpretation orpowerclaimfromthesecontrols.
+10. SHOWCASE15,308-309nowscopeparametriccurves/exploratorysimilarityanddeclinebiologicalvalidation/solvedsynthesis: framingfixed. Buthistoricaltables/figuresremainandrequiredlifecycleclaimsupport/withdrawalneedsvalidatedsourceartifactsandprospectiveindependenttests; missinglocalassetsnotremoteabsence.
+Reproducer: /tmp/mp_audit_57de712_claims_probe.py

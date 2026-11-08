@@ -1,0 +1,41 @@
+[
+  {
+    "artifact_id": "QR-2026-001",
+    "path": "results/ensemble_phase3_audit_summary.csv",
+    "exists_locally": false,
+    "claimed_existence": true,
+    "claimed_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "actual_local_hash": null
+  },
+  {
+    "artifact_id": "QR-2026-002",
+    "path": "CancerVerse/multiphase_pairs.csv",
+    "exists_locally": false,
+    "claimed_existence": true,
+    "claimed_hash": "UNKNOWN_SCRATCH_TIER",
+    "actual_local_hash": null
+  },
+  {
+    "artifact_id": "QR-2026-003",
+    "path": "results/lesion_augmentation_benchmark_summary.json",
+    "exists_locally": false,
+    "claimed_existence": true,
+    "claimed_hash": "UNKNOWN_SCRATCH_TIER",
+    "actual_local_hash": null
+  },
+  {
+    "tracked_path": "docs/manifests/ensemble_phase3_audit_summary.csv",
+    "sha256": "6a2f3341ba43692028cc631295cf0728ba6db9a0a1a3ac3495f9069643556465",
+    "rows": 1632,
+    "triage_counts": {
+      "NOISE_REJECT": 1598,
+      "WEAK_COARSE": 34
+    }
+  },
+  {
+    "tracked_path": "docs/manifests/multiphase_pairs.csv",
+    "sha256": "0c33d574c981ecce826f44c36837670e92bb4d910111151f3c7cd56a115e5a7c",
+    "rows": 1545,
+    "both_dates_blank": 1545
+  }
+]

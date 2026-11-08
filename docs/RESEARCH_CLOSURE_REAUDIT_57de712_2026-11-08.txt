@@ -1,0 +1,123 @@
+RESEARCH REMEDIATION CLOSURE RE-AUDIT — 2026-11-08
+Audited commit: 57de7128b47b1aaa72c407d066619a6397860d93 (reaudit complete)
+Baseline: 934a5cb; prior findings F01-F13, revised Closure & Empirical Protocols plan, and subsequent thirteen requested corrections.
+
+VERDICT
+Partially implemented; not closed. Several previously concrete defects are repaired, but important training, evaluator, support, leakage and evidence contracts remain broken. No completed independent scientific study is established by the supplied commit or inspected artifacts. New statistical/model code is not evidence of new clinical results.
+
+SCOPE
+Fresh checkout/diff and graphify orientation; three specialized reviews; isolated small synthetic/AST/arithmetic probes; fresh historical CSV counts; registry and test-call inspection. Syntax passed for100 tracked Python files and85 shell/Slurm files. This audit did not run a full pytest suite, expensive model imports, training, clinical inference or cluster jobs. No fresh production or clinical efficacy result is asserted. Remote outputs not available here remain unverified rather than absent. Synthetic controls below are software counterexamples, not patient measurements.
+
+SOURCE-LEVEL FIXES ACTUALLY PRESENT
+- F02: Swin Phase1 alpha/beta are now numeric, not Python sets.
+- F01: Marginal loss rejects missing review metadata and present_classes substitution. Phase1 MedNeXt/Swin discovery now reads review fields and their datasets propagate boolean masks. This does not complete all five training paths or prove provenance validity.
+- F03: Scanner distinguishes inferred from verified schemas, fixes JHU5 bowel/colon confusion and supports rectum6; review no longer comes from visible organ labels; reviewed absence can be annotation-complete.
+- F04: Synthetic labels now come from each synthetic record; missing features no longer become Gaussian jitter or constant substitute features.
+- F07/F08: Headered registration CSVs are read by column name, empty eligible datasets error, known same-date accession conflicts get distinct status, and closest-date fallback is actually calculated.
+- F09/F10: P9 placeholder was replaced by loading/evaluation logic; surface HD95 and patient-level sign flips with finite Monte Carlo correction and a low-patient safeguard were implemented. The evaluator is nevertheless broken as detailed below.
+- F11: Default scaling axis can use patient counts, explicit one-patient row-resampling fallback is removed, integer best epoch and per-organ long-form test exports are present. They are not measured annotation-budget evidence.
+- F12: Explicit support masks now reach ensemble weighting and consensus support is saved; autolabel/unified dataset support handling was added. Fallbacks and downstream reduction remain defective.
+- F13: A tracked quarantine registry exists. SHOWCASE15/308/309 now properly distinguish prescribed kinetics, error-selected reconstruction correlation and heuristic air correction from independent physiological/diagnostic validation.
+
+CONFIRMED REMAINING FINDINGS AND ACCEPTANCE CRITERIA
+
+R01 [P1; F01] Three of five marginal training paths still have no review-metadata producer.
+Sources: code/training/train_mednext_phase2.py:741-744; train_swin_unetr_phase2.py:526-529; run_scaling_sweep.py:795-798; marginal_loss.py:71-75.
+Both Phase2 datasets and scaling still only retrieve reviewed_classes from the batch without ingesting/emitting it. Selecting marginal on their built-in datasets reaches the new ValueError instead of implementing partial supervision. Phase1 ingestion alone does not meet the five-trainer requirement. Label-origin/review-region manifests for expert/coarse/teacher/consensus sources also remain incomplete.
+Close with metadata-aware discovery, appropriate human-versus-pseudo supervision semantics, preserved spatial validity and class masks, and real dataset->collation->forward/backward checks through all five trainers. Unknown metadata must fail before training, not during an epoch.
+
+R02 [P2; F01/F03] Phase1 review provenance and voxel-schema contracts disagree with the repaired scanner.
+Sources: train_mednext.py:120-141,247-248; train_swin_unetr.py:124-145,238-239.
+Legacy reviewed_classes are accepted even with human_reviewed:false, whereas the scanner requires review confirmation. Empty per_organ_provenance also creates a non-None all-unreviewed foreground mask and passes discovery. Schema/declared_schema is not propagated with new metadata; noncanonical combined labels can be paired with canonical reviewed-organ flags without explicit source mapping.
+AST-extracted actual discovery controls reproduced acceptance of explicit human_reviewed:false and loss of declared JHU schema. Canonical preconverted masks are not implicated by the schema counterexample.
+Close with one validated annotation contract across audit/discovery/trainers, nonempty useful supervision, schema-specific voxel remapping, artifact/review provenance and review-region masks. JSON field presence must not manufacture verification.
+
+R03 [P1; F12] Foreground positivity is incorrectly used as spatial coverage.
+Source: code/evaluation/evaluate_multi_model_ensemble.py:505,528-558.
+When probabilities/support are unavailable, support=(hard_mask>0); NPZ support fallback similarly uses foreground probability. Legitimate background predictions therefore lose their votes. Bounded counterexample: equal-weight full-coverage BG,BG,organ becomes support0,0,1 and unanimous organ instead of majority background. This is an actual common hard-mask/TotalSeg path, not merely an alternate metadata permutation.
+Close by deriving spatial coverage from image/grid validity or an explicit validated support map. Never infer coverage from predicted foreground. Test background-majority, supported-negative and partial-field-of-view cases through the production ensemble path.
+
+R04 [P2; F12] Unsupported uncertainty, channel order and legacy handling remain unsafe.
+Sources: evaluator:487-505,570,600-601; code/evaluation/hard_threshold_autolabel.py:188-210.
+No-support entropy is NaN but ordinary mean/max reductions propagate it into scan summaries. A declared non-self-inverse channel permutation is reordered using the permutation rather than its inverse. Equal-shape legacy NPZs still inherit unverified affines. Failed support-map loading in autolabel handling can silently continue without the intended mask.
+Close with supported-domain reductions and explicit empty-domain status, validated inverse channel mapping, physical metadata/coverage verification, fail-closed support loading, and propagation through every actual trainer. Coverage failures must remain visible in clinical evaluation rather than disappearing from its denominator.
+
+R05 [P1; F09] The new P9 evaluator misclassifies valid predictions as corrupted.
+Sources: code/evaluation/benchmark_p9_independent_study.py:57,343-348,370-385.
+compute_betti0_error is called but not defined; the existing function is compute_betti0_numpy. The broad exception handler converts this software error into prediction failure penalties. Actual tiny valid GT plus four identical predictions produced INCOMPLETE_PREDICTIONS with4missing/corrupt predictions and the undefined-name error.
+Close with a functioning full four-arm positive-path test, numerical metric checks and exception classification that distinguishes implementation failure from unreadable data. The new suite does not execute this positive path.
+
+R06 [P1/P2; F09/F10] Independent cohort, reference identity and geometry still are not enforced.
+Sources: P9 script:227-231,278-296,304-307,329-340,397-406.
+The planned locked patient manifest is not loaded. Patients are guessed from filename fragments; overlap with development/generator/teacher tuning is not checked. Prediction matching is substring-based. Same-shape arrays ignore affine mismatch; different shapes resample against identity rather than the actual reference affine. NRRD label-map/direction/origin normalization is not implemented as the proposed reference contract. Corrupt GT is skipped before planned-evaluation counters, so locked-denominator accountability is not satisfied.
+Diagnostic control ONLY after a temporary in-memory alias of the undefined Betti symbol (repository source unchanged): identical arrays displaced1000mm still scored Dice1/COMPLETED. This isolates a downstream geometry defect; it is not a successful run of unmodified HEAD.
+Close with explicit patient/case/source-schema manifests, exact artifact matching, actual physical reference coordinates, validated NRRD conversion, development-overlap checks, and auditable GT failures. Resampling cannot create correspondence between unrelated examinations.
+
+R07 [P2; F09/F10] Failure/absence/multiplicity reporting remains incomplete.
+Sources: P9 script:64-66,310-325,343-355,370-395.
+Reference-absent organs now have separate FP-volume records rather than entering Dice as1, which is improved. But a reference-present empty prediction produces HD95 NaN/statusOK without failure-penalty designation once the Betti typo is isolated. Missing/corrupt predictions use arbitrary Betti penalty5; the endpoint and penalty-sensitivity policy is not locked. Clinical per-organ/multiple-contrast multiplicity and reader-study endpoints remain unspecified/unenforced; only three pooled Dice contrasts are calculated. Per-patient sign flips themselves are repaired, conditional on trustworthy patient identities.
+Close with prespecified reference-present/absent summaries, explicit output-failure accounting, labeled failure penalties/sensitivity analysis, primary contrast/organ weighting and multiplicity plan, and independent-patient sample-size justification. Threshold counts are safeguards, not proof of adequate precision.
+
+R08 [P1/P2; F05] Synthetic leakage gates are optional and omit generator exposure.
+Source: code/project10/evaluation/benchmark_lesion_augmentation_utility.py:281-305.
+Only whichever parent/patient/background_ct_patient_id columns happen to exist are checked. Missing/blank identities survive, and generator-training/model-selection membership is not checked at all. The planned background_source_patient_id and model-development exposure records are not required. A real table split alone does not establish untouched synthetic dependencies.
+Close with locked canonical patient registries, required nonblank parent/background identities, generator and preprocessing/model-development manifests/checkpoint lineage, resolved cross-source identity and explicit exclusion of held-out exposure. Unverifiable exposure must block primary eligibility.
+
+R09 [P2; F04/F06] The twelve-feature protocol and matched kinetics experiment are still not implemented.
+Sources: lesion benchmark:266-279,330-357.
+Any feat_* or subset of intended features is accepted. No CT measurement extractor/formulas/units, ROI provenance, acquisition timing, clinical-reference verification or frozen feature protocol is enforced. Arm1 still fitsNreal rows; Arms2/3fitNreal+independently sampled synthetic rows, possibly unequal sizes. Missing syn_type sends the same pool into both arms. No matched geometry/background/pathology instance join exists, and baseline augmentation is absent.
+Close with a reproducible/authenticated feature contract (including real ROI task scope), actual same-protocol measurements, explicit synthetic types and paired IDs, prespecified baseline augmentation/exposure, arm count/composition audits and clinical references. Existing code can fit external numbers; it cannot establish their physical validity or isolate kinetics.
+
+R10 [P2; F06/F10] Added seeds are pooled into the wrong/unspecified AUC estimand.
+Sources: lesion benchmark:120-134,176-178,323-384.
+Five models are genuinely fit per arm, but repeated raw scores across seeds are pooled into one AUC; seed-specific performance/variance is not reported. This is neither mean seedAUC nor a prespecified probability ensemble. Standard-library counterexample: seeds with scores(.1,.2) and(.8,.9) for one negative/positive each both have AUC1, while pooled raw-score AUC=.75.
+Close with an explicit per-seed paired-delta or per-lesion ensemble estimand, fixed patient split, patient-weighting policy and separate training-seed variability. Patient resampling alone does not define the seed estimand. Random shuffle is still called stratified; no post-filter patient/class sufficiency gates are enforced, and final EMPIRICAL_COMPLETED is unconditional even if inference helpers return insufficient/failure statuses.
+
+R11 [P2; F07/F08] New schema parsing does not enforce approved primary registration eligibility.
+Sources: code/project10/datasets/multiphase_paired_dataset.py:91-117; discover_multiphase_cohort.py:213-218.
+The loader unconditionally admits legacyOK, provisionalQA and independent-approval strings together, with no primary/exploratory configuration or identity-checked approval artifact. Same-accession discovery still sets verified_same_session/same_day before validating compatible dates. Known different-accession same-day status is fixed; full patient/session/date agreement is not.
+Close with versioned producer/consumer validation, explicit development versus primary policies, actual readable image/transform lineage and independent approval records. Require patient/accession/date consistency for primary pairing. Independent landmark/lesion correspondence, rater variation, threshold justification and rigid/affine/deformable sensitivity remain empirical requirements, not accomplished by naming APPROVED_INDEPENDENT_LANDMARK.
+
+R12 [P2; F11] Scaling still substitutes scan identity and annotation budget.
+Sources: code/evaluation/compute_scaling_law.py:84-102,125-130,210-231; code/training/run_scaling_sweep.py:956-982.
+Patient axis and low-patient refusal improved, but scan_id/case_id can still become the patient-cluster identifier. Requested missing annotation_budget silently falls back to patient/scan counts. annotation_organ_count remains constantNUM_CLASSES=4, not measured total reviewed-organ effort/hours. Actual independent training subsets/annotation effort, seed/subset variability and locked learning-curve estimand remain unverified.
+Tiny control requested annotation_budget without budget metadata: function used patient sizes2/3/5/10 and labeled8scan IDs as8patient clusters.
+Close by requiring the requested axis and true patient identity, authentic measured budget/membership records, fixed external test patients, shared test-patient draws across the curve and separate seed/subset variability. Report conditional curve-family uncertainty and do not interpret a fitted curve as a biological/sample-efficiency law.
+
+R13 [P1/P2; F13] New quarantine records invent unsupported causal/provenance conclusions.
+Sources: docs/quarantine_registry.json:6-24; docs/QUARANTINE_REGISTRY.md:15-21.
+RegistryQR001 supplies the SHA256 of empty bytes for a purported historical ensemble CSV. The actual tracked1632-row CSV hashes6a2f3341ba43692028cc631295cf0728ba6db9a0a1a3ac3495f9069643556465. Named registry source paths are locally unavailable while actual_existence_verified is true; no remote evidence supplied here authenticates those assertions. Registry/dossier assert all1598REJECTS were caused by the defects and were false. Prior audit identified plausible failure paths, not that cohort-wide causal result. The historical generator commit and wrong/alternate utility artifact paths are not established provenance. Original hardcoded-AUC report/log quarantine remains unverified.
+No production/manuscript consumer references quarantine_registry to enforce the dossier's claimed strict exclusion. A JSON inventory is not demonstrated withdrawal.
+Close by withdrawing the unsupported false-REJECT attribution, recording actual verified artifact hashes/locations/date/commit or explicit unknowns, including original invalid benchmark/log evidence, and enforcing exclusion in report/data consumers with a negative test. Distinguish known code defects, affected-run evidence and independently adjudicated outcome invalidity. Never promise corrected ensembling will produce clean cases.
+
+R14 [P2; VERIFICATION] New tests do not establish the integration they advertise.
+Source: tests/test_reaudit_implementation_f01_f13.py; accompanying AST call inventory.
+T01 executes a standalone loss, not five actual trainer pipelines. T04 checks only nonexistent files, not labels/leakage/matched arms. T05 reads the fixture via pandas, never the actual dataset or discovery function. T06 tests metric/stat helpers, not run_benchmark's four-arm positive path. T08 reproduces a tensor formula, never calls production ensemble/support export. T09 checks registry fields/count/status, not hashes/existence or enforced withdrawal. These tests would miss the reproduced critical regressions. No full-suite pass is claimed by this audit.
+Close with real producer->consumer contracts, actual minimal trainer paths, valid and failing four-arm runs, coverage/background/legacy tests and recomputed artifact-hash checks. Preserve negative controls as well as happy paths. Link exact current-commit test logs and environment before runtime_verified.
+
+FINAL THIRTEEN REQUESTED AMENDMENTS — IMPLEMENTATION STATUS
+1. Separate study completion from favorable claim support: NOT IMPLEMENTED as a tracked study_status/claim_support registry. A negative or inconclusive result must still count as completed research; engine syntax fixes may be NOT_APPLICABLE scientifically.
+2. Empty/missing-output evaluation: PARTIAL. Reference-absent FP volumes and completion counters added; R05-R07 prevent correct denominator/geometry/failure behavior.
+3. Trustworthy per-organ review/origin/scope: PARTIAL in Phase1/scanner; R01/R02 and review-region/annotation-source artifacts remain open.
+4. Schema compatibility/JHU6: SUBSTANTIALLY IMPLEMENTED in scanner; training schema propagation/remapping remains open.
+5. Reproducible physical feature measurements: NOT IMPLEMENTED; listing column names is not an extractor or authenticated input contract.
+6. Baseline augmentation/matched classifier protocol: NOT IMPLEMENTED as specified; R09 persists.
+7. Broad leakage boundary and fixed splits across training seeds: PARTIAL. Five fits share one split within a run, but no locked external split/provenance contract or generator exposure gate.
+8. Operational primary registration/landmark validation: PARTIAL parsing/status taxonomy; primary enforcement and actual landmark evidence pending.
+9. Independent segmentation/reader protocols: PARTIAL evaluator logic and review template; locked reference manifests, complete reader protocol, adjudication/sample-size and execution evidence missing.
+10. Prespecified statistical analysis: PARTIAL P9 surface/permutation helpers; R06/R07/R10/R12 remain; no locked protocol/evidence registry establishes remaining choices.
+11. Controlled retraining/noninferiority: NOT ESTABLISHED. No supplied controlled retraining, prespecified preservation margin or independent endpoint results.
+12. Scaling/support contracts: PARTIAL. New outputs/normalization exist; R03/R04/R12 remain.
+13. Verifiable evidence withdrawal/readable formulas: PARTIAL registry and readable in-source support math; R13 prevents verifiable withdrawal. The corrected reusable study protocol/formulas have not been committed as a completed decision record.
+
+SCIENTIFIC STUDIES STILL NOT VALIDATED BY SUPPLIED EVIDENCE
+- Blinded independent consensus/triage usability and four-arm external segmentation accuracy, including clinically relevant failure coverage.
+- Controlled marginal-loss retraining benefit and preservation/noninferiority on fully reviewed organs. Study completion must not require a positive effect.
+- Independent clinical session correctness and anatomical/lesion registration error; reader variation, justified acceptance thresholds and registration ablations.
+- Real held-out hepatic diagnostic augmentation utility and incremental phase-kinetics benefit under matched composition, lineage and budgets.
+- Physiological realism and external biological kinetics: simulator-specified curves remain consistency checks, not independent validation.
+- Patient/center generalization, actual annotation-budget scaling and training/subset stability.
+- Cohort-wide support/geometry-correct reruns and evidence-based adjudication of historical rejects. Fresh recount remains1632cases:0CLEAN,34WEAK,1598REJECT. All1545tracked phase pairs still have both dates blank. These are historical manifest observations, not a current production regeneration.
+
+RECOMMENDED ORDER
+Fix R01/R03/R05 and evidence overclaimsR13 first. Then establish end-to-end metadata/geometry/support and leakage protocols, correct statistical estimands and add genuine integration controls. Record implemented/runtime_verified/study_status/claim_support separately. Execute independent studies only on locked eligible cohorts and report negative/inconclusive outcomes honestly. This audit changes documentation/evidence only; source repairs and cluster jobs were not performed.

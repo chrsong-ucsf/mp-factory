@@ -1,0 +1,9 @@
+{
+  "audited_commit": "57de7128b47b1aaa72c407d066619a6397860d93",
+  "checks": {
+    "python_ast": 100,
+    "shell_syntax": 85
+  },
+  "failures": [],
+  "scope": "Syntax only. No full pytest, model imports, training, cluster jobs or fresh clinical measurements."
+}

@@ -1,0 +1,10 @@
+train_mednext.py metadata= {'schema': 'jhu', 'reviewed_classes': ['stomach'], 'human_reviewed': False} reviewed= [True, True, False, False, False] schema= None
+train_mednext.py metadata= {'schema': 'canonical_5class', 'per_organ_provenance': {}} reviewed= [True, False, False, False, False] schema= None
+train_swin_unetr.py metadata= {'schema': 'jhu', 'reviewed_classes': ['stomach'], 'human_reviewed': False} reviewed= [True, True, False, False, False] schema= None
+train_swin_unetr.py metadata= {'schema': 'canonical_5class', 'per_organ_provenance': {}} reviewed= [True, False, False, False, False] schema= None
+train_mednext_phase2.py metadata file tokens 0 reviewed_classes tokens 1
+train_swin_unetr_phase2.py metadata file tokens 0 reviewed_classes tokens 1
+run_scaling_sweep.py metadata file tokens 0 reviewed_classes tokens 1
+Actual hard-mask fallback equal-weight BG,BG,organ -> support [0, 0, 1] consensus probabilities [0.0, 1.0] winner 1
+Current mean for supported entropy0.2 plus unsupportedNaN: nan
+Non-self-inverse channel order [2, 0, 1, 3, 4] current reordered channel labels [1, 2, 0, 3, 4] expected [0, 1, 2, 3, 4]

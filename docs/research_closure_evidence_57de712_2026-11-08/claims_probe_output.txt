@@ -1,0 +1,337 @@
+Found 1 ground truth cases in /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6getgqus/gt. Executing 4-arm matched benchmark...
+  Saved matched predictions -> /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6getgqus/original/p9_matched_predictions.csv (16 rows)
+Saved benchmark summary -> /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6getgqus/original/p9_independent_benchmark_summary.json (Status: INCOMPLETE_PREDICTIONS)
+UNMODIFIED: INCOMPLETE_PREDICTIONS ["CORRUPTED_PREDICTION: name 'compute_betti0_error' is not defined"]
+Found 1 ground truth cases in /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6getgqus/gt. Executing 4-arm matched benchmark...
+  Saved matched predictions -> /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6getgqus/displaced/p9_matched_predictions.csv (16 rows)
+Saved benchmark summary -> /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6getgqus/displaced/p9_independent_benchmark_summary.json (Status: COMPLETED)
+ALIAS-ISOLATED displaced: [{'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Teacher_TotalSegmentator_v2', 'organ': 1, 'is_ref_present': True, 'dice': 1.0, 'surface_hd95': 0.0, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Teacher_TotalSegmentator_v2', 'organ': 2, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Teacher_TotalSegmentator_v2', 'organ': 3, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Teacher_TotalSegmentator_v2', 'organ': 4, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Majority_Vote_Consensus', 'organ': 1, 'is_ref_present': True, 'dice': 1.0, 'surface_hd95': 0.0, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Majority_Vote_Consensus', 'organ': 2, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Majority_Vote_Consensus', 'organ': 3, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Majority_Vote_Consensus', 'organ': 4, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Weighted_Ensemble', 'organ': 1, 'is_ref_present': True, 'dice': 1.0, 'surface_hd95': 0.0, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Weighted_Ensemble', 'organ': 2, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Weighted_Ensemble', 'organ': 3, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Weighted_Ensemble', 'organ': 4, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Student_MedNeXt_Phase2', 'organ': 1, 'is_ref_present': True, 'dice': 1.0, 'surface_hd95': 0.0, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Student_MedNeXt_Phase2', 'organ': 2, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Student_MedNeXt_Phase2', 'organ': 3, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Student_MedNeXt_Phase2', 'organ': 4, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}]
+Found 1 ground truth cases in /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6getgqus/gt. Executing 4-arm matched benchmark...
+  Saved matched predictions -> /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6getgqus/empty/p9_matched_predictions.csv (16 rows)
+Saved benchmark summary -> /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6getgqus/empty/p9_independent_benchmark_summary.json (Status: COMPLETED)
+ALIAS-ISOLATED empty: [{'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Teacher_TotalSegmentator_v2', 'organ': 1, 'is_ref_present': True, 'dice': 0.0, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 1, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Teacher_TotalSegmentator_v2', 'organ': 2, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Teacher_TotalSegmentator_v2', 'organ': 3, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Teacher_TotalSegmentator_v2', 'organ': 4, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Majority_Vote_Consensus', 'organ': 1, 'is_ref_present': True, 'dice': 0.0, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 1, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Majority_Vote_Consensus', 'organ': 2, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Majority_Vote_Consensus', 'organ': 3, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Majority_Vote_Consensus', 'organ': 4, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Weighted_Ensemble', 'organ': 1, 'is_ref_present': True, 'dice': 0.0, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 1, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Weighted_Ensemble', 'organ': 2, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Weighted_Ensemble', 'organ': 3, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Weighted_Ensemble', 'organ': 4, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Student_MedNeXt_Phase2', 'organ': 1, 'is_ref_present': True, 'dice': 0.0, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 1, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Student_MedNeXt_Phase2', 'organ': 2, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Student_MedNeXt_Phase2', 'organ': 3, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}, {'patient_id': 242113, 'scan_id': 'BDMAP_00242113', 'arm': 'Student_MedNeXt_Phase2', 'organ': 4, 'is_ref_present': False, 'dice': nan, 'surface_hd95': nan, 'fpv_cm3': 0.0, 'betti0_diff': 0, 'is_failure_penalty': False, 'status': 'OK'}]
+{
+  "csv_path": "/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6getgqus/s.csv",
+  "metric": "mean_dice",
+  "patient_cluster_column": "scan_id",
+  "n_total_observations": 8,
+  "n_distinct_sizes": 4,
+  "data_points": [
+    {
+      "N": 2,
+      "mean": 0.305,
+      "std": 0.0071,
+      "n_obs": 2
+    },
+    {
+      "N": 3,
+      "mean": 0.405,
+      "std": 0.0071,
+      "n_obs": 2
+    },
+    {
+      "N": 5,
+      "mean": 0.505,
+      "std": 0.0071,
+      "n_obs": 2
+    },
+    {
+      "N": 10,
+      "mean": 0.605,
+      "std": 0.0071,
+      "n_obs": 2
+    }
+  ],
+  "models": {
+    "power_law": {
+      "parameters": {
+        "a": 0.8414,
+        "b": 0.7635,
+        "alpha": 0.5091
+      },
+      "param_std_err": {
+        "a": 0.0007,
+        "b": 0.0005,
+        "alpha": 0.001
+      },
+      "metrics": {
+        "r2": 1.0,
+        "rmse": 0.0,
+        "aic": -67.11,
+        "bic": -68.95
+      }
+    },
+    "logarithmic": {
+      "parameters": {
+        "a": 0.1918,
+        "b": 0.1846
+      },
+      "param_std_err": {
+        "a": 0.0245,
+        "b": 0.0158
+      },
+      "metrics": {
+        "r2": 0.9855,
+        "rmse": 0.0135,
+        "aic": -19.11,
+        "bic": -20.34
+      }
+    },
+    "exponential": {
+      "parameters": {
+        "a": 0.625,
+        "b": 0.6229,
+        "c": 0.337555
+      },
+      "param_std_err": {
+        "a": 0.0144,
+        "b": 0.0426,
+        "c": 0.041508
+      },
+      "metrics": {
+        "r2": 0.9986,
+        "rmse": 0.0043,
+        "aic": -26.33,
+        "bic": -28.17
+      }
+    }
+  },
+  "preferred_model": "power_law",
+  "bootstrap_ci": {
+    "preferred_model_fitted": "power_law",
+    "clustering_mode": "patient_cluster",
+    "cluster_entity_count": 8,
+    "n_boot_requested": 5,
+    "n_boot_converged": 5,
+    "convergence_rate": 1.0,
+    "parameter_ci": {
+      "a": {
+        "mean": 0.8888,
+        "std": 0.072,
+        "ci_lower_2.5": 0.778,
+        "ci_upper_97.5": 0.9566
+      },
+      "b": {
+        "mean": 0.7937,
+        "std": 0.0453,
+        "ci_lower_2.5": 0.7217,
+        "ci_upper_97.5": 0.8333
+      },
+      "alpha": {
+        "mean": 0.4608,
+        "std": 0.094,
+        "ci_lower_2.5": 0.3708,
+        "ci_upper_97.5": 0.6063
+      }
+    },
+    "eval_N": [
+      2,
+      2,
+      2,
+      2,
+      3,
+      3,
+      3,
+      3,
+      4,
+      4,
+      4,
+      4,
+      5,
+      5,
+      5,
+      5,
+      6,
+      6,
+      6,
+      7,
+      7,
+      7,
+      7,
+      8,
+      8,
+      8,
+      8,
+      9,
+      9,
+      9,
+      9,
+      10,
+      10,
+      10,
+      11,
+      11,
+      11,
+      11,
+      12,
+      12,
+      12,
+      12,
+      13,
+      13,
+      13,
+      13,
+      14,
+      14,
+      14,
+      15
+    ],
+    "pred_mean": [
+      0.3089,
+      0.3404,
+      0.367,
+      0.3897,
+      0.4096,
+      0.427,
+      0.4425,
+      0.4564,
+      0.469,
+      0.4805,
+      0.491,
+      0.5006,
+      0.5096,
+      0.5178,
+      0.5256,
+      0.5328,
+      0.5395,
+      0.5459,
+      0.5518,
+      0.5575,
+      0.5628,
+      0.5679,
+      0.5727,
+      0.5773,
+      0.5817,
+      0.5859,
+      0.5899,
+      0.5937,
+      0.5974,
+      0.6009,
+      0.6043,
+      0.6075,
+      0.6107,
+      0.6137,
+      0.6166,
+      0.6194,
+      0.6221,
+      0.6248,
+      0.6273,
+      0.6298,
+      0.6322,
+      0.6345,
+      0.6367,
+      0.6389,
+      0.641,
+      0.6431,
+      0.6451,
+      0.6471,
+      0.649,
+      0.6508
+    ],
+    "ci_lower_2.5": [
+      0.3036,
+      0.338,
+      0.3648,
+      0.3868,
+      0.406,
+      0.423,
+      0.4382,
+      0.4519,
+      0.4644,
+      0.4758,
+      0.4863,
+      0.496,
+      0.505,
+      0.5134,
+      0.5213,
+      0.5286,
+      0.5355,
+      0.5421,
+      0.5482,
+      0.5541,
+      0.5596,
+      0.5649,
+      0.5694,
+      0.5735,
+      0.5775,
+      0.5812,
+      0.5848,
+      0.5882,
+      0.5915,
+      0.5946,
+      0.5976,
+      0.6004,
+      0.6032,
+      0.6058,
+      0.6083,
+      0.6108,
+      0.6131,
+      0.6154,
+      0.6176,
+      0.6197,
+      0.6217,
+      0.6237,
+      0.6256,
+      0.6275,
+      0.6293,
+      0.631,
+      0.6327,
+      0.6343,
+      0.6359,
+      0.6375
+    ],
+    "ci_upper_97.5": [
+      0.3152,
+      0.3442,
+      0.369,
+      0.3914,
+      0.4121,
+      0.4302,
+      0.4463,
+      0.4606,
+      0.4735,
+      0.4852,
+      0.4958,
+      0.5056,
+      0.5146,
+      0.523,
+      0.5307,
+      0.538,
+      0.5448,
+      0.5511,
+      0.5571,
+      0.5627,
+      0.5681,
+      0.5731,
+      0.5779,
+      0.5824,
+      0.5868,
+      0.5909,
+      0.5948,
+      0.5986,
+      0.6022,
+      0.6059,
+      0.6095,
+      0.6129,
+      0.6162,
+      0.6193,
+      0.6224,
+      0.6253,
+      0.6282,
+      0.631,
+      0.6336,
+      0.6362,
+      0.6388,
+      0.6412,
+      0.6436,
+      0.6459,
+      0.6481,
+      0.6503,
+      0.6524,
+      0.6545,
+      0.6565,
+      0.6585
+    ]
+  }
+}
+Missing annotation budget fallback: [2, 3, 5, 10] scan_id patient_cluster
