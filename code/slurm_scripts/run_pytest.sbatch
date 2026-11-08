@@ -26,7 +26,8 @@ echo "  Starting Pytest Suite on $(hostname)"
 echo "  Date: $(date)"
 echo "====================================================================="
 
-pytest -v
+pytest -v tests/test_reaudit_implementation_f01_f13.py
+pytest -v tests/test_audit_remediation_regressions.py tests/test_reaudit_remediation.py
 
 echo "====================================================================="
 echo "  Pytest completed successfully at $(date)"

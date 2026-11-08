@@ -121,6 +121,31 @@ def discover_dataset(data_dir, gold_standard_dir=None):
         # Check if this is a gold standard sample
         is_gold_standard = subject_id in gold_standard_ids
 
+        # Ingest verified case annotation provenance if case_metadata.json exists
+        meta_file = os.path.join(sub, "case_metadata.json")
+        reviewed_classes = None
+        provenance = "UNVERIFIED_PROVENANCE"
+        if os.path.exists(meta_file):
+            try:
+                with open(meta_file, "r") as mf:
+                    meta = json.load(mf)
+                if "per_organ_provenance" in meta:
+                    rev_list = [True]  # background
+                    for org in ["stomach", "duodenum", "small_bowel", "colon"]:
+                        o_info = meta["per_organ_provenance"].get(org, {})
+                        rev_list.append(bool(o_info.get("human_reviewed", False)))
+                    reviewed_classes = rev_list
+                    provenance = "VERIFIED_PROVENANCE_V2"
+                elif "reviewed_classes" in meta:
+                    rev_classes_set = set(meta["reviewed_classes"])
+                    rev_list = [True]
+                    for org in ["stomach", "duodenum", "small_bowel", "colon"]:
+                        rev_list.append(org in rev_classes_set or org.replace("_", " ") in rev_classes_set)
+                    reviewed_classes = rev_list
+                    provenance = "DECLARED_REVIEWED_CLASSES"
+            except Exception:
+                pass
+
         # Check for multi-label mask or individual organ segmentations
         seg_dir = os.path.join(sub, "segmentations")
         search_dir = seg_dir if os.path.exists(seg_dir) else sub
@@ -134,6 +159,8 @@ def discover_dataset(data_dir, gold_standard_dir=None):
                 "is_gold_standard": is_gold_standard,
                 "subject_id": subject_id,
                 "name": subject_id,
+                "reviewed_classes": reviewed_classes,
+                "provenance": provenance,
             })
         else:
             # Check if individual organ files exist using aliases
@@ -149,6 +176,8 @@ def discover_dataset(data_dir, gold_standard_dir=None):
                     "is_gold_standard": is_gold_standard,
                     "subject_id": subject_id,
                     "name": subject_id,
+                    "reviewed_classes": reviewed_classes,
+                    "provenance": provenance,
                 })
 
     return data_pairs
@@ -205,6 +234,9 @@ class GIDataset(Dataset):
             data_dict["is_gold_standard"] = item["is_gold_standard"]
         else:
             data_dict["is_gold_standard"] = False
+
+        if "reviewed_classes" in item and item["reviewed_classes"] is not None:
+            data_dict["reviewed_classes"] = torch.tensor(item["reviewed_classes"], dtype=torch.bool)
 
         if self.transform:
             data_dict = self.transform(data_dict)
@@ -281,6 +313,11 @@ def main():
     # Discover Dataset
     data_pairs = discover_dataset(args.data_dir, args.gold_standard_dir)
     print(f"Discovered {len(data_pairs)} scanning pairs for training/validation.")
+
+    if args.loss_type == "marginal":
+        unverified_count = sum(1 for p in data_pairs if p.get("reviewed_classes") is None)
+        data_pairs = [p for p in data_pairs if p.get("reviewed_classes") is not None]
+        print(f"[Marginal Loss Provenance Gate] Retained {len(data_pairs)} verified-provenance cases; excluded {unverified_count} unverified cases.")
 
     if len(data_pairs) == 0:
         print("Error: No data pairs found!")
@@ -393,7 +430,7 @@ def main():
 
     if args.loss_type == "marginal" and MarginalDiceCELoss is not None:
         print(f"[Loss] MarginalDiceCELoss(num_classes=5, alpha={args.alpha}, beta={args.beta})")
-        loss_function = MarginalDiceCELoss(num_classes=5, alpha={args.alpha}, beta={args.beta})
+        loss_function = MarginalDiceCELoss(num_classes=5, alpha=args.alpha, beta=args.beta)
     else:
         if args.loss_type == "marginal":
             print("WARNING: MarginalDiceCELoss import failed; falling back to DiceCELoss.")

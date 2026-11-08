@@ -778,6 +778,7 @@ def run_single_sweep(
 
     csv_rows = []
     best_dice = 0.0
+    best_epoch = 1
 
     for epoch in range(1, epochs + 1):
         # ---- Train ----
@@ -880,6 +881,7 @@ def run_single_sweep(
 
         if mean_dice > best_dice:
             best_dice = mean_dice
+            best_epoch = epoch
             best_ckpt_path = os.path.join(n_dir, "best_checkpoint.pt")
             torch.save(
                 {"epoch": epoch, "model_state_dict": model.state_dict(),
@@ -927,7 +929,8 @@ def run_single_sweep(
 
         model.eval()
         test_records = []
-        test_ds = CancerVerseDataset(test_cases, val_transforms)
+        test_long_records = []
+        test_ds = Dataset(data=test_cases, transform=val_transforms)
         test_loader = DataLoader(test_ds, batch_size=1, shuffle=False)
 
         with torch.no_grad():
@@ -958,7 +961,7 @@ def run_single_sweep(
                     "annotation_organ_count": NUM_CLASSES,
                     "subset_id": f"N{n_train:04d}",
                     "seed": seed,
-                    "checkpoint_step": "best_epoch",
+                    "checkpoint_epoch": int(best_epoch),
                     "split": "test_gold_standard",
                     "mean_dice": round(float(np.nanmean(t_dices)), 4),
                     "mean_hd95": round(float(np.nanmean(t_hd95s)), 2),
@@ -966,12 +969,27 @@ def run_single_sweep(
                 for c_idx, o_name in enumerate(ORGAN_NAMES):
                     t_rec[f"dice_{o_name}"] = round(float(t_dices[c_idx]), 4)
                     t_rec[f"hd95_{o_name}"] = round(float(t_hd95s[c_idx]), 2)
+                    test_long_records.append({
+                        "patient_id": t_pid,
+                        "scan_id": t_name,
+                        "organ": o_name,
+                        "dice": round(float(t_dices[c_idx]), 4),
+                        "hd95": round(float(t_hd95s[c_idx]), 2),
+                        "train_patient_count": manifest_info["n_train_patients"],
+                        "train_scan_count": n_train,
+                        "annotation_organ_count": NUM_CLASSES,
+                        "seed": seed,
+                        "checkpoint_epoch": int(best_epoch),
+                    })
                 test_records.append(t_rec)
 
         if test_records:
             test_df = pd.DataFrame(test_records)
             test_csv_path = os.path.join(run_dir, "test_evaluation_gold.csv")
             test_df.to_csv(test_csv_path, index=False)
+            test_long_df = pd.DataFrame(test_long_records)
+            test_long_csv_path = os.path.join(run_dir, "test_evaluation_gold_long.csv")
+            test_long_df.to_csv(test_long_csv_path, index=False)
             print(f"  Saved held-out test evaluation → {test_csv_path} (Mean Dice: {test_df['mean_dice'].mean():.4f})")
 
     # Clean up GPU memory before next run

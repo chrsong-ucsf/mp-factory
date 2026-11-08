@@ -35,11 +35,18 @@ ORGAN_ALIASES = {
     4: ['colon', 'colon_mask', 'large_bowel', 'colon.nii.gz'],
 }
 
+SCHEMA_VOCABS = {
+    "canonical_5class": {1, 2, 3, 4},
+    "totalseg_v2": {6, 18, 19, 20},
+    "bdmap": {2, 3, 4, 5, 6},
+    "jhu": {2, 3, 4, 5, 6},
+}
+
 SCHEMAS = {
     "canonical_5class": {0: "background", 1: "stomach", 2: "duodenum", 3: "small_bowel", 4: "colon"},
     "totalseg_v2": {0: "background", 6: "stomach", 19: "duodenum", 18: "small_bowel", 20: "colon"},
-    "bdmap": {0: "background", 2: "stomach", 3: "duodenum", 4: "small_bowel", 5: "small_bowel", 6: "colon"},
-    "jhu": {0: "background", 2: "stomach", 3: "duodenum", 4: "small_bowel", 5: "colon", 6: "colon"},
+    "bdmap": {0: "background", 2: "stomach", 3: "duodenum", 4: "small_bowel", 5: "colon", 6: "rectum"},
+    "jhu": {0: "background", 2: "stomach", 3: "duodenum", 4: "small_bowel", 5: "colon", 6: "rectum"},
 }
 
 
@@ -113,37 +120,56 @@ def audit_case(case_dir: str, schema_override: Optional[str] = None) -> Optional
             record['visible_classes'] = sorted(list(uniques))
             record['annotation_type'] = 'combined_mask'
 
+            # Validate integer labels
+            for val in uniques:
+                if not isinstance(val, (int, np.integer)) or val < 0 or val > 254:
+                    record['schema'] = 'INVALID_LABEL_VALUES'
+                    record['status'] = f'CORRUPTED_LABEL_VALUE_{val}'
+                    record['schema_verified'] = False
+                    return record
+
             # Determine schema
-            active_schema = schema_override or metadata.get("schema")
-            if not active_schema:
-                # Disambiguate schema
-                if uniques.issubset({1, 2, 3, 4}):
-                    # Could be canonical_5class. But if it only has {2, 4}, it also matches bdmap/jhu!
-                    if 1 in uniques and 3 in uniques:
-                        active_schema = "canonical_5class"
-                    elif uniques == {2, 4}:
-                        # AMBIGUOUS: {2, 4} could be canonical (duodenum+colon) or bdmap/jhu (stomach+small_bowel)!
-                        record['schema'] = 'AMBIGUOUS'
-                        record['schema_verified'] = False
-                        record['status'] = 'EXCLUDED_UNVERIFIED_METADATA'
-                        record['is_complete_gi'] = False
-                        record['num_organs_annotated'] = len(uniques)
-                        return record
-                    else:
-                        active_schema = "canonical_5class"
-                elif uniques.issubset({6, 18, 19, 20}):
-                    active_schema = "totalseg_v2"
-                elif uniques.issubset({2, 3, 4, 5, 6}):
-                    active_schema = "bdmap"
+            declared_schema = schema_override or metadata.get("declared_schema") or metadata.get("schema")
+            if declared_schema:
+                if declared_schema in SCHEMA_VOCABS and uniques.issubset(SCHEMA_VOCABS[declared_schema]):
+                    active_schema = declared_schema
+                    record['schema_verified'] = True
+                else:
+                    record['schema'] = declared_schema
+                    record['schema_verified'] = False
+                    record['status'] = 'SCHEMA_METADATA_CONFLICT'
+                    record['is_complete_gi'] = False
+                    return record
+            else:
+                # Mathematical subset compatibility against candidate schemas
+                matching_schemas = [
+                    s_name for s_name, vocab in SCHEMA_VOCABS.items()
+                    if uniques.issubset(vocab)
+                ]
+                if set(matching_schemas) == {"bdmap", "jhu"}:
+                    active_schema = "jhu"
+                    record['schema_inferred'] = True
+                    record['schema_verified'] = False
+                elif len(matching_schemas) == 1:
+                    active_schema = matching_schemas[0]
+                    record['schema_inferred'] = True
+                    record['schema_verified'] = False
+                elif len(matching_schemas) > 1:
+                    record['schema'] = 'AMBIGUOUS'
+                    record['schema_verified'] = False
+                    record['status'] = 'EXCLUDED_UNVERIFIED_METADATA'
+                    record['is_complete_gi'] = False
+                    record['num_organs_annotated'] = len(uniques)
+                    return record
                 else:
                     record['schema'] = 'UNRECOGNIZED'
                     record['status'] = 'EXCLUDED_UNVERIFIED_METADATA'
+                    record['schema_verified'] = False
                     return record
 
             record['schema'] = active_schema
-            record['schema_verified'] = True
 
-            # Map visible organs strictly under verified schema
+            # Map visible organs strictly under verified/inferred schema
             if active_schema == "canonical_5class":
                 record['stomach_present'] = 1 in uniques
                 record['duodenum_present'] = 2 in uniques
@@ -157,17 +183,24 @@ def audit_case(case_dir: str, schema_override: Optional[str] = None) -> Optional
             elif active_schema in ["bdmap", "jhu"]:
                 record['stomach_present'] = 2 in uniques
                 record['duodenum_present'] = 3 in uniques
-                record['small_bowel_present'] = 4 in uniques or 5 in uniques
-                record['colon_present'] = 5 in uniques or 6 in uniques
+                record['small_bowel_present'] = 4 in uniques
+                record['colon_present'] = (5 in uniques or 6 in uniques)
+                record['rectum_present'] = 6 in uniques
 
-            # Determine reviewed_classes: from metadata if available, otherwise visible if exhaustively signed-off
-            if "reviewed_classes" in metadata:
-                record['reviewed_classes'] = metadata["reviewed_classes"]
-            else:
-                # In absence of manifest metadata, visible organs are observed, but completeness cannot be certified
+            # Determine reviewed_classes: from verified metadata ONLY, never from visible organs
+            if "per_organ_provenance" in metadata:
                 record['reviewed_classes'] = [
-                    ORGAN_NAMES[i] for i in [1, 2, 3, 4] if record[f"{ORGAN_NAMES[i]}_present"]
+                    org for org in ['stomach', 'duodenum', 'small_bowel', 'colon']
+                    if metadata["per_organ_provenance"].get(org, {}).get("human_reviewed", False)
                 ]
+                record['provenance_type'] = 'EXPERT_METADATA_V2'
+            elif "reviewed_classes" in metadata and metadata.get("human_reviewed", False):
+                record['reviewed_classes'] = metadata["reviewed_classes"]
+                record['provenance_type'] = 'DECLARED_REVIEWED_CLASSES'
+            else:
+                record['reviewed_classes'] = []
+                record['provenance_type'] = 'UNVERIFIED_NO_METADATA'
+                record['status'] = 'EXCLUDED_UNVERIFIED_METADATA'
 
             record['num_organs_annotated'] = sum([
                 record['stomach_present'], record['duodenum_present'],
@@ -176,7 +209,7 @@ def audit_case(case_dir: str, schema_override: Optional[str] = None) -> Optional
 
             # Completeness: all 4 target organs must be in reviewed_classes
             target_organs = {'stomach', 'duodenum', 'small_bowel', 'colon'}
-            record['is_complete_gi'] = target_organs.issubset(set(record['reviewed_classes'])) and record['num_organs_annotated'] == 4
+            record['is_complete_gi'] = target_organs.issubset(set(record['reviewed_classes']))
             return record
 
         except Exception as e:
@@ -210,8 +243,24 @@ def audit_case(case_dir: str, schema_override: Optional[str] = None) -> Optional
     ])
     record['annotation_type'] = 'individual_masks' if record['num_organs_annotated'] > 0 else 'none'
     record['visible_classes'] = [ORGAN_NAMES[i] for i in [1, 2, 3, 4] if record[f"{ORGAN_NAMES[i]}_present"]]
-    record['reviewed_classes'] = record['visible_classes']
-    record['is_complete_gi'] = (record['num_organs_annotated'] == 4)
+
+    # Provenance check for individual masks
+    if "per_organ_provenance" in metadata:
+        record['reviewed_classes'] = [
+            org for org in ['stomach', 'duodenum', 'small_bowel', 'colon']
+            if metadata["per_organ_provenance"].get(org, {}).get("human_reviewed", False)
+        ]
+        record['provenance_type'] = 'EXPERT_METADATA_V2'
+    elif "reviewed_classes" in metadata and metadata.get("human_reviewed", False):
+        record['reviewed_classes'] = metadata["reviewed_classes"]
+        record['provenance_type'] = 'DECLARED_REVIEWED_CLASSES'
+    else:
+        record['reviewed_classes'] = []
+        record['provenance_type'] = 'UNVERIFIED_NO_METADATA'
+        record['status'] = 'EXCLUDED_UNVERIFIED_METADATA'
+
+    target_organs = {'stomach', 'duodenum', 'small_bowel', 'colon'}
+    record['is_complete_gi'] = target_organs.issubset(set(record['reviewed_classes']))
 
     return record
 

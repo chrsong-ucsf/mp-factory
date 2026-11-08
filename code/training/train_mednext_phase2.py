@@ -738,7 +738,7 @@ def main():
             with torch.amp.autocast(device_type='cuda'):
                 outputs = model(inputs)
                 if MarginalDiceCELoss is not None and isinstance(loss_fn, MarginalDiceCELoss):
-                    rev = batch.get("reviewed_classes", None)
+                    rev = batch_data.get("reviewed_classes", None)
                     if rev is not None and isinstance(rev, torch.Tensor):
                         rev = rev.to(device)
                     loss = loss_fn(outputs, labels, reviewed_classes=rev)

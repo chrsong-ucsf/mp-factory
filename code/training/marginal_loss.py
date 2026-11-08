@@ -49,18 +49,31 @@ class MarginalDiceCELoss(nn.Module):
         self,
         logits: torch.Tensor,
         targets: torch.Tensor,
-        present_classes: Optional[Union[List[int], torch.Tensor]] = None,
         reviewed_classes: Optional[torch.Tensor] = None,
+        present_classes: Optional[Union[List[int], torch.Tensor]] = None,
     ) -> torch.Tensor:
         """
         Args:
             logits: (B, C, D, H, W) or (B, C, H, W) raw prediction logits.
             targets: (B, 1, ...) or (B, ...) integer ground-truth mask.
-            present_classes: optional 1D list or tensor of class integer IDs present across the batch.
-            reviewed_classes: optional (B, C) binary tensor indicating reviewed classes per case.
+            reviewed_classes: (B, C) binary/bool tensor indicating verified reviewed classes per case.
+                              Mandatory for marginal loss to prevent false-negative full supervision.
+            present_classes: Deprecated escape hatch. Replaced by verified reviewed_classes.
         Returns:
             Scalar combined loss tensor.
         """
+        if present_classes is not None and reviewed_classes is None:
+            raise ValueError(
+                "MarginalDiceCELoss: 'present_classes' cannot substitute for verified annotation review. "
+                "Explicit verified 'reviewed_classes' metadata is required."
+            )
+
+        if reviewed_classes is None:
+            raise ValueError(
+                "MarginalDiceCELoss requires an explicit verified 'reviewed_classes' tensor of shape (B, C) "
+                "or (B, C-1). Missing review metadata must fail closed rather than defaulting to full supervision."
+            )
+
         if targets.ndim == logits.ndim:
             targets = targets.squeeze(1)
 
@@ -69,28 +82,20 @@ class MarginalDiceCELoss(nn.Module):
         valid_mask = (targets != self.ignore_index)
         B, C = logits.shape[0], logits.shape[1]
 
-        # Standardize reviewed_classes to a (B, C) boolean/byte mask
-        if reviewed_classes is not None:
-            if reviewed_classes.ndim == 1:
-                reviewed_mask = reviewed_classes.unsqueeze(0).expand(B, -1).bool().to(device=logits.device)
-            else:
-                reviewed_mask = reviewed_classes.bool().to(device=logits.device)
-
-            # If shape is (B, C - 1) representing foreground classes only, prepend True for background
-            if reviewed_mask.shape[1] == C - 1:
-                bg_col = torch.ones((B, 1), dtype=torch.bool, device=logits.device)
-                reviewed_mask = torch.cat([bg_col, reviewed_mask], dim=1)
-        elif present_classes is not None:
-            if isinstance(present_classes, list):
-                present_t = torch.tensor(present_classes, device=logits.device, dtype=torch.long)
-            else:
-                present_t = present_classes.to(device=logits.device, dtype=torch.long)
-            reviewed_mask = torch.zeros((B, C), dtype=torch.bool, device=logits.device)
-            reviewed_mask[:, present_t] = True
-            reviewed_mask[:, 0] = True  # Background is always in the evaluated space
+        # Standardize reviewed_classes to a (B, C) boolean mask
+        if reviewed_classes.ndim == 1:
+            reviewed_mask = reviewed_classes.unsqueeze(0).expand(B, -1).bool().to(device=logits.device)
         else:
-            # Full supervision across all classes
-            reviewed_mask = torch.ones((B, C), dtype=torch.bool, device=logits.device)
+            reviewed_mask = reviewed_classes.bool().to(device=logits.device)
+
+        # If shape is (B, C - 1) representing foreground classes only, prepend True for background (0)
+        if reviewed_mask.shape[1] == C - 1:
+            bg_col = torch.ones((B, 1), dtype=torch.bool, device=logits.device)
+            reviewed_mask = torch.cat([bg_col, reviewed_mask], dim=1)
+        elif reviewed_mask.shape[1] != C:
+            raise ValueError(
+                f"reviewed_classes shape mismatch: expected (B, {C}) or (B, {C-1}), got {tuple(reviewed_mask.shape)}"
+            )
 
         # -------------------------------------------------------------
         # 1. Marginal Cross-Entropy Loss (per-batch element)

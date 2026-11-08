@@ -469,11 +469,13 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
         weights_t = torch.tensor(weights, dtype=torch.float32, device=device)
 
         one_hot_tensors = []
+        support_tensors = []
         for i in range(len(model_files)):
             m = model_masks[i]
             fpath = model_files[i]
             prob_path = fpath.replace('_gi_seg.nii.gz', '_gi_probs.npz') if fpath.endswith('_gi_seg.nii.gz') else None
             prob_loaded = False
+            supp_arr = None
             if prob_path and os.path.exists(prob_path):
                 try:
                     npz = np.load(prob_path, allow_pickle=True)
@@ -490,6 +492,18 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                         else:
                             raise ValueError(f"Legacy probability archive {prob_path} lacks verified geometry metadata and does not match segmentation shape.")
 
+                        # Handle channel order if declared
+                        if 'channel_order' in npz:
+                            c_order = list(npz['channel_order'])
+                            if c_order != [0, 1, 2, 3, 4] and len(c_order) == 5:
+                                probs = probs[c_order]
+
+                        # Ingest explicit spatial support mask if available
+                        if 'support_mask' in npz:
+                            supp_arr = npz['support_mask'].astype(np.uint8)
+                        else:
+                            supp_arr = (np.sum(probs[1:], axis=0) > 1e-4).astype(np.uint8)
+
                         if probs.shape[1:] != ref_shape or not np.allclose(prob_affine, ref_affine, atol=1e-3):
                             resampled_channels = []
                             for c_idx in range(probs.shape[0]):
@@ -498,6 +512,10 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                                 )
                                 resampled_channels.append(ch_res)
                             probs = np.stack(resampled_channels, axis=0)
+                            if supp_arr is not None:
+                                supp_arr = resample_label_to_reference(
+                                    supp_arr, prob_affine, ref_affine, ref_shape, order=0, cval=0.0
+                                ).astype(np.uint8)
 
                         probs = np.clip(probs, 0.0, 1.0)
                         sum_p = np.sum(probs, axis=0, keepdims=True)
@@ -512,31 +530,64 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
                 m_t = torch.tensor(m_clamped, dtype=torch.long, device=device)
                 t = torch.zeros((5,) + m.shape, dtype=torch.float32, device=device)
                 t.scatter_(0, m_t.unsqueeze(0), 1.0)
+                supp_arr = (m_clamped > 0).astype(np.uint8)
+
+            if supp_arr is None:
+                supp_arr = np.ones(ref_shape, dtype=np.uint8)
+
             one_hot_tensors.append(t)
+            support_tensors.append(torch.tensor(supp_arr, dtype=torch.float32, device=device))
 
         one_hot_stack = torch.stack(one_hot_tensors, dim=0)  # (N_models, 5, X, Y, Z)
+        support_stack = torch.stack(support_tensors, dim=0)  # (N_models, X, Y, Z)
 
-        # GPU Weighted Probability Consensus
-        weights_reshaped = weights_t.view(-1, 1, 1, 1, 1)
-        consensus_probs_t = (one_hot_stack * weights_reshaped).sum(dim=0)  # (5, X, Y, Z)
+        # GPU Per-Voxel Active-Support Weight Normalization
+        # supported_weight_sum(x) = sum_m(w_m * support_m(x))
+        # normalized_weight_m(x) = (w_m * support_m(x)) / supported_weight_sum(x)
+        weights_expanded = weights_t.view(-1, 1, 1, 1)
+        weighted_support = weights_expanded * support_stack
+        supported_weight_sum = weighted_support.sum(dim=0, keepdim=True)  # (1, X, Y, Z)
+
+        normalized_weights = torch.where(
+            supported_weight_sum > 0,
+            weighted_support / (supported_weight_sum + 1e-7),
+            torch.zeros_like(weighted_support)
+        )  # (N_models, X, Y, Z)
+
+        norm_weights_5 = normalized_weights.unsqueeze(1)  # (N_models, 1, X, Y, Z)
+        consensus_probs_t = (one_hot_stack * norm_weights_5).sum(dim=0)  # (5, X, Y, Z)
         consensus_mask_t = torch.argmax(consensus_probs_t, dim=0).to(torch.uint8)  # (X, Y, Z)
 
-        # 3. GPU Spatial Uncertainty Heatmap (Shannon Entropy)
+        # Spatial support indicator: at least one model covers voxel x
+        consensus_support_t = (supported_weight_sum.squeeze(0) > 0).to(torch.uint8)  # (X, Y, Z)
+
+        # 3. GPU Spatial Uncertainty Heatmap (Shannon Entropy) over actively supported voxels
         epsilon = 1e-7
         clamped = torch.clamp(consensus_probs_t, epsilon, 1.0 - epsilon)
         uncertainty_t = -(clamped * torch.log2(clamped)).sum(dim=0)  # (X, Y, Z)
 
+        # Mask out-of-support regions from uncertainty and assign 0 mask
+        uncertainty_t = torch.where(consensus_support_t > 0, uncertainty_t, torch.tensor(float("nan"), device=device))
+        consensus_mask_t = torch.where(consensus_support_t > 0, consensus_mask_t, torch.tensor(0, dtype=torch.uint8, device=device))
+
         consensus_mask = consensus_mask_t.cpu().numpy()
         uncertainty_map = uncertainty_t.cpu().numpy()
+        consensus_support = consensus_support_t.cpu().numpy()
 
         # Atomic saving with SHA256 validation
         os.makedirs(out_dir, exist_ok=True)
         tmp_cons = f"{consensus_path}.tmp.{os.getpid()}.nii.gz"
         tmp_unc  = f"{uncertainty_path}.tmp.{os.getpid()}.nii.gz"
+        consensus_support_path = consensus_path.replace("_consensus.nii.gz", "_consensus_support.nii.gz")
+        tmp_supp = f"{consensus_support_path}.tmp.{os.getpid()}.nii.gz"
+
         nib.save(nib.Nifti1Image(consensus_mask, affine=affine), tmp_cons)
         nib.save(nib.Nifti1Image(uncertainty_map.astype(np.float32), affine=affine), tmp_unc)
+        nib.save(nib.Nifti1Image(consensus_support, affine=affine), tmp_supp)
+
         os.replace(tmp_cons, consensus_path)
         os.replace(tmp_unc, uncertainty_path)
+        os.replace(tmp_supp, consensus_support_path)
 
         with open(consensus_path, "rb") as f_c:
             cons_sha = hashlib.sha256(f_c.read()).hexdigest()

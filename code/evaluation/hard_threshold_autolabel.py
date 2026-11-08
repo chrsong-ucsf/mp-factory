@@ -184,6 +184,20 @@ def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir, overwrite=Fa
 
         cons_arr = np.where((cons_arr >= 1) & (cons_arr <= 4), cons_arr, 0).astype(np.uint8)
 
+        # Check for consensus spatial support mask
+        supp_path = os.path.join(consensus_dir, f"{subject_id}_consensus_support.nii.gz")
+        supp_arr = None
+        if os.path.isfile(supp_path):
+            try:
+                supp_nii = nib.load(supp_path)
+                supp_arr = np.asanyarray(supp_nii.dataobj).astype(np.uint8)
+                if supp_arr.shape != human_arr.shape or not np.allclose(supp_nii.affine, human_nii.affine, atol=1e-3):
+                    supp_arr = resample_label_to_reference(
+                        supp_arr, supp_nii.affine, human_nii.affine, human_arr.shape
+                    )
+            except Exception:
+                supp_arr = None
+
         # ---- hard threshold: conflicting voxels -> IGNORE_INDEX ----
         autolabel = human_arr.copy()
         fg_mask = human_arr > 0
@@ -191,6 +205,10 @@ def autolabel_subject(subject_id, data_dir, consensus_dir, out_dir, overwrite=Fa
 
         # conflicting foreground voxels: human has an organ label, consensus does NOT match
         conflict = fg_mask & (human_arr != cons_arr)
+        if supp_arr is not None:
+            # Out-of-support regions cannot supervise training
+            conflict = conflict | (supp_arr == 0)
+
         n_ignore = int(conflict.sum())
         pct_ignore = round((n_ignore / n_fg * 100.0) if n_fg > 0 else 0.0, 2)
 

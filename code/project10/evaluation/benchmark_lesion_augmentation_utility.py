@@ -261,7 +261,22 @@ def run_benchmark(
     hepatic_pathologies = {"hcc": 1, "metastasis": 1, "hemangioma": 0}
     real_df = real_df[real_df["pathology"].str.lower().isin(hepatic_pathologies.keys())].copy()
     real_df["reference_label"] = real_df["pathology"].str.lower().map(hepatic_pathologies)
-    print(f"  Filtered hepatic cohort: {len(real_df)} lesions ({real_df['reference_label'].value_counts().to_dict()})")
+    print(f"  Filtered real hepatic cohort: {len(real_df)} lesions ({real_df['reference_label'].value_counts().to_dict()})")
+
+    # Feature verification: require locked 12 physical measurements or verified feature set
+    prespecified_features = [
+        "ncct_mean_hu", "ncct_std_hu", "art_mean_hu", "art_std_hu",
+        "pv_mean_hu", "pv_std_hu", "wash_in_ratio", "clearance_ratio",
+        "volume_cm3", "sphericity", "surface_area_cm2", "margin_sharpness"
+    ]
+    candidate_features = [c for c in real_df.columns if c.startswith("feat_") or c in prespecified_features]
+    if not candidate_features:
+        msg = "Required physical lesion measurements are missing from real_data_csv. Jitter/constant fabrication is prohibited."
+        print(f"  [INVALID_INPUT] {msg}")
+        with open(out_json, "w") as f:
+            json.dump({"status": "INVALID_INPUT", "message": msg}, f, indent=2)
+        sys.exit(2)
+    feature_cols = candidate_features
 
     # Patient-stratified split: reserve 30% untouched patients for testing
     rng = np.random.RandomState(seed)
@@ -275,60 +290,85 @@ def run_benchmark(
     train_df = real_df[real_df["patient_id"].isin(train_pts)].copy()
     print(f"  Train cohort: {len(train_df)} lesions ({len(train_pts)} pts) | Held-out Test: {len(test_df)} lesions ({len(test_pts)} pts)")
 
-    # Execute matched 3-arm classifier training and evaluation
-    arms = ["arm1_real_only", "arm2_real_generic_syn", "arm3_real_phase_aware_syn"]
-    pred_records = []
+    # 5-Tier Leakage Gate: verify synthetic lesions do NOT originate from held-out test patients
+    syn_df = syn_df[syn_df["pathology"].str.lower().isin(hepatic_pathologies.keys())].copy()
+    syn_df["reference_label"] = syn_df["pathology"].str.lower().map(hepatic_pathologies)
 
-    # Features: extracted regional CT attenuation statistics across phases
-    feature_cols = [c for c in real_df.columns if c.startswith("feat_") or c in ["ncct_mean", "art_mean", "pv_mean", "volume_cm3"]]
-    if not feature_cols:
-        # Fallback to standard intensity summary features if pre-extracted
-        feature_cols = ["mean_hu", "std_hu", "volume_voxels"]
-        for col in feature_cols:
-            if col not in real_df:
-                real_df[col] = 1.0
+    parent_cols = [c for c in ["parent_patient_id", "patient_id", "background_ct_patient_id"] if c in syn_df.columns]
+    if parent_cols:
+        initial_syn_count = len(syn_df)
+        for pcol in parent_cols:
+            syn_df = syn_df[~syn_df[pcol].isin(test_pts)].copy()
+        n_excluded_leak = initial_syn_count - len(syn_df)
+        if n_excluded_leak > 0:
+            print(f"  [Leakage Gate] Excluded {n_excluded_leak} synthetic lesions with parent/background overlap in held-out test patients!")
+
+    # Check that required feature columns exist in synthetic manifest without noise fabrication
+    missing_syn_features = [c for c in feature_cols if c not in syn_df.columns]
+    if missing_syn_features:
+        msg = f"Synthetic manifest lacks required measurement columns: {missing_syn_features}. Gaussian jitter substitution is prohibited."
+        print(f"  [DATA_UNAVAILABLE] {msg}")
+        with open(out_json, "w") as f:
+            json.dump({"status": "DATA_UNAVAILABLE", "message": msg}, f, indent=2)
+        sys.exit(2)
 
     X_train_real = train_df[feature_cols].values
     y_train_real = train_df["reference_label"].values
     X_test = test_df[feature_cols].values
     y_test = test_df["reference_label"].values
 
-    for arm in arms:
-        print(f"\n[2/4] Training {arm} with matched sample budget...")
-        clf = RandomForestClassifier(n_estimators=100, max_depth=6, random_state=seed)
-        
-        if arm == "arm1_real_only":
-            clf.fit(X_train_real, y_train_real)
-        elif arm == "arm2_real_generic_syn":
-            # Real + static generic synthetic lesions
-            syn_generic = syn_df[syn_df["syn_type"] == "generic"] if "syn_type" in syn_df else syn_df.sample(len(train_df), replace=True, random_state=seed)
-            X_syn = syn_generic[feature_cols].values if set(feature_cols).issubset(set(syn_generic.columns)) else X_train_real + rng.normal(0, 5, X_train_real.shape)
-            y_syn = y_train_real
-            X_combined = np.vstack([X_train_real, X_syn[:len(X_train_real)]])
-            y_combined = np.concatenate([y_train_real, y_syn[:len(y_train_real)]])
-            clf.fit(X_combined, y_combined)
-        elif arm == "arm3_real_phase_aware_syn":
-            # Real + 4D contrast-perfusion phase-aware synthetic lesions
-            syn_phase = syn_df[syn_df["syn_type"] == "phase_aware"] if "syn_type" in syn_df else syn_df.sample(len(train_df), replace=True, random_state=seed)
-            X_syn = syn_phase[feature_cols].values if set(feature_cols).issubset(set(syn_phase.columns)) else X_train_real + rng.normal(0, 8, X_train_real.shape)
-            y_syn = y_train_real
-            X_combined = np.vstack([X_train_real, X_syn[:len(X_train_real)]])
-            y_combined = np.concatenate([y_train_real, y_syn[:len(y_train_real)]])
-            clf.fit(X_combined, y_combined)
+    # Execute matched 3-arm classifier training across multi-seed evaluations
+    arms = ["arm1_real_only", "arm2_real_generic_syn", "arm3_real_phase_aware_syn"]
+    pred_records = []
+    seeds = [seed, seed + 1, seed + 2, seed + 3, seed + 4]
 
-        # Predict on held-out real test set strictly
-        probs = clf.predict_proba(X_test)[:, 1]
-        for idx, (_, row) in enumerate(test_df.iterrows()):
-            pred_records.append({
-                "patient_id": row["patient_id"],
-                "lesion_id": row["lesion_id"],
-                "pathology": row["pathology"],
-                "reference_label": int(row["reference_label"]),
-                "predicted_malignancy_prob": round(float(probs[idx]), 6),
-                "arm": arm,
-                "seed": seed,
-                "classifier": "RandomForest_MatchedBudget"
-            })
+    for s_idx in seeds:
+        arm_rng = np.random.RandomState(s_idx)
+        for arm in arms:
+            clf = RandomForestClassifier(n_estimators=100, max_depth=6, min_samples_leaf=2, random_state=s_idx)
+            
+            if arm == "arm1_real_only":
+                clf.fit(X_train_real, y_train_real)
+            elif arm == "arm2_real_generic_syn":
+                # Real + generic synthetic lesions with matched sample budget and genuine synthetic labels
+                syn_generic = syn_df[syn_df["syn_type"] == "generic"] if "syn_type" in syn_df.columns else syn_df
+                n_sample = min(len(train_df), len(syn_generic))
+                if n_sample == 0:
+                    print("  [DATA_UNAVAILABLE] No generic synthetic lesions available.")
+                    sys.exit(2)
+                syn_sample = syn_generic.sample(n_sample, random_state=s_idx)
+                X_syn = syn_sample[feature_cols].values
+                y_syn = syn_sample["reference_label"].values
+                X_combined = np.vstack([X_train_real, X_syn])
+                y_combined = np.concatenate([y_train_real, y_syn])
+                clf.fit(X_combined, y_combined)
+            elif arm == "arm3_real_phase_aware_syn":
+                # Real + phase-aware 4D perfusion synthetic lesions with matched budget and genuine labels
+                syn_phase = syn_df[syn_df["syn_type"] == "phase_aware"] if "syn_type" in syn_df.columns else syn_df
+                n_sample = min(len(train_df), len(syn_phase))
+                if n_sample == 0:
+                    print("  [DATA_UNAVAILABLE] No phase-aware synthetic lesions available.")
+                    sys.exit(2)
+                syn_sample = syn_phase.sample(n_sample, random_state=s_idx)
+                X_syn = syn_sample[feature_cols].values
+                y_syn = syn_sample["reference_label"].values
+                X_combined = np.vstack([X_train_real, X_syn])
+                y_combined = np.concatenate([y_train_real, y_syn])
+                clf.fit(X_combined, y_combined)
+
+            # Predict on held-out real test set strictly
+            probs = clf.predict_proba(X_test)[:, 1]
+            for idx, (_, row) in enumerate(test_df.iterrows()):
+                pred_records.append({
+                    "patient_id": row["patient_id"],
+                    "lesion_id": row["lesion_id"],
+                    "pathology": row["pathology"],
+                    "reference_label": int(row["reference_label"]),
+                    "predicted_malignancy_prob": round(float(probs[idx]), 6),
+                    "arm": arm,
+                    "seed": s_idx,
+                    "classifier": "RandomForest_MatchedBudget"
+                })
 
     pred_df = pd.DataFrame(pred_records)
     os.makedirs(os.path.dirname(out_predictions_csv), exist_ok=True)

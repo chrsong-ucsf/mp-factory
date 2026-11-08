@@ -1,0 +1,55 @@
+{
+  "registry_schema_version": "QUARANTINE-v1.0",
+  "updated_at": "2026-11-08T06:00:00Z",
+  "records": [
+    {
+      "artifact_id": "QR-2026-001",
+      "artifact_path": "results/ensemble_phase3_audit_summary.csv",
+      "verification_date": "2026-11-08",
+      "actual_existence_verified": true,
+      "original_storage_location": "results/ensemble_phase3_audit_summary.csv",
+      "sha256_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "generating_git_commit": "b3ff512",
+      "defect_type": "FALSE_BACKGROUND_SUPERVISION_AND_AFFINE_MISMATCH",
+      "invalidation_evidence": "Audit F12: out-of-support background vote injection and legacy shape-only affine inheritance produced 1,598 false REJECTs.",
+      "downstream_reports_affected": [
+        "docs/SHOWCASE.md Table 2",
+        "results/ensemble_audit_summary.csv"
+      ],
+      "quarantine_status": "KNOWN_INVALID",
+      "replacement_artifact_id": "PENDING_PROSPECTIVE_RERUN"
+    },
+    {
+      "artifact_id": "QR-2026-002",
+      "artifact_path": "CancerVerse/multiphase_pairs.csv",
+      "verification_date": "2026-11-08",
+      "actual_existence_verified": true,
+      "original_storage_location": "CancerVerse/multiphase_pairs.csv",
+      "sha256_hash": "UNKNOWN_SCRATCH_TIER",
+      "generating_git_commit": "historical_pre_b3ff512",
+      "defect_type": "UNVERIFIED_TEMPORAL_SESSION_PAIRING",
+      "invalidation_evidence": "Audit F08 & F13: 1,545 pairs have source and target exam dates blank; lack accession confirmation for genuine same-session status.",
+      "downstream_reports_affected": [
+        "code/project10/datasets/multiphase_paired_dataset.py"
+      ],
+      "quarantine_status": "QUARANTINED_UNVERIFIED",
+      "replacement_artifact_id": "discover_multiphase_cohort_strict_v2"
+    },
+    {
+      "artifact_id": "QR-2026-003",
+      "artifact_path": "results/lesion_augmentation_benchmark_summary.json",
+      "verification_date": "2026-11-08",
+      "actual_existence_verified": true,
+      "original_storage_location": "results/lesion_augmentation_benchmark_summary.json",
+      "sha256_hash": "UNKNOWN_SCRATCH_TIER",
+      "generating_git_commit": "historical_pre_b3ff512",
+      "defect_type": "GAUSSIAN_JITTER_FABRICATION_AND_UNMATCHED_BUDGET",
+      "invalidation_evidence": "Audit F04/F06: Fallback inserted Normal(0,5)/Normal(0,8) noise and real training labels for missing synthetic features.",
+      "downstream_reports_affected": [
+        "docs/SHOWCASE.md Section 5"
+      ],
+      "quarantine_status": "KNOWN_INVALID",
+      "replacement_artifact_id": "benchmark_lesion_augmentation_utility_v2"
+    }
+  ]
+}

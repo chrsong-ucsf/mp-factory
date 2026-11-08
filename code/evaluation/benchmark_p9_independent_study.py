@@ -62,12 +62,27 @@ def compute_betti0_numpy(pred_mask: np.ndarray, gt_mask: np.ndarray) -> tuple:
 
 
 def compute_hd95_numpy(pred_mask: np.ndarray, gt_mask: np.ndarray, spacing=(1.0, 1.0, 1.0)) -> float:
+    """
+    Physical surface-to-surface 95th percentile Hausdorff Distance (HD95).
+    Extracts 3D boundary shells to prevent interior voxel dilution.
+    """
     if np.sum(pred_mask) == 0 or np.sum(gt_mask) == 0:
         return float("nan")
-    dt_gt = distance_transform_edt(~gt_mask, sampling=spacing)
-    dt_pred = distance_transform_edt(~pred_mask, sampling=spacing)
-    d_p_to_g = dt_gt[pred_mask]
-    d_g_to_p = dt_pred[gt_mask]
+
+    from scipy.ndimage import binary_erosion, generate_binary_structure
+    s = generate_binary_structure(3, 1)
+    pred_border = pred_mask ^ binary_erosion(pred_mask, structure=s)
+    gt_border = gt_mask ^ binary_erosion(gt_mask, structure=s)
+
+    if np.sum(pred_border) == 0:
+        pred_border = pred_mask
+    if np.sum(gt_border) == 0:
+        gt_border = gt_mask
+
+    dt_gt = distance_transform_edt(~gt_border, sampling=spacing)
+    dt_pred = distance_transform_edt(~pred_border, sampling=spacing)
+    d_p_to_g = dt_gt[pred_border]
+    d_g_to_p = dt_pred[gt_border]
     all_d = np.concatenate([d_p_to_g, d_g_to_p])
     return float(np.percentile(all_d, 95))
 
@@ -75,7 +90,8 @@ def compute_hd95_numpy(pred_mask: np.ndarray, gt_mask: np.ndarray, spacing=(1.0,
 def paired_cluster_bootstrap(df: pd.DataFrame, arm_a: str, arm_b: str, metric: str = "dice", n_boot: int = 1000):
     """
     Patient-stratified cluster bootstrap difference for paired arms.
-    Delta = mean(arm_a) - mean(arm_b)
+    Evaluates paired arms on identical resampled patient clusters.
+    Requires at least 10 independent patients as an operational safeguard.
     """
     piv = df[df["arm"].isin([arm_a, arm_b])].pivot_table(
         index=["patient_id", "scan_id", "organ"],
@@ -84,33 +100,47 @@ def paired_cluster_bootstrap(df: pd.DataFrame, arm_a: str, arm_b: str, metric: s
     ).dropna()
 
     if piv.empty:
-        return {"delta_mean": None, "ci_lower": None, "ci_upper": None, "p_value": None}
+        return {"status": "NO_PAIRED_DATA", "delta_mean": None, "p_value": None}
 
     patients = np.unique([idx[0] for idx in piv.index])
+    if len(patients) < 10:
+        return {
+            "status": "INSUFFICIENT_INDEPENDENT_PATIENTS",
+            "message": f"Cluster permutation requires >= 10 independent patients, found {len(patients)}.",
+            "n_patients": len(patients),
+            "observed_delta": round(float((piv[arm_a] - piv[arm_b]).mean()), 4),
+            "p_value": None,
+        }
+
+    # Compute patient-level mean difference vector
+    patient_diffs = []
+    for pt in patients:
+        pt_rows = piv.xs(pt, level=0)
+        pt_diff = float((pt_rows[arm_a] - pt_rows[arm_b]).mean())
+        patient_diffs.append(pt_diff)
+    patient_diffs = np.array(patient_diffs)
+    obs_d = float(np.mean(patient_diffs))
+
     rng = np.random.RandomState(42)
     deltas = []
-
     for _ in range(n_boot):
-        sample_pts = rng.choice(patients, size=len(patients), replace=True)
-        sample_rows = []
-        for pt in sample_pts:
-            sample_rows.append(piv.xs(pt, level=0, drop_level=False))
-        sample_df = pd.concat(sample_rows)
-        d = sample_df[arm_a] - sample_df[arm_b]
-        deltas.append(d.mean())
+        sample_indices = rng.choice(len(patients), size=len(patients), replace=True)
+        boot_diff = np.mean(patient_diffs[sample_indices])
+        deltas.append(boot_diff)
 
-    obs_d = (piv[arm_a] - piv[arm_b]).mean()
-    # Paired permutation test (sign flip)
-    diffs = (piv[arm_a] - piv[arm_b]).values
+    # Patient-level sign-flip permutation test
     n_perm = 10000
-    flips = rng.choice([-1, 1], size=(n_perm, len(diffs)))
-    perm_d = np.mean(flips * diffs, axis=1)
-    p_val = float(np.mean(np.abs(perm_d) >= np.abs(obs_d)))
+    flips = rng.choice([-1, 1], size=(n_perm, len(patient_diffs)))
+    perm_d = np.mean(flips * patient_diffs, axis=1)
+    # Finite Monte Carlo continuity correction: (k + 1) / (N_perm + 1)
+    p_val = float((np.sum(np.abs(perm_d) >= np.abs(obs_d)) + 1) / (n_perm + 1))
 
     return {
+        "status": "VALID_INFERENCE",
         "arm_a": arm_a,
         "arm_b": arm_b,
         "metric": metric,
+        "n_patients": len(patients),
         "observed_delta": round(float(obs_d), 4),
         "ci_lower_2.5": round(float(np.percentile(deltas, 2.5)), 4),
         "ci_upper_97.5": round(float(np.percentile(deltas, 97.5)), 4),
@@ -226,10 +256,166 @@ def run_benchmark(
             sys.exit(2)
         return summary
 
-    print(f"Found {len(gt_files)} ground truth cases in {independent_gt_dir}")
-    # Execution placeholder for when independent GT is mounted
-    # Gated to ensure no unverified numbers are produced.
-    return {"status": "SUCCESS", "n_cases": len(gt_files)}
+    print(f"Found {len(gt_files)} ground truth cases in {independent_gt_dir}. Executing 4-arm matched benchmark...")
+    
+    arm_dirs = {
+        "Teacher_TotalSegmentator_v2": teacher_dir,
+        "Majority_Vote_Consensus": majority_dir,
+        "Weighted_Ensemble": ensemble_dir,
+        "Student_MedNeXt_Phase2": student_dir,
+    }
+
+    pred_records = []
+    missing_count = 0
+    total_evals = 0
+
+    import nibabel as nib
+    try:
+        import SimpleITK as sitk
+    except ImportError:
+        sitk = None
+
+    for g_fname in sorted(gt_files):
+        case_id = g_fname.split(".")[0]
+        patient_id = case_id.split("_")[1] if "_" in case_id else case_id
+        gt_path = os.path.join(independent_gt_dir, g_fname)
+
+        # Load Ground Truth
+        try:
+            if g_fname.endswith(".nrrd") and sitk is not None:
+                img_itk = sitk.ReadImage(gt_path)
+                gt_arr = sitk.GetArrayFromImage(img_itk)  # (Z, Y, X)
+                gt_arr = np.transpose(gt_arr, (2, 1, 0))  # to (X, Y, Z)
+                spacing = img_itk.GetSpacing()
+            else:
+                nii = nib.load(gt_path)
+                gt_arr = np.asanyarray(nii.dataobj)
+                spacing = nii.header.get_zooms()[:3] if nii.header else (1.0, 1.0, 1.0)
+        except Exception as e:
+            print(f"  [CORRUPT_GT] {g_fname}: {e}")
+            continue
+
+        diag_penalty = float(np.sqrt(sum((gt_arr.shape[i] * spacing[i]) ** 2 for i in range(3))))
+
+        # Evaluate each arm
+        for arm_name, a_dir in arm_dirs.items():
+            total_evals += 1
+            pred_file = None
+            if os.path.exists(a_dir):
+                for cand in os.listdir(a_dir):
+                    if case_id in cand and (cand.endswith(".nii.gz") or cand.endswith(".nii")) and "uncertainty" not in cand:
+                        pred_file = os.path.join(a_dir, cand)
+                        break
+
+            if not pred_file or not os.path.exists(pred_file):
+                missing_count += 1
+                for c_idx, o_name in enumerate(ORGAN_NAMES):
+                    pred_records.append({
+                        "patient_id": patient_id,
+                        "scan_id": case_id,
+                        "arm": arm_name,
+                        "organ": o_name,
+                        "is_ref_present": bool(np.sum(gt_arr == (c_idx + 1)) > 0),
+                        "dice": 0.0,
+                        "surface_hd95": diag_penalty,
+                        "fpv_cm3": 0.0,
+                        "betti0_diff": 5,
+                        "is_failure_penalty": True,
+                        "status": "MISSING_PREDICTION",
+                    })
+                continue
+
+            try:
+                p_nii = nib.load(pred_file)
+                p_arr = np.asanyarray(p_nii.dataobj)
+                if p_arr.shape != gt_arr.shape:
+                    import nibabel.processing as nip
+                    ref_nii = nib.Nifti1Image(gt_arr.astype(np.uint8), np.eye(4))
+                    p_res = nip.resample_from_to(p_nii, ref_nii, order=0)
+                    p_arr = np.asanyarray(p_res.dataobj)
+
+                for c_idx, o_name in enumerate(ORGAN_NAMES):
+                    lbl_val = c_idx + 1
+                    g_bin = (gt_arr == lbl_val)
+                    p_bin = (p_arr == lbl_val)
+                    ref_present = bool(np.sum(g_bin) > 0)
+
+                    if ref_present:
+                        intersect = np.sum(p_bin & g_bin)
+                        union = np.sum(p_bin) + np.sum(g_bin)
+                        d_val = round(float((2.0 * intersect) / (union + 1e-7)), 4)
+                        h_val = round(float(compute_hd95_numpy(p_bin, g_bin, spacing)), 2)
+                        _, _, b_val = compute_betti0_error(p_bin, g_bin)
+                        fpv_val = 0.0
+                    else:
+                        d_val = float("nan")
+                        h_val = float("nan")
+                        b_val = 0
+                        voxel_vol = float(np.prod(spacing)) / 1000.0  # to cm^3
+                        fpv_val = round(float(np.sum(p_bin) * voxel_vol), 4)
+
+                    pred_records.append({
+                        "patient_id": patient_id,
+                        "scan_id": case_id,
+                        "arm": arm_name,
+                        "organ": o_name,
+                        "is_ref_present": ref_present,
+                        "dice": d_val,
+                        "surface_hd95": h_val,
+                        "fpv_cm3": fpv_val,
+                        "betti0_diff": b_val,
+                        "is_failure_penalty": False,
+                        "status": "OK",
+                    })
+            except Exception as pe:
+                missing_count += 1
+                for c_idx, o_name in enumerate(ORGAN_NAMES):
+                    pred_records.append({
+                        "patient_id": patient_id,
+                        "scan_id": case_id,
+                        "arm": arm_name,
+                        "organ": o_name,
+                        "is_ref_present": bool(np.sum(gt_arr == (c_idx + 1)) > 0),
+                        "dice": 0.0,
+                        "surface_hd95": diag_penalty,
+                        "fpv_cm3": 0.0,
+                        "betti0_diff": 5,
+                        "is_failure_penalty": True,
+                        "status": f"CORRUPTED_PREDICTION: {pe}",
+                    })
+
+    pred_df = pd.DataFrame(pred_records)
+    pred_df.to_csv(predictions_csv, index=False)
+    print(f"  Saved matched predictions -> {predictions_csv} ({len(pred_df)} rows)")
+
+    # Compute Paired Statistical Comparisons on Reference-Present cases
+    ref_pres_df = pred_df[pred_df["is_ref_present"]].copy()
+    stats_student_vs_teacher = paired_cluster_bootstrap(ref_pres_df, "Student_MedNeXt_Phase2", "Teacher_TotalSegmentator_v2", metric="dice")
+    stats_student_vs_ensemble = paired_cluster_bootstrap(ref_pres_df, "Student_MedNeXt_Phase2", "Weighted_Ensemble", metric="dice")
+    stats_ensemble_vs_majority = paired_cluster_bootstrap(ref_pres_df, "Weighted_Ensemble", "Majority_Vote_Consensus", metric="dice")
+
+    overall_status = "COMPLETED" if missing_count == 0 else "INCOMPLETE_PREDICTIONS"
+    completion_rate = round(float((total_evals - missing_count) / max(total_evals, 1)), 4)
+
+    summary = {
+        "status": overall_status,
+        "n_cases": len(gt_files),
+        "total_evaluations_planned": total_evals,
+        "successful_evaluations": total_evals - missing_count,
+        "missing_predictions": missing_count,
+        "completion_rate": completion_rate,
+        "matched_arms": list(arm_dirs.keys()),
+        "comparisons": {
+            "Student_vs_Teacher": stats_student_vs_teacher,
+            "Student_vs_Weighted_Ensemble": stats_student_vs_ensemble,
+            "Weighted_Ensemble_vs_Majority": stats_ensemble_vs_majority,
+        },
+        "predictions_csv": predictions_csv,
+    }
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
+    print(f"Saved benchmark summary -> {summary_path} (Status: {overall_status})")
+    return summary
 
 
 if __name__ == "__main__":

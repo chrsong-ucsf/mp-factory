@@ -59,7 +59,13 @@ def compute_metrics(y_true, y_pred, num_params):
     }
 
 
-def fit_scaling_models(csv_path: str, out_json: str = None, metric: str = "mean_dice", n_boot: int = 1000) -> dict:
+def fit_scaling_models(
+    csv_path: str,
+    out_json: str = None,
+    metric: str = "mean_dice",
+    n_boot: int = 1000,
+    x_axis: str = "patient_count",
+) -> dict:
     if not os.path.exists(csv_path):
         print(f"[Error] CSV not found: {csv_path}")
         results = {
@@ -75,8 +81,16 @@ def fit_scaling_models(csv_path: str, out_json: str = None, metric: str = "mean_
 
     df = pd.read_csv(csv_path)
 
-    # Resolve training size column
-    if "train_scan_count" in df.columns:
+    # Resolve training size column based on requested x_axis
+    if x_axis == "patient_count" and "train_patient_count" in df.columns:
+        df["train_size"] = pd.to_numeric(df["train_patient_count"], errors="coerce")
+    elif x_axis == "patient_count" and "n_train_patients" in df.columns:
+        df["train_size"] = pd.to_numeric(df["n_train_patients"], errors="coerce")
+    elif x_axis == "annotation_budget" and "annotation_organ_count" in df.columns:
+        df["train_size"] = pd.to_numeric(df["annotation_organ_count"], errors="coerce")
+    elif "train_patient_count" in df.columns:
+        df["train_size"] = pd.to_numeric(df["train_patient_count"], errors="coerce")
+    elif "train_scan_count" in df.columns:
         df["train_size"] = pd.to_numeric(df["train_scan_count"], errors="coerce")
     elif "n_train_scans" in df.columns:
         df["train_size"] = pd.to_numeric(df["n_train_scans"], errors="coerce")
@@ -195,14 +209,26 @@ def fit_scaling_models(csv_path: str, out_json: str = None, metric: str = "mean_
         n_test_eval = np.linspace(min(N_vals), max(N_vals) * 1.5, 50)
         rng = np.random.RandomState(42)
 
-        # Prepare clusters
-        if patient_col and clean_df[patient_col].nunique() > 1:
-            patient_groups = clean_df.groupby(patient_col)
-            unique_entities = np.array(list(patient_groups.groups.keys()))
-            use_patient_clustering = True
-        else:
-            unique_entities = np.arange(len(clean_df))
-            use_patient_clustering = False
+        # Prepare clusters (Operational Safeguard: require >= 5 independent patients)
+        n_unique_pts = clean_df[patient_col].nunique() if patient_col else 0
+        if not patient_col or n_unique_pts < 5:
+            results["bootstrap_analysis"] = {
+                "status": "INSUFFICIENT_INDEPENDENT_PATIENTS",
+                "message": (
+                    f"Patient-cluster bootstrap requires at least 5 independent patients (found {n_unique_pts}). "
+                    "Row-level observation resampling is refused to prevent pseudo-replication."
+                ),
+                "n_independent_patients": n_unique_pts,
+            }
+            if out_json:
+                os.makedirs(os.path.dirname(out_json), exist_ok=True)
+                with open(out_json, "w") as f:
+                    json.dump(results, f, indent=2)
+            return results
+
+        patient_groups = clean_df.groupby(patient_col)
+        unique_entities = np.array(list(patient_groups.groups.keys()))
+        use_patient_clustering = True
 
         model_fns = {
             "power_law": (power_law, [0.85, 0.4, 0.3], ([0.1, 0.0, 0.01], [1.0, 5.0, 3.0]), ["a", "b", "alpha"]),

@@ -207,36 +207,55 @@ def build_manifest(
 
             # Prioritize matching NCCT: 1. same accession, 2. same exam_date, 3. closest date
             matched_src = None
-            session_matched = False
+            temporal_status = "unverified_date_missing"
+            same_day = False
 
             if tgt_acc and tgt_acc != "nan":
                 acc_matches = src_rows[src_rows["Encrypted Accession Number"].str.strip() == tgt_acc]
                 if not acc_matches.empty:
                     matched_src = acc_matches.iloc[0]
-                    session_matched = True
+                    temporal_status = "verified_same_session"
+                    same_day = True
 
             if matched_src is None and has_tgt_date:
                 date_matches = src_rows[src_rows["exam_date_norm"] == tgt_date]
                 if not date_matches.empty:
                     matched_src = date_matches.iloc[0]
-                    session_matched = True
+                    src_acc_val = str(matched_src.get("Encrypted Accession Number", "")).strip()
+                    if tgt_acc and tgt_acc != "nan" and src_acc_val and src_acc_val != "nan" and tgt_acc != src_acc_val:
+                        # Conflicting accessions on same calendar date: separate exam procedures
+                        temporal_status = "same_day_different_accession"
+                    else:
+                        temporal_status = "same_day_unverified_accession"
+                    same_day = True
 
             if matched_src is None:
-                matched_src = src_rows.iloc[0]
-                session_matched = False
+                # Find closest date if dates are available
+                valid_date_srcs = src_rows[src_rows["exam_date_norm"].notna()].copy()
+                if has_tgt_date and not valid_date_srcs.empty:
+                    try:
+                        tgt_dt = pd.to_datetime(tgt_date)
+                        valid_date_srcs["dt_diff"] = (pd.to_datetime(valid_date_srcs["exam_date_norm"]) - tgt_dt).abs()
+                        matched_src = valid_date_srcs.sort_values("dt_diff").iloc[0]
+                        temporal_status = "verified_longitudinal"
+                        same_day = False
+                    except Exception:
+                        matched_src = src_rows.iloc[0]
+                else:
+                    matched_src = src_rows.iloc[0]
+                    temporal_status = "unverified_date_missing"
+                    same_day = False
 
             src = matched_src
             has_p0_date = pd.notna(src["exam_date_norm"]) and str(src["exam_date_norm"]).strip() != ""
 
-            if session_matched:
-                temporal_status = "verified_same_session"
-                same_day = True
-            elif has_p0_date and has_tgt_date:
-                temporal_status = "verified_longitudinal"
-                same_day = False
-            else:
-                temporal_status = "unverified_date_missing"
-                same_day = False
+            if temporal_status == "unverified_date_missing" and has_p0_date and has_tgt_date:
+                if src["exam_date_norm"] == tgt_date:
+                    temporal_status = "same_day_unverified_accession"
+                    same_day = True
+                else:
+                    temporal_status = "verified_longitudinal"
+                    same_day = False
 
             if same_day_only and not same_day:
                 continue

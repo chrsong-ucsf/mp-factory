@@ -88,20 +88,33 @@ class MultiphasePairedDataset(Dataset):
         csv_p = Path(registration_csv)
         csv_path = csv_p if csv_p.is_absolute() else (self.base_dir / csv_p).resolve()
         
-        # Load and filter CSV.
-        # Column order: pair_id, patient_id, subject_p0, subject_target, phase_target, status, elapsed_sec, error, out_reg_path
-        _FIELDNAMES = ["pair_id", "patient_id", "subject_p0", "subject_target",
-                       "phase_target", "status", "elapsed_sec", "error", "out_reg_path"]
+        # Load and filter CSV supporting both 15-field named schema and legacy 9-field schema
+        _FIELDNAMES_9 = ["pair_id", "patient_id", "subject_p0", "subject_target",
+                         "phase_target", "status", "elapsed_sec", "error", "out_reg_path"]
         try:
-            df = pd.read_csv(csv_path, header=None, names=_FIELDNAMES)
+            with open(csv_path, "r") as f:
+                first_line = f.readline()
+            has_header = "pair_id" in first_line or "status" in first_line
+
+            if has_header:
+                df = pd.read_csv(csv_path)
+            else:
+                df = pd.read_csv(csv_path, header=None, names=_FIELDNAMES_9)
+
+            allowed_statuses = ["PROVISIONAL_PASS_QA_SCREEN", "OK", "APPROVED_INDEPENDENT_LANDMARK"]
             if 'status' in df.columns:
-                self.df = df[df['status'] == 'OK'].reset_index(drop=True)
+                self.df = df[df['status'].isin(allowed_statuses)].reset_index(drop=True)
             else:
                 log.warning("Column 'status' not found in registration CSV. Using all rows.")
                 self.df = df.reset_index(drop=True)
+
+            if len(self.df) == 0:
+                raise ValueError(
+                    f"Registration CSV at {csv_path} contains 0 eligible pairs matching allowed statuses: {allowed_statuses}"
+                )
         except Exception as e:
             log.error(f"Failed to load registration CSV from {csv_path}: {e}")
-            self.df = pd.DataFrame()
+            raise
 
         # Validate rows: reject malformed OK rows missing subject_p0
         for idx, row in self.df.iterrows():

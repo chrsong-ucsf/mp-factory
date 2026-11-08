@@ -96,6 +96,10 @@ class UnifiedGI3Dataset(torch.utils.data.Dataset):
         subject_id   = record.get("subject_id", "??")
 
         d = {"image": ct_path, "label": label_path, "category": category, "subject_id": subject_id}
+        if "label_origin" in record:
+            d["label_origin"] = record["label_origin"]
+        if "reviewed_classes" in record and record["reviewed_classes"] is not None:
+            d["reviewed_classes"] = torch.tensor(record["reviewed_classes"], dtype=torch.bool)
 
         if self.transform:
             d = self.transform(d)
