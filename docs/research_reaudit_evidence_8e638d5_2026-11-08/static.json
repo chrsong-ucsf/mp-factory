@@ -1,0 +1,15 @@
+{
+  "head": "8e638d517801eda0a199a14861a85dcfe6c27643",
+  "origin_main": "8e638d517801eda0a199a14861a85dcfe6c27643",
+  "python_parse_files": 94,
+  "shell_syntax_files": 84,
+  "syntax_errors": 0,
+  "full_tests_run": false,
+  "reason": "Scientific/source audit; heavy suites require Slurm under AGENTS; not executed",
+  "pairs_rows": 1545,
+  "pair_patients": 438,
+  "missing_source_dates": 1545,
+  "missing_target_dates": 1545,
+  "local_result_files": [],
+  "local_log_files": []
+}

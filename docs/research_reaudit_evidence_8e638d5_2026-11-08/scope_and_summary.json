@@ -1,0 +1,20 @@
+{
+  "audited_commit": "8e638d517801eda0a199a14861a85dcfe6c27643",
+  "comparison_commit": "f7724f4baea59636479729aa3c4d18a32fef6fce",
+  "date": "2026-11-08",
+  "timezone": "America/Los_Angeles",
+  "scope": "Research-methodology remediation audit; explicitly distinguish changed, partial, unchanged and unverified study requirements",
+  "lightweight_checks": {
+    "python_files_parsed": 94,
+    "shell_files_syntax_checked": 84,
+    "syntax_errors": 0
+  },
+  "full_tests_or_training_run": false,
+  "controls": "Tiny temporary missing-input/zero-epoch benchmark and two-label completeness controls; extracted filename-discovery control; no trained model or clinical evaluation",
+  "invalid_benchmark_output_warning": "All AUC/F1/accuracy/significance values in claims control outputs are emitted hardcoded fixtures, NOT measured empirical performance. They must not be used in study results.",
+  "new_geometry_defect": "Native hard-mask export with inference-grid affine-less probabilities; ensemble still uses hard-mask affine for probability resampling. Static dataflow finding, no production inference rerun.",
+  "reference_metric_defect": "Flat JHU discovery can pair CT as own label in optional radiologist metric path; historical use not established",
+  "evidence_limit": "No local result/log files. No claim is made that separate remote or unpublished studies do not exist. Source additions and comments alone do not demonstrate executed methodological fixes.",
+  "source_changes": false,
+  "report": "docs/RESEARCH_REAUDIT_8e638d5_2026-11-08.txt"
+}

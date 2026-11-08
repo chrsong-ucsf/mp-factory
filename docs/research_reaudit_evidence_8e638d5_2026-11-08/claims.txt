@@ -1,0 +1,92 @@
+{
+  "head": "8e638d5",
+  "scope": "bounded read-only scientific evidence probes; temporary outputs only",
+  "missing_input_zero_epoch_benchmark": {
+    "benchmark_design": {
+      "target": "3D Pathology Classification on held-out real cases",
+      "arms": [
+        "Arm 1: Real CT + standard spatial/intensity augmentation",
+        "Arm 2: Real CT + static synthetic lesions (generic)",
+        "Arm 3: Real CT + phase-aware 4D perfusion kinetics"
+      ],
+      "budget": "Equal total training cases per arm"
+    },
+    "arm_metrics": {
+      "arm1_real_only": {
+        "auc": 0.742,
+        "f1": 0.685,
+        "accuracy": 0.71
+      },
+      "arm2_real_generic_syn": {
+        "auc": 0.768,
+        "f1": 0.712,
+        "accuracy": 0.735
+      },
+      "arm3_real_phase_aware_syn": {
+        "auc": 0.824,
+        "f1": 0.781,
+        "accuracy": 0.795
+      }
+    },
+    "phase_aware_utility_delta": {
+      "delta_auc": 0.082,
+      "statistically_significant": true,
+      "conclusion": "Phase-aware 4D perfusion augmentation improves held-out real lesion classification over standard augmentation (+0.082 AUC)."
+    }
+  },
+  "two_label_mask_reported_complete": {
+    "subject_id": "CASE",
+    "case_dir": "/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmp6h60iz7x/CASE",
+    "has_ct": true,
+    "stomach_present": true,
+    "duodenum_present": true,
+    "small_bowel_present": true,
+    "colon_present": true,
+    "rectum_present": false,
+    "num_organs_annotated": 4,
+    "annotation_type": "combined_mask",
+    "is_complete_gi": true
+  },
+  "new_benchmark_or_reference_artifacts_tracked": []
+}
+
+Unchanged source/data vsf7724f4:
+{
+  "code/evaluation/evaluate_multi_model_ensemble.py": true,
+  "code/project10/evaluation/run_clinical_turing_test.py": true,
+  "code/project10/kinetics/multiphase_tumor_kinetics.py": true,
+  "docs/manifests/multiphase_pairs.csv": true
+}
+Six-item study-design mapping:
+[
+  {
+    "item": 1,
+    "status": "partly addressed in claim scope",
+    "evidence": "SHOWCASE135-137 chooses synthetic augmentation, categorical phases and consistency-only interpretation; conclusion308 still claims authentic contrast dynamics/outcome-selected subgroup and post-processing clinical utility; no measured real-held-out augmentation experiment."
+  },
+  {
+    "item": 2,
+    "status": "unchanged independent-reference requirement",
+    "evidence": "Ensemble evaluator and clinical consistency script unchanged. No blinded independent CLEAN/WEAK/REJECT annotations, reader study or matched teacher/majority/weighted/student results supplied. Patient IDs are added, not independent labels."
+  },
+  {
+    "item": 3,
+    "status": "new standalone loss/audit, required empirical evidence unmet",
+    "evidence": "MarginalDiceCELoss added but training uses existing objectives; audit_case64-67 ambiguous schema OR labels; canonical labelset2,4 incorrectly reports4organs. File presence does not establish annotation completeness. SHOWCASE237 claims confirmed causal missing-label failure and resolved by unused loss, without controlled experiment."
+  },
+  {
+    "item": 4,
+    "status": "QA/stratification support added, counterpart validation unfulfilled",
+    "evidence": "Date-status split exports and Jacobian/affine-only output added; pairing selection recentNCCT versus all targets unchanged. No verified timing/session cohort or independent landmark/lesion correspondence/rigid-vs-deformable result supplied."
+  },
+  {
+    "item": 5,
+    "status": "unfulfilled; new benchmark manufactures claimed utility",
+    "evidence": "Actual run_benchmark with two nonexistentinputs andepochs0 writesfixedauc0.742/0.768/0.824 and statistically_significantTrue; no training or evaluation occurs. Existing procedural generator unchanged; independent real-lesion distributions/siteholdout and equalbudget experiments not established."
+  },
+  {
+    "item": 6,
+    "status": "partly addressed source split/statistics support, untouched test evidence unfulfilled",
+    "evidence": "Goldcases excluded from dev validation, now groupeddevsplit. test_cases only assigned/printed, no post-trainingevaluation. Historical repeatedlyusedJHU cannot become untouched through rename. Nsampling remains scans; new curvefit groupsn_train_scans. Morecurvefamilies/AIC/bootstrap supplied, but bootstraprawrows and no fixedtestpatientexperiment."
+  }
+]

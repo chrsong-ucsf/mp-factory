@@ -1,0 +1,65 @@
+P9 RESEARCH FOLLOW-UP -- 8e638d5 versus f7724f4
+
+Mapping to original six-item research audit (P9-relevant items 2, 3, 6):
+
+ITEM 2 -- INDEPENDENT CONSENSUS VALIDATION: NOT DONE AS A STUDY.
+The ensemble scoring/triage implementation is unchanged in this commit. No blinded expert quality audit spanning CLEAN/WEAK/REJECT, matched teacher/majority/weighted/student trial, or selection/weighting/loss ablation results were added. Independent accuracy and calibration remain unestablished by consensus agreement. A smaller/larger script or repaired coordinate transform does not replace the required experiment. Table 1 still contains unmatched literature values; no matched new external benchmark is demonstrated by these changes.
+Evidence: git diff f7724f4..8e638d5 has no change to code/evaluation/evaluate_multi_model_ensemble.py or the four main segmentation training files. Existing source evaluate_multi_model_ensemble.py:534-559,635-641 still scores against consensus. docs/RESEARCH_DESIGN_AUDIT_d2931d4_2026-11-08.txt item 2 specifies the missing trial.
+
+ITEM 3 -- PARTIAL LABELS: IMPLEMENTATION SCAFFOLDING ONLY, WITH A NEW INVENTORY BUG.
+Added: code/training/marginal_loss.py defines a class-absent marginal CE and masked Dice objective; code/evaluation/audit_dataset_completeness.py inventories mask label/file presence. This is genuine new preparatory work. It is not yet a deployed training intervention or empirical validation.
+Unchanged/not wired: none of train_mednext.py, train_mednext_phase2.py, train_swin_unetr.py, train_swin_unetr_phase2.py or run_scaling_sweep.py imports/calls MarginalDiceCELoss or consumes its present_classes metadata. Current trainers continue their old CE/asymmetric objectives. Scaling selection at run_scaling_sweep.py:747-752 and call :779 still use only the old losses; trainer examples train_mednext.py:457-473 and train_mednext_phase2.py:640-658. A new isolated unit test does not establish integration or corrected results.
+Completeness correctness: audit_dataset_completeness.py:64-67 unions two label schemes without selecting a schema. For canonical labels {0,2,4} (duodenum and colon only), all four presence flags become True and :73 reports complete. The attached actual-function logic probe demonstrates this. Individual mask presence (:84-87) also does not establish nonempty/readable masks or exhaustive voxel annotation. Presence is not the semantic distinction between reviewed background and unknown organs.
+Conditional scientific limitation: marginal_loss.py:49,66-77 expects one case/dataset-wide list of available classes. It does not by itself identify unknown regions inside a partially drawn organ, provide per-voxel annotation confidence, or establish that current labels are missing rather than truly absent/outside FOV. Applying a mask-inferred presence list without adjudication can remove valid negative supervision. Audit annotation protocol/completeness before choosing the objective; use explicit per-case observed-label metadata (and per-voxel masks where needed), wire it through batching, and compare on controlled missing-label and untouched complete-label references.
+Evidence limit: this review does NOT establish that all current training masks have unknown background, or that an integrated marginal loss would necessarily improve GI results.
+
+New claim overreach: docs/SHOWCASE.md:237 says forensic inspection confirmed that missing small-bowel labels caused all zero-DSC predictions, and that the problem is resolved by the new marginal loss. No cohort-level annotation forensic evidence, controlled causal experiment, wired production use, retraining, or corrected expert result was added. State this as a plausible hypothesis/proposed remedy until demonstrated. The similar geometry explanation at :238 is plausible given known code defects, but assigning the entire historical score collapse to that single mechanism requires regenerated matched evaluation.
+
+ITEM 6 -- INDEPENDENT EVALUATION AND SCALING: PARTIAL DESIGN IMPROVEMENT, NOT COMPLETED EVIDENCE.
+Done in code: run_scaling_sweep.py:638-675 removes the supplied expert patients from development, makes a separate patient-grouped development train/validation split, and reserves gold_standard_cases as test_cases. This repairs the specific earlier use of expert cases as the checkpoint-selection validation set.
+Still absent: test_cases occurs only in assignment/printing (:638,645,677-678); no post-training evaluation, best-checkpoint reload, patient-level expert report or CI is implemented. It is not saved as the final independently evaluated outcome. Existing optional rad_cases is evaluated every epoch (:828), so it is not a new post-training expert test.
+A genuine existing metric wiring error remains: main():1134 calls find_cases(radiologist_gt_dir,radiologist_gt_dir). In the flat JHU layout, find_cases():325-330 pairs each CT .nii.gz with the same .nii.gz as its label; the actual .seg.nrrd reference is not read there. evaluate_radiologist_true_dice():568-599 then treats that label array as class IDs. The attached actual discovery-function filename probe returns image==label. The correctly designed NRRD gold_standard_cases loader is separate and does not repair this rad_cases path. Which historical experiments used this route remains unverified.
+Added analysis: compute_scaling_law.py now compares power/log/exponential fits and reports AIC/BIC, covariance errors and a bootstrap band. This improves exploratory curve fitting, not the dataset's independence or sample size.
+Remaining statistical limitations: fit means use no per-N variance weights (:77-81); raw-row resampling (:151-153) does not preserve shared patient/test-set, seed or nested-subset dependence, so its uncertainty is conditional on the available run rows and is not population uncertainty across new patients. The bootstrap always fits power_law (:155-159), even if preferred_model is logarithmic or exponential (:138-142); generic bootstrap_ci output (:165) should identify its model or follow the selected model. It supplies prediction-curve bands, not a bootstrap CI for the scaling exponent. AIC comparisons/covariance errors on a few size means do not establish a general law or reliable extrapolation. Successful/failed bootstrap counts and identifiability should be reported; a study still needs independent patients, repeated subset draws/seeds, a fixed untouched expert test and annotation-budget comparisons.
+
+BOTTOM LINE FOR THE USER'S QUESTION
+Changed: preparatory marginal-loss implementation, rough annotation inventory, independent development-vs-gold split structure, alternative curve-fit analysis.
+Not completed: independent consensus validation, production marginal-loss integration/metadata semantics, controlled missing-label experiment, final held-out expert evaluation, matched P9 baseline/ablation study, larger independent/external cohort, annotation-efficiency/scaling empirical evidence.
+Do not equate these new code files or documentary cause assertions with those experiments being performed.
+
+LIGHTWEIGHT LOGIC EVIDENCE
+{
+  "head": "8e638d517801eda0a199a14861a85dcfe6c27643",
+  "method": "Lightweight extraction/execution of actual pure discovery/decision function bodies with a stub label reader or empty filename fixtures. No project imports, tensors, real datasets, tests, training or Slurm jobs.",
+  "canonical_label_ids": [
+    0,
+    2,
+    4
+  ],
+  "expected_organs_under_canonical_schema": [
+    "duodenum",
+    "colon"
+  ],
+  "actual_completeness_record": {
+    "subject_id": "case",
+    "case_dir": "/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-8e638d5-logic-e15jydy0/case",
+    "has_ct": true,
+    "stomach_present": true,
+    "duodenum_present": true,
+    "small_bowel_present": true,
+    "colon_present": true,
+    "rectum_present": false,
+    "num_organs_annotated": 4,
+    "annotation_type": "combined_mask",
+    "is_complete_gi": true
+  },
+  "jhu_filename_pair_fixture": [
+    {
+      "image": "/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-8e638d5-logic-e15jydy0/jhu/BDMAP_00242113.nii.gz",
+      "label": "/var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/mp-8e638d5-logic-e15jydy0/jhu/BDMAP_00242113.nii.gz",
+      "name": "BDMAP_00242113",
+      "schema": "jhu"
+    }
+  ],
+  "same_ct_used_as_label": true
+}

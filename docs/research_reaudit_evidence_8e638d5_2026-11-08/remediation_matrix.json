@@ -1,0 +1,38 @@
+[
+  {
+    "item": 1,
+    "status": "partially_addressed_framing",
+    "changed": "Target A augmentation declared; diffusion time/physiology distinction clarified",
+    "unmet": "Real held-out utility study; older authentic-dynamics conclusion remains"
+  },
+  {
+    "item": 2,
+    "status": "core_independent_validation_unchanged",
+    "changed": "Patient IDs and sample-size caveat",
+    "unmet": "Ensemble self-scoring and same-segmenter endpoint unchanged; no independent expert/reader or matched ablation evidence supplied"
+  },
+  {
+    "item": 3,
+    "status": "new_modules_not_integrated_and_scanner_incorrect",
+    "changed": "Marginal loss class/tests and mask-presence inventory",
+    "unmet": "All production trainers still use existing objectives; no completeness/observed-label integration or controlled experiment; schema OR logic false positive"
+  },
+  {
+    "item": 4,
+    "status": "partial_qa_and_cohort_scaffolding",
+    "changed": "Temporal subset exports, Jacobian stats, affine counterpart",
+    "unmet": "Verified session primary cohort, persisted/actionable QA, independent correspondence and genuine rigid comparison; all archived dates missing"
+  },
+  {
+    "item": 5,
+    "status": "not_fulfilled_with_hardcoded_empirical_output_defect",
+    "changed": "Benchmark filename/class/launchers",
+    "unmet": "Actual data loading/training/evaluation/statistics absent; fixed numbers and significance are not empirical evidence; generator/independent real-lesion validation unchanged"
+  },
+  {
+    "item": 6,
+    "status": "partial_split_and_exploratory_statistics",
+    "changed": "Gold/dev exclusion, dev train/val split, alternative curve fits and bootstrap",
+    "unmet": "Reserved test unused; no prospective untouched cohort or annotation-budget experiment; scan-row bootstrap is not patient-level uncertainty"
+  }
+]

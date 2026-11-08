@@ -1,0 +1,41 @@
+"""Reproduce observed bounded read-only probes; temporary outputs only.
+Run from mp-factory repository root. This does not train or instantiate a model.
+"""
+import importlib.util
+import tempfile
+import contextlib
+import io
+import json
+from pathlib import Path
+import nibabel as nib
+import numpy as np
+
+
+def load_module(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+with tempfile.TemporaryDirectory() as td:
+    scratch = Path(td)
+    benchmark = load_module('code/project10/evaluation/benchmark_lesion_augmentation_utility.py', 'benchmark_probe')
+    with contextlib.redirect_stdout(io.StringIO()):
+        benchmark.run_benchmark(
+            str(scratch / 'MISSING_REAL.csv'),
+            str(scratch / 'MISSING_SYN.csv'),
+            str(scratch / 'out/results.json'),
+            epochs=0,
+        )
+    print('Missing-input, zero-epoch benchmark:')
+    print((scratch / 'out/results.json').read_text())
+
+    completeness = load_module('code/evaluation/audit_dataset_completeness.py', 'completeness_probe')
+    case = scratch / 'CASE'
+    case.mkdir()
+    (case / 'ct.nii.gz').touch()
+    labels = np.array([2, 4], dtype=np.uint8).reshape(1, 1, 2)
+    nib.save(nib.Nifti1Image(labels, np.eye(4)), case / 'gi_mask.nii.gz')
+    print('Canonical two-organ label mask completeness result:')
+    print(json.dumps(completeness.audit_case(str(case)), indent=2))

@@ -1,0 +1,9 @@
+{
+  "scope": "Exact extracted find_cases logic, filename discovery only; no image loading/model construction",
+  "case_count": 1,
+  "image_equals_label": true,
+  "label_basenames": [
+    "BDMAP_00394224.nii.gz"
+  ],
+  "nrrd_used": false
+}

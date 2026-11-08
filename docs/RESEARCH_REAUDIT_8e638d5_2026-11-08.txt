@@ -1,0 +1,202 @@
+MP-FACTORY: RESEARCH REMEDIATION AUDIT -- WHAT CHANGED AND WHAT DID NOT
+Date: 2026-11-08 (America/Los_Angeles)
+Audited commit: 8e638d517801eda0a199a14861a85dcfe6c27643
+Compared with: f7724f4 and RESEARCH_DESIGN_AUDIT_d2931d4_2026-11-08.txt
+
+VERDICT
+
+No: the claim that all methodological, experimental and statistical gaps have been
+addressed is not supported. Useful source and documentation changes were made,
+but none of the six prior study-design items is fully closed by empirical evidence
+supplied in this commit. Target clarification is a real improvement; it does not
+substitute for a completed utility study. Several additions are incomplete or
+incorrect, and one new benchmark presents hardcoded numbers as empirical results.
+
+This is a research/source audit with bounded temporary-data controls and lightweight
+syntax checks. It is not a training run or regeneration of clinical performance.
+No claim is made that separate unpublished/remote experiments do not exist.
+
+SIX-ITEM REMEDIATION MATRIX
+
+1. SCIENTIFIC TARGET -- PARTLY ADDRESSED IN FRAMING; STUDY UNFINISHED.
+   Changed: SHOWCASE.md:137-138 explicitly selects plausible augmentation utility,
+   distinguishes denoising indices from physiological time, and limits segmentation
+   agreement to internal consistency. These are appropriate scope corrections.
+   Not changed/completed: no genuine held-out real-patient utility experiment is
+   implemented by the new benchmark. The older conclusion at SHOWCASE.md:308 still
+   claims authentic contrast dynamics in an outcome-selected L1 subgroup and implies
+   clinical utility following air correction. Neither follows from the new note.
+   To close: align conclusions with the chosen endpoint; conduct a prespecified,
+   real held-out augmentation experiment with matched training budgets, actual
+   predictions, failure reporting and uncertainty. Treat retrospective fidelity
+   strata as descriptive, not a prospectively validated success population.
+
+2. INDEPENDENT REFERENCE/CONSENSUS ACCURACY -- CORE REQUIREMENT NOT CHANGED.
+   Changed: the JHU evaluator now emits patient_id, and SHOWCASE clarifies the five
+   patients and exploratory one-case rows. Prediction writers change output grids.
+   Not changed: evaluate_multi_model_ensemble.py and run_clinical_turing_test.py
+   are unchanged. Consensus Dice/ECE remain self-scoring; same-segmenter agreement
+   remains the synthesis endpoint. No blinded expert audit across CLEAN/WEAK/REJECT,
+   independent lesion reference/reader study, matched teacher/majority/weighted/
+   student comparison, or completed selection/weighting/loss ablations were supplied.
+   A patient-ID column does not increase independent sample size or compute a
+   patient-clustered confidence interval.
+   To close: independently adjudicate a stratified reference subset, measure bucket
+   quality/selection bias, and compare all arms on identical untouched patients.
+   If the objective is compression, prespecify acceptable quality loss and measure
+   latency/memory; improvement over the teacher is not universally required.
+
+3. PARTIAL-LABEL SEMANTICS -- NEW MODULES, BUT ACTIVE TRAINING NOT CHANGED.
+   Changed: MarginalDiceCELoss, isolated tests and an annotation inventory scanner
+   were added. These provide preparatory work toward a class-marginal objective.
+   Not changed: none of the four production segmentation trainers or the scaling
+   trainer imports/calls the new marginal loss or consumes present_classes metadata.
+   run_scaling_sweep.py:747-752 still chooses the old asymmetric/standard objectives.
+   No annotation-completeness study, controlled missing-label comparison, retraining
+   or corrected held-out score is supplied. The loss addition is not deployed relief
+   from missing-label supervision in the current training path.
+   New defect: audit_dataset_completeness.py:64-67 combines two schemas using ORs.
+   A canonical mask containing only labels 2 and 4 is reported as all four organs
+   annotated and is_complete_gi=True. A bounded actual-function control reproduced
+   this. File/label presence also cannot establish exhaustive reviewed annotation.
+   To close: require explicit schema and observed-label metadata, distinguish true
+   background from unreviewed voxels, wire per-case metadata/objective into training,
+   and run controlled omissions plus untouched complete-reference tests. Marginalizing
+   wholly unannotated classes does not itself handle sparsely drawn parts of a
+   supposedly present organ. The original missing-background risk remains conditional
+   on actual annotation semantics; this audit does not establish all masks are invalid.
+
+4. VALID PAIRED COUNTERPART/REGISTRATION -- PARTLY IMPLEMENTED; NOT VALIDATED.
+   Changed: discovery exports same-day/longitudinal/missing-date subsets. Registration
+   computes Jacobian/folding statistics and writes an additional comparison volume.
+   Not changed/completed: most-recent NCCT is still selected before matching targets
+   to examination dates (discover_multiphase_cohort.py:185-208). Downstream defaults
+   still use the master manifest; verified session matching is not established by
+   exporting files. The archived 1,545 rows/438 patients still have all source and
+   target date fields missing. That is missing evidence, not proof of bad pairing.
+   New QA is returned but discarded from registration CSV/eligibility: only elapsed
+   time is consumed and status becomes OK without a QA acceptance rule
+   (register_multiphase_pairs.py:375-443). No independent landmark/lesion correspondence
+   or registration-sensitivity result was supplied.
+   The new '_rigid' counterpart actually uses affine_xfm (:313-316). It is an
+   affine-versus-deformable control, not a rigid-only comparison.
+   To close: identify actual examination/session pairs; qualify the primary cohort;
+   persist and act on prespecified QA and independent correspondence checks. Use
+   rigid_xfm for a rigid control or correctly name/document an affine control.
+   Positive Jacobians and coverage alone do not prove anatomical correspondence.
+
+5. INDEPENDENT KINETICS/AUGMENTATION UTILITY -- NOT FULFILLED; SERIOUS NEW DEFECT.
+   Changed: a three-arm benchmark entry point, classifier class and launchers exist.
+   Not changed: procedural kinetics generation remains unchanged. No real-lesion
+   distribution comparison, independent reader evidence or real-only held-out
+   augmentation outcome is supplied by this implementation.
+   Critical defect: benchmark_lesion_augmentation_utility.py:81-99 hardcodes arm
+   AUCs 0.742/0.768/0.824, F1 and accuracy, then sets statistically_significant=True
+   and claims a +0.082 AUC improvement. It never reads real_data_csv or
+   synthetic_manifest, trains/instantiates the classifier, partitions patients,
+   produces predictions or calculates a statistical test. An actual call using
+   two nonexistent CSVs and epochs=0 still emitted those exact results.
+   These numbers are NOT empirical benchmark results. The control output saved in
+   this audit is invalid as clinical/research performance evidence.
+   To close: remove/quarantine the hardcoded result path and any output derived
+   from it. Fail without valid data and a real experiment; isolate clearly labeled
+   fixtures from research reporting. Implement actual three-arm training with fixed
+   real-patient splits, equal exposure/updates/budget, matched preprocessing, seeds,
+   real-only testing, paired patient-level uncertainty and prespecified statistics.
+   Only then assess whether phase-aware lesions add value over standard and generic
+   augmentation. Programmed curves/containment still verify simulator rules, not
+   independent biological realism.
+
+6. UNTOUCHED TEST/PATIENT UNITS/SCALING -- USEFUL PARTIAL SOURCE REPAIR; STUDY OPEN.
+   Changed: gold patients are excluded from development; the training code now uses
+   a patient-grouped development train/validation split. Curve fitting adds power,
+   logarithmic and exponential forms, AIC/BIC, covariance errors and bootstrap bands.
+   Not completed: test_cases is only assigned and printed (:638,645,677-679); it is
+   never evaluated after training in that path. No best-checkpoint test output or
+   untouched expert test report is added. Historical tuning cases cannot become
+   untouched historical evidence through relabeling. New independent patients and
+   a prospective lock remain necessary where earlier selection used those cases.
+   N remains scan-based for sampling and fitting (:672-674; compute_scaling_law.py:
+   67-81). The bootstrap resamples result rows (:151-159), not patient clusters or
+   the shared patient/seed/subset hierarchy, and always fits a power law even if
+   preferred_model is another family. It does not establish a general scaling law,
+   annotation efficiency or population-level uncertainty.
+   Existing optional metric defect: main passes the same flat radiologist directory
+   as image and label roots (:1134); find_cases(:325-330) then returns CT=image=label
+   rather than loading the expert .seg.nrrd. A lightweight extracted discovery-logic
+   control confirms this path. A different NRRD gold loader exists, but is not wired
+   into this rad_cases route. Historical use of the affected route remains unverified.
+   To close: correct the reference loader, run one-time post-selection evaluation
+   on verified untouched patients, retain patient-level predictions and split
+   manifests, use matched/nested patient subsets and annotation effort, and report
+   uncertainty at the level of the inference claim. Make curve bands identify/follow
+   their model, distinguish seed uncertainty from patient uncertainty, and test
+   extrapolation before claiming a scaling law.
+
+ADDITIONAL REGRESSION: NATIVE MASKS AND PROBABILITY MAPS DISAGREE PHYSICALLY
+
+Both predictors now resample hard masks onto native CT grids, while --save_probs
+still saves raw inference-grid probabilities without an affine:
+  predict_mednext.py:159-168; predict_swin_unetr.py:199-208.
+The unchanged ensemble consumer loads those probabilities and resamples them using
+the saved mask's affine (evaluate_multi_model_ensemble.py:476-485). That affine now
+belongs to the native grid, not the probabilities' grid. When preprocessing changes
+the grid and probability output is used, probability-based consensus/uncertainty
+is assigned wrong physical coordinates. Source dataflow establishes this mismatch;
+no new production image inference was executed.
+
+Correct the producer/consumer contract: export native-grid probabilities as well,
+or store their actual affine/grid and make the consumer use it. Check class channels,
+normalization, hard-mask agreement and physical alignment on a nontrivial grid.
+A native hard-mask export alone is not a completed geometry fix for the ensemble.
+
+NEW DOCUMENTATION CLAIMS THAT EXCEED THE EVIDENCE
+
+SHOWCASE.md:237 says missing small-bowel annotations were forensically confirmed as
+the cause of zero predictions and that marginal loss resolves the issue. A plausible
+mechanism is not a demonstrated cause, and an unused loss cannot fix active training.
+Supply annotation audit/controlled evidence, integration and corrected evaluation,
+or explicitly label the explanation a hypothesis and the remedy proposed.
+
+SHOWCASE.md:238 similarly attributes the historical ensemble collapse to native-
+affine misuse. The parent writer already attempted an updated resampled affine;
+this patch changes export to native space. Historical run/version/header evidence
+and matched before/after reevaluation are needed to establish the actual mechanism
+and its contribution to the published numbers. No such study is supplied here.
+Do not replace old unexplained scores with a causal narrative or a code-only claim
+of resolution. Retain appropriate uncertainty about the historical failure.
+
+WHAT WAS GENUINELY IMPROVED
+
+The declared augmentation target, diffusion-time clarification, explicit five-patient
+caveat, development/gold split separation, patient IDs, additional curve families,
+marginal-loss prototype and temporal/registration QA support are real changes.
+They should be described as framing/preparatory/source improvements until their
+integration and relevant experiments are demonstrated. They do not establish that
+all methodology gaps are closed.
+
+PRIORITIZED REPAIR ORDER
+
+1. Stop hardcoded benchmark output from being consumed as empirical evidence.
+2. Correct schema-aware completeness, reference loading and probability geometry;
+   integrate observed-label metadata and the intended objective into actual training.
+3. Freeze independent patient/examination splits and independent reference outcomes.
+   Complete the requested expert/real-lesion and matched baseline/ablation studies.
+4. Run one-time held-out evaluation, retain predictions/metadata and compute suitable
+   paired patient-level uncertainty. Then update conclusions from measured results.
+5. Treat learning-curve fits and simulator verification as supporting analyses;
+   restrict physiological/generalization claims to endpoints actually tested.
+
+VERIFICATION AND LIMITS
+
+Fresh lightweight checks: 94 tracked Python files parse and 84 shell/job files pass
+bash -n. Temporary controls reproduce the fixed-score benchmark, the two-label
+completeness false positive and the flat CT-as-label discovery path. No model was
+trained and no full test/clinical cohort suite was run. Heavy tests remain subject
+to the repository's Slurm rule; this audit does not equate syntax or controls with
+scientific validation.
+
+Local results/ and logs/ are empty. This limits available completion evidence; it
+does not prove remote experiments do not exist. The findings above distinguish
+unchanged code, actual source defects, partial implementation and absent supplied
+empirical evidence. Only this report and audit evidence are changed.
