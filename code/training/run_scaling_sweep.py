@@ -99,6 +99,15 @@ except ImportError:
         except ImportError:
             AsymmetricPDCELoss = None
 
+# Marginal Loss for partially-annotated datasets
+try:
+    from code.training.marginal_loss import MarginalDiceCELoss
+except ImportError:
+    try:
+        from marginal_loss import MarginalDiceCELoss
+    except ImportError:
+        MarginalDiceCELoss = None
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -326,6 +335,9 @@ def find_cases(data_dir, mask_dir):
             fname = os.path.basename(img_path)
             lbl_path = os.path.join(mask_dir, fname)
             if os.path.exists(lbl_path):
+                if os.path.abspath(lbl_path) == os.path.abspath(img_path):
+                    # NEVER treat an image file as its own ground-truth segmentation label!
+                    continue
                 schema = determine_mask_schema(lbl_path, data_dir, mask_dir)
                 cases.append({"image": img_path, "label": lbl_path, "name": fname.split(".")[0], "schema": schema})
 
@@ -744,11 +756,13 @@ def run_single_sweep(
     optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
 
-    if loss_name == "asymmetric" and AsymmetricPDCELoss is not None:
+    if loss_name == "marginal" and MarginalDiceCELoss is not None:
+        loss_fn = MarginalDiceCELoss(num_classes=NUM_CLASSES + 1, alpha=alpha, beta=beta)
+    elif loss_name == "asymmetric" and AsymmetricPDCELoss is not None:
         loss_fn = AsymmetricPDCELoss(apply_softmax=True, alpha=alpha, beta=beta)
     else:
-        if loss_name == "asymmetric":
-            print("Warning: AsymmetricPDCELoss not imported; falling back to DiceCELoss.")
+        if loss_name in ["asymmetric", "marginal"]:
+            print(f"Warning: {loss_name} loss not imported; falling back to DiceCELoss.")
         loss_fn = DiceCELoss(to_onehot_y=True, softmax=True)
 
     json_path = os.path.join(n_dir, "epoch_metrics.json")
@@ -776,7 +790,13 @@ def run_single_sweep(
             out = model(imgs)
             if isinstance(out, (tuple, list)):
                 out = out[0]
-            loss = loss_fn(out, lbls)
+            if MarginalDiceCELoss is not None and isinstance(loss_fn, MarginalDiceCELoss):
+                rev = batch.get("reviewed_classes", None)
+                if rev is not None and isinstance(rev, torch.Tensor):
+                    rev = rev.to(device)
+                loss = loss_fn(out, lbls, reviewed_classes=rev)
+            else:
+                loss = loss_fn(out, lbls)
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
@@ -893,6 +913,66 @@ def run_single_sweep(
     print(f"  Saved metrics → {json_path}")
     print(f"  Saved metrics → {csv_path}")
     print(f"  Best val Dice (N={n_train}, requested={n_cases}, seed={seed}): {best_dice:.4f}")
+
+    # Post-training evaluation on reserved held-out gold test cases (Audit Item 6)
+    if test_cases:
+        print(f"  [Held-Out Gold Test Evaluation] Evaluating best checkpoint on {len(test_cases)} reserved test cases...")
+        if os.path.exists(best_ckpt_path):
+            best_ckpt = torch.load(best_ckpt_path, map_location=device)
+            raw_m = model.module if hasattr(model, "module") else model
+            if isinstance(best_ckpt, dict) and "model_state_dict" in best_ckpt:
+                raw_m.load_state_dict(best_ckpt["model_state_dict"])
+            elif isinstance(best_ckpt, dict):
+                raw_m.load_state_dict(best_ckpt)
+
+        model.eval()
+        test_records = []
+        test_ds = CancerVerseDataset(test_cases, val_transforms)
+        test_loader = DataLoader(test_ds, batch_size=1, shuffle=False)
+
+        with torch.no_grad():
+            for t_batch in test_loader:
+                t_img = t_batch["image"].to(device)
+                t_lbl = t_batch["label"].to(device)
+                t_name = t_batch.get("name", ["unknown"])[0] if isinstance(t_batch.get("name"), list) else t_batch.get("name", "unknown")
+                t_pid = extract_patient_id(t_name)
+
+                t_pred = sliding_window_inference(
+                    inputs=t_img, roi_size=roi_size, sw_batch_size=sw_batch_size, predictor=model
+                )
+                probs = torch.softmax(t_pred, dim=1)
+                preds = torch.argmax(probs, dim=1, keepdim=True)
+                pred_oh = torch.zeros(t_img.shape[0], NUM_CLASSES, *t_img.shape[2:], device=device)
+                lbl_oh = torch.zeros_like(pred_oh)
+                for c in range(NUM_CLASSES):
+                    pred_oh[:, c, ...] = (preds[:, 0, ...] == (c + 1)).float()
+                    lbl_oh[:, c, ...] = (t_lbl[:, 0, ...] == (c + 1)).float()
+
+                t_dices, t_hd95s = compute_dice_hd95(pred_oh, lbl_oh, NUM_CLASSES)
+
+                t_rec = {
+                    "patient_id": t_pid,
+                    "scan_id": t_name,
+                    "train_patient_count": manifest_info["n_train_patients"],
+                    "train_scan_count": n_train,
+                    "annotation_organ_count": NUM_CLASSES,
+                    "subset_id": f"N{n_train:04d}",
+                    "seed": seed,
+                    "checkpoint_step": "best_epoch",
+                    "split": "test_gold_standard",
+                    "mean_dice": round(float(np.nanmean(t_dices)), 4),
+                    "mean_hd95": round(float(np.nanmean(t_hd95s)), 2),
+                }
+                for c_idx, o_name in enumerate(ORGAN_NAMES):
+                    t_rec[f"dice_{o_name}"] = round(float(t_dices[c_idx]), 4)
+                    t_rec[f"hd95_{o_name}"] = round(float(t_hd95s[c_idx]), 2)
+                test_records.append(t_rec)
+
+        if test_records:
+            test_df = pd.DataFrame(test_records)
+            test_csv_path = os.path.join(run_dir, "test_evaluation_gold.csv")
+            test_df.to_csv(test_csv_path, index=False)
+            print(f"  Saved held-out test evaluation → {test_csv_path} (Mean Dice: {test_df['mean_dice'].mean():.4f})")
 
     # Clean up GPU memory before next run
     del model, optimizer
@@ -1131,7 +1211,13 @@ def main():
             print(f"Error: no cases found in {args.data_dir}")
             sys.exit(1)
         if os.path.exists(args.radiologist_gt_dir):
-            rad_cases = find_cases(args.radiologist_gt_dir, args.radiologist_gt_dir)
+            if os.path.isdir(args.radiologist_gt_dir) and any(f.endswith(".nrrd") for f in os.listdir(args.radiologist_gt_dir)):
+                gs_tmp_dir = os.path.join(args.output_dir, "_rad_nifti_tmp")
+                rad_cases = load_gold_standard_nrrd_cases(args.radiologist_gt_dir, gs_tmp_dir)
+            else:
+                rad_seg_dir = os.path.join(args.radiologist_gt_dir, "segmentations")
+                if os.path.exists(rad_seg_dir):
+                    rad_cases = find_cases(args.radiologist_gt_dir, rad_seg_dir)
 
     # Load gold-standard NRRD annotations (static validation anchor)
     if args.gold_standard_dir and os.path.isdir(args.gold_standard_dir):

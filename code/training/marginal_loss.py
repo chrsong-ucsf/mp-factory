@@ -5,12 +5,13 @@ Marginal Loss and Masked Background Loss for partially supervised multi-organ se
 Follows Shi et al. ("Marginal loss and exclusion loss for partially supervised multi-organ segmentation",
 arXiv:2007.03868).
 
-Addresses Audit Finding 3:
-Prevents false-negative cross-entropy and Dice suppression when unannotated organs are present
-in a training image but labeled as background 0 in partial annotations (such as missing small bowel).
+Addresses Research Re-Audit Item 3:
+- Prevents false-negative cross-entropy and Dice suppression when unannotated organs are present
+  in a training image but labeled as background 0 in partial annotations (such as missing small bowel).
+- Supports heterogeneous batches via a (B, C) binary reviewed_classes tensor.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -23,9 +24,11 @@ class MarginalDiceCELoss(nn.Module):
     When some classes are missing/unannotated in a case:
     1. Unlabeled voxels (target == 0) represent P(true_background) U P(missing_organs).
        The target probability for unlabeled voxels is the marginal sum of background and missing classes:
-           P_marginal = P(c=0) + sum_{m in missing} P(c=m)
+           P_marginal = P(c=0) + sum_{m in unreviewed} P(c=m)
        The cross-entropy loss against 0 is replaced by -log(P_marginal), eliminating false-negative penalties.
-    2. Dice loss is computed ONLY over present classes, completely skipping missing classes.
+    2. Dice loss is computed ONLY over confirmed reviewed classes, skipping unreviewed classes.
+    3. Heterogeneous batches are supported via a (B, C) binary tensor where reviewed_classes[b, c] == 1
+       indicates organ c was reviewed in case b.
     """
     def __init__(
         self,
@@ -46,14 +49,15 @@ class MarginalDiceCELoss(nn.Module):
         self,
         logits: torch.Tensor,
         targets: torch.Tensor,
-        present_classes: Optional[List[int]] = None,
+        present_classes: Optional[Union[List[int], torch.Tensor]] = None,
+        reviewed_classes: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Args:
             logits: (B, C, D, H, W) or (B, C, H, W) raw prediction logits.
             targets: (B, 1, ...) or (B, ...) integer ground-truth mask.
-            present_classes: list of class integer IDs present in the dataset/mask.
-                             If None or contains all classes, standard DiceCE is used.
+            present_classes: optional 1D list or tensor of class integer IDs present across the batch.
+            reviewed_classes: optional (B, C) binary tensor indicating reviewed classes per case.
         Returns:
             Scalar combined loss tensor.
         """
@@ -63,74 +67,90 @@ class MarginalDiceCELoss(nn.Module):
         targets = targets.long()
         probs = F.softmax(logits, dim=1)
         valid_mask = (targets != self.ignore_index)
+        B, C = logits.shape[0], logits.shape[1]
 
-        # Determine missing classes
-        all_classes = set(range(self.num_classes))
-        if present_classes is not None and len(present_classes) > 0:
-            present_set = set(present_classes)
-            if 0 not in present_set:
-                present_set.add(0)
-            missing_classes = sorted(list(all_classes - present_set))
+        # Standardize reviewed_classes to a (B, C) boolean/byte mask
+        if reviewed_classes is not None:
+            if reviewed_classes.ndim == 1:
+                reviewed_mask = reviewed_classes.unsqueeze(0).expand(B, -1).bool().to(device=logits.device)
+            else:
+                reviewed_mask = reviewed_classes.bool().to(device=logits.device)
+
+            # If shape is (B, C - 1) representing foreground classes only, prepend True for background
+            if reviewed_mask.shape[1] == C - 1:
+                bg_col = torch.ones((B, 1), dtype=torch.bool, device=logits.device)
+                reviewed_mask = torch.cat([bg_col, reviewed_mask], dim=1)
+        elif present_classes is not None:
+            if isinstance(present_classes, list):
+                present_t = torch.tensor(present_classes, device=logits.device, dtype=torch.long)
+            else:
+                present_t = present_classes.to(device=logits.device, dtype=torch.long)
+            reviewed_mask = torch.zeros((B, C), dtype=torch.bool, device=logits.device)
+            reviewed_mask[:, present_t] = True
+            reviewed_mask[:, 0] = True  # Background is always in the evaluated space
         else:
-            present_set = all_classes
-            missing_classes = []
+            # Full supervision across all classes
+            reviewed_mask = torch.ones((B, C), dtype=torch.bool, device=logits.device)
 
         # -------------------------------------------------------------
-        # 1. Marginal Cross-Entropy Loss
+        # 1. Marginal Cross-Entropy Loss (per-batch element)
         # -------------------------------------------------------------
-        if not missing_classes:
-            # Fully supervised standard CE
-            clamped_targets = targets.clamp(0, self.num_classes - 1)
-            ce_loss = F.cross_entropy(
-                logits, clamped_targets, reduction="none", ignore_index=self.ignore_index
-            )
-            ce_loss = (ce_loss * valid_mask).sum() / valid_mask.sum().clamp(min=1.0)
-        else:
-            # Partial supervision: marginalize missing classes into background
-            # P_marginal = P(0) + sum_{m in missing} P(m)
-            p_marginal = probs[:, 0].clone()
-            for m in missing_classes:
-                p_marginal = p_marginal + probs[:, m]
+        loss_map = torch.zeros_like(targets, dtype=torch.float32)
 
-            log_p_marginal = torch.log(p_marginal.clamp(min=1e-7))
+        for b in range(B):
+            b_valid = valid_mask[b]
+            if not b_valid.any():
+                continue
 
-            loss_map = torch.zeros_like(targets, dtype=torch.float32)
+            rev_b = reviewed_mask[b]
+            unreviewed_indices = torch.where(~rev_b)[0].tolist()
 
-            # Unlabeled background voxels: target likelihood is P_marginal
-            bg_mask = (targets == 0) & valid_mask
-            loss_map[bg_mask] = -log_p_marginal[bg_mask]
+            # Background voxels (targets[b] == 0): marginalize unreviewed classes
+            bg_mask = (targets[b] == 0) & b_valid
+            if bg_mask.any():
+                p_marginal = probs[b, 0].clone()
+                for m in unreviewed_indices:
+                    p_marginal = p_marginal + probs[b, m]
+                log_p_marginal = torch.log(p_marginal.clamp(min=1e-7))
+                loss_map[b, bg_mask] = -log_p_marginal[bg_mask]
 
-            # Confirmed present foreground voxels
-            for c in sorted(list(present_set)):
+            # Reviewed foreground voxels
+            reviewed_fg = torch.where(rev_b)[0].tolist()
+            for c in reviewed_fg:
                 if c == 0:
                     continue
-                c_mask = (targets == c) & valid_mask
+                c_mask = (targets[b] == c) & b_valid
                 if c_mask.any():
-                    log_p_c = torch.log(probs[:, c].clamp(min=1e-7))
-                    loss_map[c_mask] = -log_p_c[c_mask]
+                    log_p_c = torch.log(probs[b, c].clamp(min=1e-7))
+                    loss_map[b, c_mask] = -log_p_c[c_mask]
 
-            ce_loss = loss_map.sum() / valid_mask.sum().clamp(min=1.0)
+        valid_count = valid_mask.sum().clamp(min=1.0)
+        ce_loss = loss_map.sum() / valid_count
 
         # -------------------------------------------------------------
-        # 2. Masked Dice Loss (over confirmed present foreground classes)
+        # 2. Masked Dice Loss (over confirmed reviewed foreground classes)
         # -------------------------------------------------------------
-        fg_classes = [c for c in sorted(list(present_set)) if c > 0]
-        if not fg_classes:
-            dice_loss = torch.tensor(0.0, device=logits.device, dtype=logits.dtype)
+        dice_losses = []
+        dims = tuple(range(1, logits.ndim - 1))  # spatial dimensions
+
+        for c in range(1, C):
+            # Evaluate Dice only for batch elements where class c was reviewed
+            active_b = reviewed_mask[:, c]
+            if not active_b.any():
+                continue
+
+            pred_c = probs[active_b, c] * valid_mask[active_b].float()
+            gt_c = (targets[active_b] == c).float() * valid_mask[active_b].float()
+
+            intersect = (pred_c * gt_c).sum(dim=dims)
+            union = (pred_c * pred_c).sum(dim=dims) + (gt_c * gt_c).sum(dim=dims)
+            dice_c = (2.0 * intersect + self.smooth) / (union + self.smooth)
+            dice_losses.append(1.0 - dice_c.mean())
+
+        if dice_losses:
+            dice_loss = torch.stack(dice_losses).mean()
         else:
-            dice_losses = []
-            for c in fg_classes:
-                pred_c = probs[:, c] * valid_mask.float()
-                gt_c = (targets == c).float() * valid_mask.float()
+            dice_loss = torch.tensor(0.0, device=logits.device, dtype=logits.dtype)
 
-                # Sum over all spatial dimensions
-                dims = tuple(range(1, pred_c.ndim))
-                intersect = (pred_c * gt_c).sum(dim=dims)
-                union = (pred_c * pred_c).sum(dim=dims) + (gt_c * gt_c).sum(dim=dims)
-
-                dice_c = 1.0 - (2.0 * intersect + self.smooth) / (union + self.smooth)
-                dice_losses.append(dice_c.mean())
-
-            dice_loss = torch.mean(torch.stack(dice_losses))
-
-        return self.alpha * ce_loss + self.beta * dice_loss
+        total_loss = self.alpha * ce_loss + self.beta * dice_loss
+        return total_loss

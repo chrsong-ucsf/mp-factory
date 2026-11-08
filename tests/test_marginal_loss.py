@@ -58,3 +58,27 @@ def test_marginal_loss_ignore_index():
     
     loss = loss_fn(logits, targets)
     assert loss.item() == 0.0 or abs(loss.item()) < 1e-5
+
+
+def test_marginal_loss_heterogeneous_batch():
+    """
+    Test heterogeneous batch where Case 1 has stomach+duodenum reviewed
+    and Case 2 has small bowel+colon reviewed.
+    """
+    loss_fn = MarginalDiceCELoss(num_classes=5)
+    logits = torch.randn(2, 5, 8, 8, 8, requires_grad=True)
+    targets = torch.zeros(2, 8, 8, 8, dtype=torch.long)
+    targets[0, 2:4, 2:4, 2:4] = 1  # stomach in case 1
+    targets[1, 2:4, 2:4, 2:4] = 3  # small bowel in case 2
+
+    # Case 0: reviewed [0, 1, 2] (stomach, duodenum); missing [3, 4]
+    # Case 1: reviewed [0, 3, 4] (small bowel, colon); missing [1, 2]
+    reviewed_classes = torch.tensor([
+        [1, 1, 1, 0, 0],
+        [1, 0, 0, 1, 1],
+    ], dtype=torch.uint8)
+
+    loss = loss_fn(logits, targets, reviewed_classes=reviewed_classes)
+    assert loss.item() > 0
+    loss.backward()
+    assert logits.grad is not None

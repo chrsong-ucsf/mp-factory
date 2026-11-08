@@ -6,7 +6,8 @@ Addresses Audit Finding 6:
 - Compares Power Law, Logarithmic, and Saturating Exponential models.
 - Computes parameter standard errors from covariance matrix pcov.
 - Calculates R^2, RMSE, AIC, and BIC for model selection.
-- Generates bootstrap 95% confidence intervals over data resamples.
+- Patient-cluster bootstrap 95% confidence intervals on AIC-preferred model family.
+- Evaluates convergence rate and parameter distributions.
 """
 
 import os
@@ -58,31 +59,76 @@ def compute_metrics(y_true, y_pred, num_params):
     }
 
 
-def fit_scaling_models(csv_path: str, out_json: str = None) -> dict:
+def fit_scaling_models(csv_path: str, out_json: str = None, metric: str = "mean_dice", n_boot: int = 1000) -> dict:
     if not os.path.exists(csv_path):
         print(f"[Error] CSV not found: {csv_path}")
-        return {}
+        results = {
+            "status": "DATA_UNAVAILABLE",
+            "message": f"Input CSV not found: {csv_path}",
+            "csv_path": csv_path,
+        }
+        if out_json:
+            os.makedirs(os.path.dirname(out_json), exist_ok=True)
+            with open(out_json, "w") as f:
+                json.dump(results, f, indent=2)
+        return results
 
     df = pd.read_csv(csv_path)
-    if "n_train_scans" in df.columns:
+
+    # Resolve training size column
+    if "train_scan_count" in df.columns:
+        df["train_size"] = pd.to_numeric(df["train_scan_count"], errors="coerce")
+    elif "n_train_scans" in df.columns:
         df["train_size"] = pd.to_numeric(df["n_train_scans"], errors="coerce")
-    elif "train_size" not in df.columns:
+    elif "train_size" in df.columns:
+        df["train_size"] = pd.to_numeric(df["train_size"], errors="coerce")
+    elif "subset_id" in df.columns:
+        df["train_size"] = df["subset_id"].str.extract(r"N0*(\d+)").astype(float)
+    elif "cohort" in df.columns:
         df["train_size"] = df["cohort"].str.extract(r"N0*(\d+)").astype(float)
+    else:
+        df["train_size"] = np.nan
 
-    clean_df = df.dropna(subset=["train_size", "mean_dice"]).copy()
-    if clean_df.empty:
-        print("[Error] No valid train_size and mean_dice entries found.")
-        return {}
+    if metric not in df.columns:
+        print(f"[Error] Target metric '{metric}' not found in columns: {list(df.columns)}")
+        results = {"status": "ERROR", "message": f"Metric {metric} missing", "available_columns": list(df.columns)}
+        return results
 
-    agg_df = clean_df.groupby("train_size")["mean_dice"].agg(["mean", "std", "count"]).reset_index()
+    clean_df = df.dropna(subset=["train_size", metric]).copy()
+    if clean_df.empty or clean_df["train_size"].nunique() < 2:
+        print(f"[Error] Insufficient valid data points (< 2 distinct training sizes).")
+        results = {
+            "status": "INSUFFICIENT_DATA",
+            "message": "Fewer than 2 distinct training sizes found in CSV.",
+            "csv_path": csv_path,
+        }
+        if out_json:
+            os.makedirs(os.path.dirname(out_json), exist_ok=True)
+            with open(out_json, "w") as f:
+                json.dump(results, f, indent=2)
+        return results
+
+    # Determine patient cluster column
+    patient_col = None
+    for cand in ["patient_id", "subject_id", "scan_id", "case_id"]:
+        if cand in clean_df.columns:
+            patient_col = cand
+            break
+
+    agg_df = clean_df.groupby("train_size")[metric].agg(["mean", "std", "count"]).reset_index()
     agg_df["std"] = agg_df["std"].fillna(0.0)
 
     N_vals = agg_df["train_size"].values.astype(float)
     y_vals = agg_df["mean"].values.astype(float)
 
     results = {
+        "csv_path": csv_path,
+        "metric": metric,
+        "patient_cluster_column": patient_col,
+        "n_total_observations": int(len(clean_df)),
+        "n_distinct_sizes": int(len(N_vals)),
         "data_points": [
-            {"N": int(n), "mean_dice": round(float(y), 4), "std": round(float(s), 4), "n_obs": int(c)}
+            {"N": int(n), "mean": round(float(y), 4), "std": round(float(s), 4), "n_obs": int(c)}
             for n, y, s, c in zip(N_vals, y_vals, agg_df["std"], agg_df["count"])
         ],
         "models": {},
@@ -140,33 +186,94 @@ def fit_scaling_models(csv_path: str, out_json: str = None) -> dict:
     if valid_models:
         best_name = min(valid_models, key=lambda k: valid_models[k]["metrics"]["aic"])
         results["preferred_model"] = best_name
+    else:
+        results["preferred_model"] = None
 
-    # 1,000 bootstrap resamples on raw data (if multiple observations per N)
-    if len(clean_df) > len(N_vals):
-        boot_preds = []
-        n_boot = 1000
+    # Patient-Cluster Bootstrap on AIC-preferred model family
+    pref = results["preferred_model"]
+    if pref and len(clean_df) > len(N_vals):
         n_test_eval = np.linspace(min(N_vals), max(N_vals) * 1.5, 50)
         rng = np.random.RandomState(42)
 
+        # Prepare clusters
+        if patient_col and clean_df[patient_col].nunique() > 1:
+            patient_groups = clean_df.groupby(patient_col)
+            unique_entities = np.array(list(patient_groups.groups.keys()))
+            use_patient_clustering = True
+        else:
+            unique_entities = np.arange(len(clean_df))
+            use_patient_clustering = False
+
+        model_fns = {
+            "power_law": (power_law, [0.85, 0.4, 0.3], ([0.1, 0.0, 0.01], [1.0, 5.0, 3.0]), ["a", "b", "alpha"]),
+            "logarithmic": (log_model, [0.3, 0.08], ([-np.inf, -np.inf], [np.inf, np.inf]), ["a", "b"]),
+            "exponential": (exp_model, [0.85, 0.4, 0.005], ([0.1, 0.0, 1e-5], [1.0, 5.0, 1.0]), ["a", "b", "c"]),
+        }
+        target_fn, p0, bounds, param_names = model_fns[pref]
+
+        boot_preds = []
+        boot_params = []
+        n_converged = 0
+
         for _ in range(n_boot):
-            sample = clean_df.sample(frac=1.0, replace=True, random_state=rng)
-            s_agg = sample.groupby("train_size")["mean_dice"].mean().reset_index()
+            sampled_entities = rng.choice(unique_entities, size=len(unique_entities), replace=True)
+            if use_patient_clustering:
+                sampled_rows = pd.concat([patient_groups.get_group(e) for e in sampled_entities], ignore_index=True)
+            else:
+                sampled_rows = clean_df.iloc[sampled_entities]
+
+            s_agg = sampled_rows.groupby("train_size")[metric].mean().reset_index()
+            if len(s_agg) < 2:
+                continue
+
             try:
                 popt_b, _ = curve_fit(
-                    power_law, s_agg["train_size"].values, s_agg["mean_dice"].values,
-                    p0=[0.85, 0.4, 0.3], bounds=([0.1, 0.0, 0.01], [1.0, 5.0, 3.0])
+                    target_fn, s_agg["train_size"].values, s_agg[metric].values,
+                    p0=p0, bounds=bounds, maxfev=2000
                 )
-                boot_preds.append(power_law(n_test_eval, *popt_b))
+                pred_eval = target_fn(n_test_eval, *popt_b)
+                if np.all(np.isfinite(pred_eval)):
+                    boot_preds.append(pred_eval)
+                    boot_params.append(popt_b)
+                    n_converged += 1
             except Exception:
                 continue
 
+        convergence_rate = round(float(n_converged / n_boot), 4)
+
         if boot_preds:
             boot_arr = np.array(boot_preds)
+            param_arr = np.array(boot_params)
+
+            param_ci = {}
+            for i, p_name in enumerate(param_names):
+                param_ci[p_name] = {
+                    "mean": round(float(np.mean(param_arr[:, i])), 4),
+                    "std": round(float(np.std(param_arr[:, i])), 4),
+                    "ci_lower_2.5": round(float(np.percentile(param_arr[:, i], 2.5)), 4),
+                    "ci_upper_97.5": round(float(np.percentile(param_arr[:, i], 97.5)), 4),
+                }
+
             results["bootstrap_ci"] = {
+                "preferred_model_fitted": pref,
+                "clustering_mode": "patient_cluster" if use_patient_clustering else "observation_resample",
+                "cluster_entity_count": int(len(unique_entities)),
+                "n_boot_requested": n_boot,
+                "n_boot_converged": n_converged,
+                "convergence_rate": convergence_rate,
+                "parameter_ci": param_ci,
                 "eval_N": [int(n) for n in n_test_eval],
                 "pred_mean": [round(float(v), 4) for v in np.mean(boot_arr, axis=0)],
                 "ci_lower_2.5": [round(float(v), 4) for v in np.percentile(boot_arr, 2.5, axis=0)],
                 "ci_upper_97.5": [round(float(v), 4) for v in np.percentile(boot_arr, 97.5, axis=0)],
+            }
+        else:
+            results["bootstrap_ci"] = {
+                "preferred_model_fitted": pref,
+                "n_boot_requested": n_boot,
+                "n_boot_converged": 0,
+                "convergence_rate": 0.0,
+                "status": "Bootstrap failed to converge on resampled subsets.",
             }
 
     print(json.dumps(results, indent=2))
@@ -180,9 +287,11 @@ def fit_scaling_models(csv_path: str, out_json: str = None) -> dict:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Multi-Model Scaling Law Analysis")
+    parser = argparse.ArgumentParser(description="Multi-Model Scaling Law Analysis with Patient-Cluster Bootstrap")
     parser.add_argument("--csv", default="results/scaling_sweep/scaling_sweep_eval_20cases.csv", help="Input evaluation CSV")
     parser.add_argument("--out_json", default="results/scaling_law_statistical_summary.json", help="Output summary JSON")
+    parser.add_argument("--metric", default="mean_dice", help="Target evaluation metric column (default: mean_dice)")
+    parser.add_argument("--n_boot", type=int, default=1000, help="Number of bootstrap resamples (default: 1000)")
     args = parser.parse_args()
 
-    fit_scaling_models(args.csv, args.out_json)
+    fit_scaling_models(args.csv, args.out_json, metric=args.metric, n_boot=args.n_boot)

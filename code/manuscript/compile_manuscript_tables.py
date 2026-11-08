@@ -243,7 +243,7 @@ def build_table_3():
         ("High-Fidelity Synthesis", df["L1_Error"] < 500.0, "L1 < 500 HU cohort; higher structural correlation and windowed contrast fidelity"),
         ("Air Background Offset", (df["L1_Error"] >= 500.0) & (df["L1_Error"] <= 2000.0), "500-2000 HU cohort; background air outside patient body decoded to ~0 HU instead of -1000 HU"),
         ("Diffusion Trajectory Saturation", df["L1_Error"] > 2000.0, "L1 > 2000 HU cohort; reverse diffusion trajectory saturation at intensity clipping limits"),
-        ("Consolidated Cohort", pd.Series([True] * len(df)), "Overall population metrics across all 1,067 synthesized volumes"),
+        ("Consolidated Cohort", pd.Series([True] * len(df)), f"Overall population metrics across all {n_total} evaluated synthesized volumes"),
     ]
 
     rows_latex = []

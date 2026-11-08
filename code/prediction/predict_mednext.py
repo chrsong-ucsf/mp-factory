@@ -137,8 +137,10 @@ def main():
                         overlap=args.overlap,
                     )
 
-            pred_label = post_pred(pred_logits[0]).squeeze()
-            pred_np = pred_label.cpu().numpy().astype(np.uint8)
+            # Extract softmax probabilities and check finiteness
+            probs_t = torch.softmax(pred_logits[0], dim=0).cpu().numpy().astype(np.float32)
+            if not np.all(np.isfinite(probs_t)):
+                raise ValueError(f"Corrupted non-finite probabilities detected for {subject_id}")
 
             # Get true updated affine of the resampled image
             if hasattr(data_dict["image"], "affine"):
@@ -150,24 +152,57 @@ def main():
             else:
                 resampled_affine = np.eye(4)
 
-            # Squeeze extra dimensions if any to guarantee 3D volume
-            while pred_np.ndim > 3:
-                pred_np = pred_np[0]
-
-            res_nii = nib.Nifti1Image(pred_np, affine=resampled_affine)
-
-            # Rigorously resample back onto native CT scanner coordinate grid
+            # Rigorously resample probabilities back onto native CT scanner coordinate grid
             orig_nii = nib.load(ct_path)
             import nibabel.processing as nip
-            native_pred_nii = nip.resample_from_to(res_nii, orig_nii, order=0)
+
+            native_probs = np.zeros((5,) + orig_nii.shape, dtype=np.float32)
+            for c in range(5):
+                ch_nii = nib.Nifti1Image(probs_t[c], affine=resampled_affine)
+                ch_native = nip.resample_from_to(ch_nii, orig_nii, order=1).get_fdata(dtype=np.float32)
+                native_probs[c] = np.maximum(0.0, ch_native)
+
+            # Simplex normalization & out-of-support definition
+            prob_sum = np.sum(native_probs, axis=0)
+            support_mask = (prob_sum > 1e-4).astype(np.uint8)
+
+            prob_sum_safe = np.where(prob_sum > 1e-4, prob_sum, 1.0)
+            native_probs = native_probs / prob_sum_safe
+            # For out-of-support background: set class 0 to 1.0 as storage convention, record support_mask=0
+            native_probs[0] = np.where(support_mask == 1, native_probs[0], 1.0)
+            for c in range(1, 5):
+                native_probs[c] = np.where(support_mask == 1, native_probs[c], 0.0)
+
+            # Derive native hard mask directly from native normalized probabilities (complete consistency)
+            native_pred_np = np.argmax(native_probs, axis=0).astype(np.uint8)
+            native_pred_nii = nib.Nifti1Image(native_pred_np, affine=orig_nii.affine, header=orig_nii.header)
             nib.save(native_pred_nii, out_mask_path)
 
             if args.save_probs:
-                probs = torch.softmax(pred_logits[0], dim=0).cpu().numpy().astype(np.float16)
-                prob_path = os.path.join(args.out_dir, f"{subject_id}_gi_probs.npz")
-                np.savez_compressed(prob_path, probs=probs)
+                # Round-trip verification: test whether float16 precision preserves argmax exactly
+                probs_f16 = native_probs.astype(np.float16)
+                disk_pred = np.argmax(probs_f16.astype(np.float32), axis=0).astype(np.uint8)
+                if not np.array_equal(disk_pred, native_pred_np):
+                    probs_to_save = native_probs
+                    precision_stored = "float32"
+                else:
+                    probs_to_save = probs_f16
+                    precision_stored = "float16"
 
-            unique_labels = np.unique(pred_np)
+                prob_path = os.path.join(args.out_dir, f"{subject_id}_gi_probs.npz")
+                np.savez_compressed(
+                    prob_path,
+                    probs=probs_to_save,
+                    affine=orig_nii.affine,
+                    shape=np.array(orig_nii.shape),
+                    spacing=np.array(orig_nii.header.get_zooms()[:3]),
+                    channel_order=np.array([0, 1, 2, 3, 4]),
+                    support_mask=support_mask,
+                    precision=precision_stored,
+                    coordinate_space="native_ct_scanner"
+                )
+
+            unique_labels = np.unique(native_pred_np)
             label_names = [ORGAN_NAMES.get(int(l), str(l)) for l in unique_labels]
             print(f"    Saved: {out_mask_path} | Organs: {label_names}", flush=True)
             processed += 1

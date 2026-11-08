@@ -20,6 +20,15 @@ from monai.networks.nets import SwinUNETR
 from monai.inferers import sliding_window_inference
 from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
+
+# Marginal Loss for partially-annotated datasets
+try:
+    from code.training.marginal_loss import MarginalDiceCELoss
+except ImportError:
+    try:
+        from marginal_loss import MarginalDiceCELoss
+    except ImportError:
+        MarginalDiceCELoss = None
 from monai.transforms import (
     Compose,
     LoadImaged,
@@ -258,6 +267,10 @@ def main():
     parser.add_argument("--gold_standard_dir", type=str, default=None,
                         help="Directory containing gold standard manual annotations for 10x loss weighting")
     parser.add_argument("--resume", action="store_true", help="Resume from last_swin_unetr_gi.pt if available in out_dir")
+    parser.add_argument("--loss_type", type=str, default="dice_ce", choices=["dice_ce", "marginal"],
+                        help="Loss: 'dice_ce' (default) or 'marginal' (MarginalDiceCELoss)")
+    parser.add_argument("--alpha", type=float, default=1.0, help="Marginal false-negative weight")
+    parser.add_argument("--beta", type=float, default=1.0, help="Marginal Dice weight")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -378,7 +391,14 @@ def main():
         print(f"[Multi-GPU] Wrapping model with DataParallel across {num_gpus} GPUs!")
         model = nn.DataParallel(model)
 
-    loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
+    if args.loss_type == "marginal" and MarginalDiceCELoss is not None:
+        print(f"[Loss] MarginalDiceCELoss(num_classes=5, alpha={args.alpha}, beta={args.beta})")
+        loss_function = MarginalDiceCELoss(num_classes=5, alpha={args.alpha}, beta={args.beta})
+    else:
+        if args.loss_type == "marginal":
+            print("WARNING: MarginalDiceCELoss import failed; falling back to DiceCELoss.")
+        print("[Loss] DiceCELoss")
+        loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scaler = torch.cuda.amp.GradScaler()
 
@@ -430,7 +450,13 @@ def main():
 
             with torch.cuda.amp.autocast():
                 outputs = model(inputs)
-                loss = loss_function(outputs, labels)
+                if MarginalDiceCELoss is not None and isinstance(loss_function, MarginalDiceCELoss):
+                    rev = batch_data.get("reviewed_classes", None)
+                    if rev is not None and isinstance(rev, torch.Tensor):
+                        rev = rev.to(device)
+                    loss = loss_function(outputs, labels, reviewed_classes=rev)
+                else:
+                    loss = loss_function(outputs, labels)
 
             # Apply 10x weight for gold standard samples
             if is_gold_any:

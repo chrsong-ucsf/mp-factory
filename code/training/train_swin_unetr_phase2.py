@@ -60,6 +60,15 @@ try:
 except ImportError:
     AsymmetricPDCELoss = None
 
+# Marginal Loss for partially-annotated datasets
+try:
+    from code.training.marginal_loss import MarginalDiceCELoss
+except ImportError:
+    try:
+        from marginal_loss import MarginalDiceCELoss
+    except ImportError:
+        MarginalDiceCELoss = None
+
 NUM_CLASSES  = 5    # Background + Stomach + Duodenum + Small Bowel + Colon
 IGNORE_INDEX = 255  # WEAK_COARSE boundary pixels are ignored in loss
 ORGAN_NAMES  = ["Background", "Stomach", "Duodenum", "Small Bowel", "Colon"]
@@ -338,6 +347,10 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--val_interval", type=int, default=5)
     parser.add_argument("--use_weak", action="store_true", default=False)
+    parser.add_argument("--loss_type", type=str, default="asymmetric", choices=["asymmetric", "dice_ce", "marginal"],
+                        help="Loss: 'asymmetric' (default), 'dice_ce', or 'marginal'")
+    parser.add_argument("--alpha", type=float, default=2.0, help="FN weight / Marginal alpha")
+    parser.add_argument("--beta", type=float, default=1.0, help="FP weight / Marginal beta")
     parser.add_argument("--pretrained_ckpt", type=str, default=None)
     parser.add_argument("--max_cases", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
@@ -446,12 +459,15 @@ def main():
     ).to(device)
 
     # Loss selection
-    if AsymmetricPDCELoss is not None:
-        loss_function = AsymmetricPDCELoss(alpha=2.0, beta=1.0, ignore_index=IGNORE_INDEX)
-        print("[Loss] AsymmetricPDCELoss(alpha=2.0, beta=1.0, ignore_index=255) active")
+    if args.loss_type == "marginal" and MarginalDiceCELoss is not None:
+        loss_function = MarginalDiceCELoss(num_classes=NUM_CLASSES, ignore_index=IGNORE_INDEX, alpha=args.alpha, beta=args.beta)
+        print(f"[Loss] MarginalDiceCELoss(alpha={args.alpha}, beta={args.beta}, ignore_index={IGNORE_INDEX}) active")
+    elif args.loss_type == "asymmetric" and AsymmetricPDCELoss is not None:
+        loss_function = AsymmetricPDCELoss(alpha=args.alpha, beta=args.beta, ignore_index=IGNORE_INDEX)
+        print(f"[Loss] AsymmetricPDCELoss(alpha={args.alpha}, beta={args.beta}, ignore_index={IGNORE_INDEX}) active")
     else:
         loss_function = DiceCEWithIgnoreLoss(num_classes=NUM_CLASSES, ignore_index=IGNORE_INDEX)
-        print("[Loss] DiceCEWithIgnoreLoss fallback active")
+        print("[Loss] DiceCEWithIgnoreLoss active")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
@@ -506,7 +522,13 @@ def main():
             optimizer.zero_grad()
             with torch.amp.autocast('cuda'):
                 outputs = model(inputs)
-                loss = loss_function(outputs, labels)
+                if MarginalDiceCELoss is not None and isinstance(loss_function, MarginalDiceCELoss):
+                    rev = batch_data.get("reviewed_classes", None)
+                    if rev is not None and isinstance(rev, torch.Tensor):
+                        rev = rev.to(device)
+                    loss = loss_function(outputs, labels, reviewed_classes=rev)
+                else:
+                    loss = loss_function(outputs, labels)
 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)

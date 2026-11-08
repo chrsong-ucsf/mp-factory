@@ -21,7 +21,6 @@ mkdir -p logs results/project10/evaluation_reports
 
 echo "Starting 3-Arm Lesion Augmentation Utility Benchmark at $(date)..."
 python -u code/project10/evaluation/benchmark_lesion_augmentation_utility.py \
-    --out_json results/project10/evaluation_reports/lesion_augmentation_utility_benchmark.json \
-    --epochs 10
+    --out_json results/project10/evaluation_reports/lesion_augmentation_utility_benchmark.json
 
 echo "Benchmark completed at $(date)."

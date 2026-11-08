@@ -473,23 +473,41 @@ def evaluate_subject(subject_id, model_files, model_names, out_dir):
             m = model_masks[i]
             fpath = model_files[i]
             prob_path = fpath.replace('_gi_seg.nii.gz', '_gi_probs.npz') if fpath.endswith('_gi_seg.nii.gz') else None
+            prob_loaded = False
             if prob_path and os.path.exists(prob_path):
-                probs = np.load(prob_path, allow_pickle=True)['probs'].astype(np.float32)
-                if probs.ndim == 3:
-                    probs = probs[np.newaxis, ...]
-                if probs.shape[1:] != ref_shape or not np.allclose(loaded_niis[i].affine, ref_affine, atol=1e-3):
-                    resampled_channels = []
-                    for c_idx in range(probs.shape[0]):
-                        ch_res = resample_label_to_reference(
-                            probs[c_idx], loaded_niis[i].affine, ref_affine, ref_shape, order=1, cval=0.0
-                        )
-                        resampled_channels.append(ch_res)
-                    probs = np.stack(resampled_channels, axis=0)
-                probs = np.clip(probs, 0.0, 1.0)
-                sum_p = np.sum(probs, axis=0, keepdims=True)
-                probs = np.where(sum_p > 0, probs / (sum_p + 1e-7), probs)
-                t = torch.tensor(probs, dtype=torch.float32, device=device)
-            else:
+                try:
+                    npz = np.load(prob_path, allow_pickle=True)
+                    if 'probs' in npz and np.all(np.isfinite(npz['probs'])):
+                        probs = npz['probs'].astype(np.float32)
+                        if probs.ndim == 3:
+                            probs = probs[np.newaxis, ...]
+
+                        # Geometry validation contract: require explicit verified affine or match segmentation
+                        if 'affine' in npz:
+                            prob_affine = npz['affine']
+                        elif probs.shape[1:] == model_masks[i].shape:
+                            prob_affine = model_affines[i]
+                        else:
+                            raise ValueError(f"Legacy probability archive {prob_path} lacks verified geometry metadata and does not match segmentation shape.")
+
+                        if probs.shape[1:] != ref_shape or not np.allclose(prob_affine, ref_affine, atol=1e-3):
+                            resampled_channels = []
+                            for c_idx in range(probs.shape[0]):
+                                ch_res = resample_label_to_reference(
+                                    probs[c_idx], prob_affine, ref_affine, ref_shape, order=1, cval=0.0
+                                )
+                                resampled_channels.append(ch_res)
+                            probs = np.stack(resampled_channels, axis=0)
+
+                        probs = np.clip(probs, 0.0, 1.0)
+                        sum_p = np.sum(probs, axis=0, keepdims=True)
+                        probs = np.where(sum_p > 0, probs / (sum_p + 1e-7), probs)
+                        t = torch.tensor(probs, dtype=torch.float32, device=device)
+                        prob_loaded = True
+                except Exception as pe:
+                    print(f"  [Probability Grid Warning] {model_names[i]}: {pe}. Using one-hot native mask.")
+
+            if not prob_loaded:
                 m_clamped = np.where((m >= 0) & (m < 5), m, 0)
                 m_t = torch.tensor(m_clamped, dtype=torch.long, device=device)
                 t = torch.zeros((5,) + m.shape, dtype=torch.float32, device=device)

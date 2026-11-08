@@ -128,11 +128,19 @@ def build_manifest(
 
     # ------------------------------------------------------------------
     log.info(f"Loading metadata from: {metadata_path}")
+    # Check header to conditionally read Encrypted Accession Number if present
+    sample_cols = pd.read_csv(metadata_path, nrows=1).columns.tolist()
+    use_cols = ["CancerVerse ID", "Patient ID", "phase", "exam_date"]
+    if "Encrypted Accession Number" in sample_cols:
+        use_cols.append("Encrypted Accession Number")
+
     df = pd.read_csv(
         metadata_path,
-        usecols=["CancerVerse ID", "Patient ID", "phase", "exam_date"],
+        usecols=use_cols,
         dtype=str,
     )
+    if "Encrypted Accession Number" not in df.columns:
+        df["Encrypted Accession Number"] = ""
     log.info(f"  Total rows loaded: {len(df):,}")
 
     # ------------------------------------------------------------------
@@ -182,27 +190,53 @@ def build_manifest(
     for patient_id, grp in df_mp.groupby("Patient ID"):
         phases_present = grp["phase_bucket"].unique().tolist()
 
-        # Source: best available NCCT row (most recent date if multiple)
+        # All NCCT candidates for this patient
         src_rows = grp[grp["phase_bucket"] == "P0_ncct"].sort_values(
             "exam_date_norm", ascending=False, na_position="last"
         )
         if src_rows.empty:
             continue
-        src = src_rows.iloc[0]
 
         # Target: all non-NCCT rows for this patient
         tgt_rows = grp[grp["phase_bucket"] != "P0_ncct"]
 
         for _, tgt in tgt_rows.iterrows():
-            has_p0_date = pd.notna(src["exam_date_norm"]) and str(src["exam_date_norm"]).strip() != ""
-            has_tgt_date = pd.notna(tgt["exam_date_norm"]) and str(tgt["exam_date_norm"]).strip() != ""
+            tgt_acc = str(tgt.get("Encrypted Accession Number", "")).strip()
+            tgt_date = tgt["exam_date_norm"]
+            has_tgt_date = pd.notna(tgt_date) and str(tgt_date).strip() != ""
 
-            if has_p0_date and has_tgt_date:
-                same_day = (src["exam_date_norm"] == tgt["exam_date_norm"])
-                temporal_status = "verified_same_day" if same_day else "verified_longitudinal"
-            else:
+            # Prioritize matching NCCT: 1. same accession, 2. same exam_date, 3. closest date
+            matched_src = None
+            session_matched = False
+
+            if tgt_acc and tgt_acc != "nan":
+                acc_matches = src_rows[src_rows["Encrypted Accession Number"].str.strip() == tgt_acc]
+                if not acc_matches.empty:
+                    matched_src = acc_matches.iloc[0]
+                    session_matched = True
+
+            if matched_src is None and has_tgt_date:
+                date_matches = src_rows[src_rows["exam_date_norm"] == tgt_date]
+                if not date_matches.empty:
+                    matched_src = date_matches.iloc[0]
+                    session_matched = True
+
+            if matched_src is None:
+                matched_src = src_rows.iloc[0]
+                session_matched = False
+
+            src = matched_src
+            has_p0_date = pd.notna(src["exam_date_norm"]) and str(src["exam_date_norm"]).strip() != ""
+
+            if session_matched:
+                temporal_status = "verified_same_session"
+                same_day = True
+            elif has_p0_date and has_tgt_date:
+                temporal_status = "verified_longitudinal"
                 same_day = False
+            else:
                 temporal_status = "unverified_date_missing"
+                same_day = False
 
             if same_day_only and not same_day:
                 continue
@@ -217,6 +251,8 @@ def build_manifest(
                     "phase_target_raw":       tgt["phase"],
                     "exam_date_p0":           src["exam_date_norm"],
                     "exam_date_target":       tgt["exam_date_norm"],
+                    "accession_p0":           src.get("Encrypted Accession Number", ""),
+                    "accession_target":       tgt.get("Encrypted Accession Number", ""),
                     "same_day":               same_day,
                     "temporal_match_status":  temporal_status,
                     "ct_path_p0":             src["ct_path"],
@@ -262,9 +298,9 @@ def build_manifest(
     log.info(f"  Saved {len(pairs_df):,} pair rows -> {pairs_out}")
     log.info(f"  Saved {len(triplets_df):,} triplet rows -> {triplets_out}")
 
-    # Audit Item 4: Explicitly separate verified same-day, longitudinal, and missing-date cohorts
+    # Audit Item 4: Explicitly separate verified same-session, longitudinal, and missing-date cohorts
     if not pairs_df.empty and "temporal_match_status" in pairs_df.columns:
-        for status_val in ["verified_same_day", "verified_longitudinal", "unverified_date_missing"]:
+        for status_val in ["verified_same_session", "verified_longitudinal", "unverified_date_missing"]:
             sub_df = pairs_df[pairs_df["temporal_match_status"] == status_val]
             sub_out = os.path.join(out_dir, f"multiphase_pairs_{status_val}.csv")
             sub_df.to_csv(sub_out, index=False)

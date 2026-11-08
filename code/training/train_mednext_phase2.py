@@ -83,6 +83,15 @@ except ImportError:
         except ImportError:
             AsymmetricPDCELoss = None
 
+# Marginal Loss for partially-annotated datasets
+try:
+    from code.training.marginal_loss import MarginalDiceCELoss
+except ImportError:
+    try:
+        from marginal_loss import MarginalDiceCELoss
+    except ImportError:
+        MarginalDiceCELoss = None
+
 NUM_CLASSES  = 5    # Background + Stomach + Duodenum + Small Bowel + Colon
 IGNORE_INDEX = 255  # WEAK_COARSE boundary pixels are ignored in loss
 
@@ -441,8 +450,8 @@ def main():
     parser.add_argument("--use_weak",         action="store_true",
                         help="Include WEAK_COARSE cases with ignore_index=255 boundary masking")
     parser.add_argument("--loss_type",        type=str,  default="asymmetric",
-                        choices=["asymmetric", "dice_ce"],
-                        help="Loss: 'asymmetric' (AsymmetricPDCELoss, default) or 'dice_ce' (legacy DiceCEWithIgnoreLoss)")
+                        choices=["asymmetric", "dice_ce", "marginal"],
+                        help="Loss: 'asymmetric' (AsymmetricPDCELoss, default), 'dice_ce' (legacy DiceCEWithIgnoreLoss), or 'marginal' (MarginalDiceCELoss)")
     parser.add_argument("--alpha",            type=float, default=2.0,
                         help="Asymmetric FN weight (alpha > beta boosts recall)")
     parser.add_argument("--beta",             type=float, default=1.0,
@@ -637,7 +646,16 @@ def main():
         model = nn.DataParallel(model)
 
     # --- Loss selection ---
-    if args.loss_type == "asymmetric":
+    if args.loss_type == "marginal" and MarginalDiceCELoss is not None:
+        log(f"[Loss] MarginalDiceCELoss(num_classes={NUM_CLASSES}, ignore_index={IGNORE_INDEX}, "
+            f"alpha={args.alpha}, beta={args.beta})")
+        loss_fn = MarginalDiceCELoss(
+            num_classes=NUM_CLASSES,
+            ignore_index=IGNORE_INDEX,
+            alpha=args.alpha,
+            beta=args.beta,
+        )
+    elif args.loss_type == "asymmetric":
         if AsymmetricPDCELoss is None:
             log("WARNING: AsymmetricPDCELoss import failed; falling back to DiceCEWithIgnoreLoss.")
             loss_fn = DiceCEWithIgnoreLoss(num_classes=NUM_CLASSES,
@@ -719,7 +737,13 @@ def main():
             optimizer.zero_grad()
             with torch.amp.autocast(device_type='cuda'):
                 outputs = model(inputs)
-                loss    = loss_fn(outputs, labels)
+                if MarginalDiceCELoss is not None and isinstance(loss_fn, MarginalDiceCELoss):
+                    rev = batch.get("reviewed_classes", None)
+                    if rev is not None and isinstance(rev, torch.Tensor):
+                        rev = rev.to(device)
+                    loss = loss_fn(outputs, labels, reviewed_classes=rev)
+                else:
+                    loss = loss_fn(outputs, labels)
 
             # Apply 10x weight for gold standard samples
             if is_gold_any:

@@ -310,10 +310,15 @@ def register_pair(
     registered = resample_to_fixed(moving, fixed, bspline_xfm)
     warped_support = resample_support_to_fixed(moving, fixed, bspline_xfm)
 
-    # Also save rigid-only counterpart for rigid-vs-deformable ablation (Audit Finding 4)
-    rigid_reg = resample_to_fixed(moving, fixed, affine_xfm)
+    # True rigid 6-DOF counterpart for baseline comparison
+    rigid_reg = resample_to_fixed(moving, fixed, rigid_xfm)
     out_rigid_path = out_reg_path.replace(".nii.gz", "_rigid.nii.gz")
     sitk.WriteImage(sitk.Cast(rigid_reg, sitk.sitkFloat32), out_rigid_path)
+
+    # Affine counterpart for multi-stage baseline ablation
+    affine_reg = resample_to_fixed(moving, fixed, affine_xfm)
+    out_affine_path = out_reg_path.replace(".nii.gz", "_affine.nii.gz")
+    sitk.WriteImage(sitk.Cast(affine_reg, sitk.sitkFloat32), out_affine_path)
 
     # Save registered volume
     os.makedirs(os.path.dirname(out_reg_path), exist_ok=True)
@@ -338,6 +343,7 @@ def register_pair(
         "mean_jacobian":    mean_jac,
         "pct_folding":      pct_folding,
         "rigid_path":       out_rigid_path,
+        "affine_path":      out_affine_path,
     }
 
 
@@ -374,7 +380,9 @@ def main() -> None:
     # CSV log writer
     log_fields = [
         "pair_id", "patient_id", "subject_p0", "subject_target",
-        "phase_target", "status", "elapsed_sec", "error", "out_reg_path",
+        "phase_target", "status", "qa_screen_result", "elapsed_sec",
+        "min_jacobian", "mean_jacobian", "pct_folding",
+        "out_reg_path", "out_rigid_path", "out_affine_path", "error",
     ]
     log_csv_exists = os.path.exists(args.log_csv)
     log_f = open(args.log_csv, "a", newline="")
@@ -404,8 +412,14 @@ def main() -> None:
         log.info(f"  Phase target: {row['phase_target']} | Same-day: {row.get('same_day', 'N/A')}")
 
         status  = "FAILED"
+        qa_result = "UNVERIFIED"
         elapsed = 0.0
         err_msg = ""
+        min_jac = np.nan
+        mean_jac = np.nan
+        pct_fold = np.nan
+        out_rigid = ""
+        out_affine = ""
 
         try:
             meta = register_pair(
@@ -415,10 +429,24 @@ def main() -> None:
                 out_dvf_path = out_dvf,
                 nthreads     = args.nthreads,
             )
-            status  = "OK"
             elapsed = meta["elapsed_sec"]
+            min_jac = meta["min_jacobian"]
+            mean_jac = meta["mean_jacobian"]
+            pct_fold = meta["pct_folding"]
+            out_rigid = meta["rigid_path"]
+            out_affine = meta["affine_path"]
+
+            # Evaluate QA Screen
+            if pct_fold > 0.0 or min_jac <= 0.0:
+                qa_result = "FLAG_TOPOLOGICAL_FOLDING"
+                status = "FLAG_TOPOLOGICAL_FOLDING"
+                log.warning(f"  Topology Folding detected: min_jac={min_jac}, pct_folding={pct_fold}%")
+            else:
+                qa_result = "PROVISIONAL_PASS_QA_SCREEN"
+                status = "PROVISIONAL_PASS_QA_SCREEN"
+
             n_done  += 1
-            log.info(f"  Completed in {elapsed:.1f}s")
+            log.info(f"  Completed in {elapsed:.1f}s | Status: {status}")
 
         except KeyboardInterrupt:
             log.warning("Interrupted by user.")
@@ -431,15 +459,21 @@ def main() -> None:
             log.debug(traceback.format_exc())
 
         log_writer.writerow({
-            "pair_id":        pair_id,
-            "patient_id":     row.get("patient_id", ""),
-            "subject_p0":     row.get("subject_p0", ""),
-            "subject_target": row.get("subject_target", ""),
-            "phase_target":   row.get("phase_target", ""),
-            "status":         status,
-            "elapsed_sec":    elapsed,
-            "error":          err_msg,
-            "out_reg_path":   out_reg if status == "OK" else "",
+            "pair_id":         pair_id,
+            "patient_id":      row.get("patient_id", ""),
+            "subject_p0":      row.get("subject_p0", ""),
+            "subject_target":  row.get("subject_target", ""),
+            "phase_target":    row.get("phase_target", ""),
+            "status":          status,
+            "qa_screen_result": qa_result,
+            "elapsed_sec":     elapsed,
+            "min_jacobian":    min_jac,
+            "mean_jacobian":   mean_jac,
+            "pct_folding":     pct_fold,
+            "out_reg_path":    out_reg if "PROVISIONAL" in status else "",
+            "out_rigid_path":  out_rigid,
+            "out_affine_path": out_affine,
+            "error":           err_msg,
         })
         log_f.flush()
 

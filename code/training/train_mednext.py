@@ -67,6 +67,15 @@ except ImportError:
     except ImportError:
         AsymmetricPDCELoss = None
 
+# Marginal Loss for partially-annotated datasets
+try:
+    from code.training.marginal_loss import MarginalDiceCELoss
+except ImportError:
+    try:
+        from marginal_loss import MarginalDiceCELoss
+    except ImportError:
+        MarginalDiceCELoss = None
+
 NUM_CLASSES = 5      # Background + Stomach + Duodenum + Small Bowel + Colon
 IGNORE_INDEX = 255   # Sentinel written by the Task A.2 consensus/auto-label stage
 
@@ -320,12 +329,12 @@ def main():
     parser.add_argument("--gold_standard_dir", type=str, default=None,
                         help="Directory containing gold standard manual annotations for 10x loss weighting")
     parser.add_argument("--loss_type", type=str, default="asymmetric",
-                        choices=["asymmetric", "dice_ce"],
-                        help="Loss: 'asymmetric' (AsymmetricPDCELoss, default) or 'dice_ce' (legacy DiceCELoss)")
+                        choices=["asymmetric", "dice_ce", "marginal"],
+                        help="Loss: 'asymmetric' (AsymmetricPDCELoss, default), 'dice_ce' (legacy DiceCELoss), or 'marginal' (MarginalDiceCELoss)")
     parser.add_argument("--alpha", type=float, default=2.0,
-                        help="Asymmetric false-negative weight (alpha > beta boosts recall)")
+                        help="False-negative weight (alpha > beta boosts recall)")
     parser.add_argument("--beta", type=float, default=1.0,
-                        help="Asymmetric false-positive weight (typically 1.0)")
+                        help="False-positive weight (typically 1.0)")
     parser.add_argument("--no_percentile_clip", action="store_true",
                         help="Use the fixed HU window (-175, 250) instead of 1st-99th percentile clipping")
     parser.add_argument("--elastic_prob", type=float, default=0.15,
@@ -454,7 +463,16 @@ def main():
         model = nn.DataParallel(model)
 
     # --- Loss selection ---
-    if args.loss_type == "asymmetric" and AsymmetricPDCELoss is not None:
+    if args.loss_type == "marginal" and MarginalDiceCELoss is not None:
+        print(f"[Loss] MarginalDiceCELoss(num_classes={NUM_CLASSES}, ignore_index={IGNORE_INDEX}, "
+              f"alpha={args.alpha}, beta={args.beta})")
+        loss_function = MarginalDiceCELoss(
+            num_classes=NUM_CLASSES,
+            ignore_index=IGNORE_INDEX,
+            alpha=args.alpha,
+            beta=args.beta,
+        )
+    elif args.loss_type == "asymmetric" and AsymmetricPDCELoss is not None:
         print(f"[Loss] AsymmetricPDCELoss(alpha={args.alpha}, beta={args.beta}, "
               f"ignore_index={IGNORE_INDEX})")
         loss_function = AsymmetricPDCELoss(
@@ -466,8 +484,8 @@ def main():
             ignore_index=IGNORE_INDEX,
         )
     else:
-        if args.loss_type == "asymmetric":
-            print("WARNING: AsymmetricPDCELoss import failed; falling back to DiceCELoss.")
+        if args.loss_type in ["asymmetric", "marginal"]:
+            print(f"WARNING: {args.loss_type} loss import failed; falling back to DiceCELoss.")
         else:
             print("[Loss] DiceCELoss")
         loss_function = DiceCELoss(to_onehot_y=True, softmax=True)
@@ -504,7 +522,13 @@ def main():
 
             with torch.cuda.amp.autocast():
                 outputs = model(inputs)
-                loss = loss_function(outputs, labels)
+                if MarginalDiceCELoss is not None and isinstance(loss_function, MarginalDiceCELoss):
+                    rev = batch_data.get("reviewed_classes", None)
+                    if rev is not None and isinstance(rev, torch.Tensor):
+                        rev = rev.to(device)
+                    loss = loss_function(outputs, labels, reviewed_classes=rev)
+                else:
+                    loss = loss_function(outputs, labels)
 
             # Apply 10x weight for gold standard samples
             if is_gold_any:
