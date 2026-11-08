@@ -1,0 +1,7 @@
+{
+  "paired_rows": 1545,
+  "unique_patients": 438,
+  "missing_source_dates": 1545,
+  "missing_target_dates": 1545,
+  "scope": "Archived metadata only, not verified acquisition dates or regenerated cohort outcomes"
+}

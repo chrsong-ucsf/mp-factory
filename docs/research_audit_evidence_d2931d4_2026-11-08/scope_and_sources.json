@@ -1,0 +1,37 @@
+{
+  "reviewed_commit": "d2931d42291e184181ca82a9823b7edb399c79a6",
+  "date": "2026-11-08",
+  "timezone": "America/Los_Angeles",
+  "scope": "Scientific hypotheses, independent reference standards, label assumptions, paired-target validity, simulation validation and statistical design; user requested broader research theory over cluster details",
+  "method": "Current source/docs, archived metadata, primary research; no new clinical or image-performance measurements",
+  "reported_historical_results_recomputed": false,
+  "runtime_or_training_jobs_run": false,
+  "primary_design_findings": 6,
+  "conditional_label_finding": "Nonignored zero is known background in the objective; bias follows only if actual zero voxels include missing/unannotated organs, which this review has not established",
+  "checkpoint_selection_clarification": "If gold_standard_cases is supplied, it becomes validation and its mean_dice selects checkpoints; separate optional rad_cases true_dice is logged, not selected directly. Historical branch/config requires run records.",
+  "clinical_and_patient_specific_claims": "Not established by programmed curves, same-segmenter agreement or global image similarity alone; no universal impossibility claim for NCCT synthesis",
+  "sources": [
+    {
+      "title": "CLAIM 2024 Update",
+      "url": "https://pubs.rsna.org/doi/10.1148/ryai.240300",
+      "use": "Reference standard independence, disjoint patient partitions, sample size and uncertainty reporting"
+    },
+    {
+      "title": "Marginal loss and exclusion loss for partially supervised multi-organ segmentation",
+      "url": "https://arxiv.org/abs/2007.03868",
+      "use": "Merged-background semantics for partially annotated multi-organ data"
+    },
+    {
+      "title": "Distribution Matching Losses Can Hallucinate Features in Medical Image Translation",
+      "url": "https://arxiv.org/abs/1805.08841",
+      "use": "Motivates independent pathology-preservation endpoints; does not prove the same failure in this paired diffusion model"
+    },
+    {
+      "title": "TotalSegmentator: Robust Segmentation of 104 Anatomic Structures in CT Images",
+      "url": "https://pubs.rsna.org/doi/10.1148/ryai.230024",
+      "use": "Separate benchmark context; no transfer of literature scores to project cohort"
+    }
+  ],
+  "code_changes": false,
+  "test_status": "Full tests/training/integration not rerun; ancillary lightweight parse90/shell78 checks passed. Prior named-run repair inspected statically only."
+}

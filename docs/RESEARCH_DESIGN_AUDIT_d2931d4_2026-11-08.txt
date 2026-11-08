@@ -1,0 +1,222 @@
+MP-FACTORY: SCIENTIFIC QUESTIONS, STUDY DESIGN AND CLAIMS AUDIT
+Date: 2026-11-08 (America/Los_Angeles)
+Reviewed commit: d2931d42291e184181ca82a9823b7edb399c79a6
+Scope: broader theoretical and experimental validity of Projects 9 and 10,
+following the user's request to prioritize the research over cluster mechanics.
+
+ASSESSMENT
+
+The research direction is plausible, but the current evidence does not yet establish
+its strongest scientific claims. The most defensible near-term contributions are
+annotation-efficient GI segmentation and/or synthetic-data utility on independent
+real cases. Patient-specific recovery of true contrast enhancement and physiological
+validation of simulated tumors require different evidence.
+
+The central issue is alignment: define the question, the independent unit of data,
+the reference standard, the comparison and the endpoint before treating pipeline
+scale, model agreement or image plausibility as a research result. More architecture
+complexity does not itself resolve these design questions.
+
+These are study-design findings and conditional methodological risks. They are not
+claims that synthesis is impossible, that every current label is wrong, or that
+clinical harm has been observed. Numerical examples below are reported historical
+values from the repository, not freshly regenerated measurements.
+
+1. DEFINE THE SCIENTIFIC TARGET BEFORE CLAIMING RECOVERED PHYSIOLOGY
+
+P10 conditions generation on NCCT, anatomy and a categorical phase. A diffusion
+step is a denoising index, not physiological acquisition time. Generating a plausible
+conditional image does not by itself demonstrate recovery of the particular
+patient's unobserved enhancement. Unmeasured timing/protocol and physiological
+variation must be distinguished from predictable image structure.
+Evidence: synthesis_net.py:62-87; sample_multiphase_diffusion.py:105-106,719-726;
+SHOWCASE.md:135-155,297. The description of authentic contrast dynamics in an
+L1-selected subgroup is stronger than its global similarity endpoint establishes.
+
+Required decision: choose a primary target:
+  A. Anatomically plausible, useful synthetic augmentation;
+  B. Improvement in a specified downstream task when synthesis is added to NCCT;
+  C. Accurate individual enhancement/lesion characterization;
+  D. Continuous-time physiological modeling.
+These are distinct claims, not interchangeable descriptions of one experiment.
+
+For A/B, test incremental benefit on untouched real patients. For C, use verified
+paired examinations and lesion/vessel enhancement endpoints, including errors and
+uncertainty. For D, obtain timing/protocol information and test held-out time points.
+Categorical phase conditioning alone does not demonstrate continuous kinetics.
+If sampling uncertainty is studied, evaluate repeated realizations without selecting
+the best sample against the test reference. Sample diversity alone is not calibrated
+physiological uncertainty. Image-translation hallucination research [3] motivates
+independent pathology-preservation testing; it does not prove this paired diffusion
+model has the same failures as the unpaired models studied in that paper.
+
+2. CONSENSUS AGREEMENT CANNOT SERVE AS ITS OWN ACCURACY REFERENCE
+
+P9's ensemble Dice/ECE and CLEAN selection use the ensemble consensus as a target.
+Those quantify agreement and internal consistency. Shared errors can remain highly
+consistent, particularly when models share training labels or data. Such ECE is not
+independent calibration against anatomical correctness.
+Evidence: evaluate_multi_model_ensemble.py:534-559,635-641.
+
+The frozen P9 model's agreement between real and synthetic images is similarly a
+model-consistency endpoint. Both predictions can agree and be wrong. Empty-mask
+handling repairs one artifact but does not supply an independent reference.
+Evidence: run_clinical_turing_test.py:126-152; SHOWCASE.md:137,151-155. The function
+permits a pass when at least one organ is eligible and mean agreement is >=0.70;
+that does not establish preserved lesions or diagnostic interchangeability.
+
+Required experiment: blinded independent annotations on a subset spanning CLEAN,
+WEAK and REJECT, with strata for anatomy/pathology, phase and difficult cases.
+Estimate whether agreement predicts real label quality and how many useful cases
+filtering discards. Evaluate teacher, simple majority, weighted ensemble and student
+on the same untouched patient set. Separate selection, weighting and loss ablations.
+If distillation is a compression claim, prespecify acceptable quality loss and
+measure inference latency/memory; a student need not beat its teacher to be useful.
+For synthesis, use independent anatomical/lesion references or a blinded task-based
+reader study; retain segmentation consistency as a secondary endpoint.
+
+The reported JHU table does not currently establish a benefit from increasing
+pipeline complexity: it lists TotalSegmentator mean DSC 0.700, MedNeXt 0.489 and
+ensemble 0.061 on its 11-scan/five-patient benchmark. Later rows often use one patient.
+These reported values support investigating the failure mechanism, not asserting
+superiority. They do not establish statistical significance or current performance.
+Evidence: SHOWCASE.md:228-243. Table 1 also mixes unverified literature reference
+numbers with cohort-specific model values (:214-224); it cannot be a matched trial.
+
+3. MATCH THE LOSS TO WHAT AN UNLABELED VOXEL ACTUALLY MEANS
+
+The partial/asymmetric loss ignores explicitly ignored voxels, but ordinary zero
+remains a supervised background target. Autolabeling marks foreground disagreements
+as ignored; it does not convert all potentially unannotated organ voxels into
+unknown labels.
+Evidence: asymmetric_loss.py:40-53,94-104; hard_threshold_autolabel.py:187-197.
+
+Conditional risk: IF zero includes unannotated organs, a correct organ prediction
+can receive false-negative supervision. This review has not established that the
+current masks have that defect. IF each supplied organ/background label is complete
+under its stated schema, ordinary background supervision may be appropriate.
+
+Required first step: audit annotation completeness per organ/case and explicitly
+separate true background, missing-organ labels, sparse labels and coarse boundaries.
+Then run a controlled missing-label experiment, comparing the current objective
+with an appropriate marginal/masked objective and the same fully labeled baseline.
+Shi et al. [2] explain why background can be a merged label in partially annotated
+multi-organ datasets. Ignoring disagreement alone is not equivalent to that model.
+
+4. ESTABLISH THAT THE PAIRED TARGET IS THE RIGHT COUNTERPART
+
+The discovery code can select a recent NCCT and other contrast examinations from
+the same patient; same-day filtering is optional. Subsequent deformable registration
+cannot establish that differences between scans are caused only by contrast.
+Evidence: discover_multiphase_cohort.py:185-208; register_multiphase_pairs.py:284-301.
+The archived 1,545 pair rows cover 438 patients; all source and target date fields
+are blank. That establishes missing temporal evidence, not necessarily bad pairing.
+
+Required design: a primary paired cohort with verified examination/session, phase
+and protocol/timing information. Report longitudinal/missing-date pairs separately.
+Use independent landmark/lesion review and deformation QA; compare rigid-only and
+deformable evaluation where feasible. A support mask identifies observed field of
+view, not correct anatomical correspondence. Assess lesion shape, enhancement and
+registration uncertainty separately rather than asking global similarity to absorb
+all three. Do not let registration-dependent apparent improvement substitute for
+verified patient-specific enhancement.
+
+5. PROGRAMMED KINETICS NEED INDEPENDENT BIOLOGICAL OR TASK VALIDATION
+
+The tumor generator stamps type/phase-specific HU and ring templates, then restores
+voxels outside the lesion. Expected curves and zero outside-mask change therefore
+verify construction rules; they are not independent evidence of physiological realism.
+Evidence: multiphase_tumor_kinetics.py:115-151,282-305; verifier containment check
+:595-605; SHOWCASE.md:159-174,298.
+
+The documentation already acknowledges procedural templates rather than independent
+pharmacokinetic modeling at SHOWCASE.md:174. Preserve that distinction in conclusions.
+1,990 generated lesions are samples from the designed simulator, not 1,990 independent
+clinical demonstrations. A classifier can learn simulator shortcuts.
+
+Required experiment: compare simulated morphology/enhancement distributions with
+held-out real lesions, using independent assessment. Test a real-only downstream
+benchmark with equal training budgets: real data + standard augmentation, generic
+synthetic lesions, and phase-aware synthetic lesions. Hold out patient/site and
+simulator parameter combinations. If the phase-aware arm helps on real cases,
+that supports augmentation utility even without claiming patient-specific physiology.
+
+6. USE INDEPENDENT PATIENTS, MATCHED COMPARISONS AND PROSPECTIVE ENDPOINTS
+
+The JHU benchmark has five distinct patients, not 50 independent observations;
+scans, propagated labels and repeated models are clustered/reused evidence.
+Later one-patient rows cannot establish generalization. Where phases inherit labels,
+verify that propagation is an acceptable reference for the target organ and endpoint.
+When gold_standard_cases is supplied, the training code uses those cases as its
+validation set (:635-657) and selects checkpoints on that set's mean Dice (:863-878).
+That expert validation cohort is then a development/selection cohort, even though
+its patients are correctly excluded from training. A separate optional true_dice
+metric is logged (:843) and is not the checkpoint criterion. Which branch generated
+historical results still requires experiment records. Reserve an untouched final
+test if an expert cohort guides selection. Evidence: SHOWCASE.md:228-243 and
+run_scaling_sweep.py:635-657,843,863-878.
+
+Required analysis: define patient-level or higher disjoint development/test partitions
+across every training, pseudo-label and selection stage, with exposure to teacher
+training data disclosed where known. Report patient-clustered uncertainty and paired
+model differences on matched cases. Choose test size by desired precision/effect,
+not a nominal count of scans. CLAIM [1] supports these reference-standard, partition
+and uncertainty distinctions; it does not prescribe one universally sufficient N.
+
+Treat annotation-budget learning curves as empirical first. Define N as unique
+patients and annotation effort, keep a fixed test cohort, use repeated patient
+subsets/seeds, and show uncertainty. compute_scaling_law.py:6-27 fits a three-parameter
+curve to averaged results without uncertainty or alternative-fit comparison; a fitted
+curve alone establishes no general scaling law or reliable extrapolation.
+
+P10's top-30.1% L1 subgroup is selected using the outcome itself. It describes where
+the generator performed better retrospectively, not prospectively identifiable
+success. Report the complete prespecified cohort, failure rates and native clinically
+relevant ROIs. SHOWCASE Table 3 reports major HU error/saturation even in the favorable
+subgroup (:247-254); 'high fidelity' and post-processing utility need explicit,
+independently evaluated acceptance criteria. Do not claim that correcting background
+air alone establishes preserved enhancement or lesions.
+
+RECOMMENDED RESEARCH SEQUENCE
+
+First, validate the reference: expert-audit annotation completeness, consensus quality
+and phase pairing. Establish a usable, untouched patient test cohort.
+
+Second, make P9 a focused annotation-efficiency experiment: at fixed manual annotation
+effort, does filtered pseudo-labeling improve a matched student baseline and
+unfiltered pseudo-labeling? Keep the strong teacher as an external performance
+reference. Alternatively, test a compression claim: retain prespecified acceptable
+teacher quality with lower inference cost. Ablate filtering, weighting and partial-
+label handling. A negative result with a clear failure analysis is informative.
+
+Third, choose one P10 utility claim. For inference utility compare NCCT alone,
+NCCT plus synthesis, and real contrast as a reference upper comparison on a fixed
+clinical task. For augmentation utility compare real-only/standard augmentation
+against real plus generic and phase-aware synthetic lesions on real held-out data.
+Use simple image-generation baselines and matched preprocessing before attributing
+benefit to latent diffusion, anatomy conditioning or kinetic sophistication.
+
+Predefine the primary endpoint and meaningful improvement with domain collaborators.
+Report failures and uncertainty. Keep organ segmentation, contrast synthesis and
+lesion simulation as related but separately testable contributions.
+
+PRIMARY SOURCES
+
+[1] Checklist for Artificial Intelligence in Medical Imaging (CLAIM):
+2024 Update. https://pubs.rsna.org/doi/10.1148/ryai.240300
+[2] Shi et al. Marginal loss and exclusion loss for partially supervised multi-organ
+segmentation. https://arxiv.org/abs/2007.03868
+[3] Cohen, Luck and Honari. Distribution Matching Losses Can Hallucinate Features in
+Medical Image Translation. MICCAI 2018. https://arxiv.org/abs/1805.08841
+[4] Wasserthal et al. TotalSegmentator: Robust Segmentation of 104 Anatomic Structures
+in CT Images. https://pubs.rsna.org/doi/10.1148/ryai.230024
+Source [4] describes a different benchmark; its literature values do not substitute
+for a matched comparison on this project's cohort.
+
+SCOPE AND EVIDENCE
+
+This review used current source/docs, archived metadata and primary literature.
+It evaluates research logic and claim support; reported historical metrics were
+not independently regenerated. No new full test suite, model training or Slurm job
+was run. Code syntax and lightweight metadata checks are saved as ancillary evidence.
+Only this research audit and its evidence are committed; implementation is unchanged.
