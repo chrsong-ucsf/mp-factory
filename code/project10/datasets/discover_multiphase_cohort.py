@@ -262,6 +262,14 @@ def build_manifest(
     log.info(f"  Saved {len(pairs_df):,} pair rows -> {pairs_out}")
     log.info(f"  Saved {len(triplets_df):,} triplet rows -> {triplets_out}")
 
+    # Audit Item 4: Explicitly separate verified same-day, longitudinal, and missing-date cohorts
+    if not pairs_df.empty and "temporal_match_status" in pairs_df.columns:
+        for status_val in ["verified_same_day", "verified_longitudinal", "unverified_date_missing"]:
+            sub_df = pairs_df[pairs_df["temporal_match_status"] == status_val]
+            sub_out = os.path.join(out_dir, f"multiphase_pairs_{status_val}.csv")
+            sub_df.to_csv(sub_out, index=False)
+            log.info(f"  Saved {len(sub_df):,} {status_val} rows -> {sub_out}")
+
     # ------------------------------------------------------------------
     # Summary stats
     stats = {

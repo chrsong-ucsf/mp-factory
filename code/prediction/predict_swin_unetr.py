@@ -177,16 +177,30 @@ def main():
                     )
 
             # Argmax over class dimension → (H, W, D)
-            pred_label = post_pred(pred_logits[0]).squeeze(0)
+            pred_label = post_pred(pred_logits[0]).squeeze()
             pred_np = pred_label.cpu().numpy().astype(np.uint8)
 
-            # Save prediction in resampled space (1.5×1.5×2.0 mm RAS).
-            # Use the affine updated by Spacingd/Orientationd from the transform metadata
-            # instead of orig_nii.affine (native scanner space), which would create a
-            # silent geometry mismatch when source scans have different native resolutions.
-            resampled_affine = data_dict["image"].meta["affine"].numpy()
-            out_nii = nib.Nifti1Image(pred_np, affine=resampled_affine)
-            nib.save(out_nii, out_mask_path)
+            # Get true updated affine of the resampled image
+            if hasattr(data_dict["image"], "affine"):
+                resampled_affine = data_dict["image"].affine.cpu().numpy()
+            elif "affine" in data_dict["image"].meta:
+                resampled_affine = data_dict["image"].meta["affine"]
+                if hasattr(resampled_affine, "numpy"):
+                    resampled_affine = resampled_affine.numpy()
+            else:
+                resampled_affine = np.eye(4)
+
+            # Squeeze extra dimensions if any to guarantee 3D volume
+            while pred_np.ndim > 3:
+                pred_np = pred_np[0]
+
+            res_nii = nib.Nifti1Image(pred_np, affine=resampled_affine)
+
+            # Rigorously resample back onto native CT scanner coordinate grid
+            orig_nii = nib.load(ct_path)
+            import nibabel.processing as nip
+            native_pred_nii = nip.resample_from_to(res_nii, orig_nii, order=0)
+            nib.save(native_pred_nii, out_mask_path)
 
             if args.save_probs:
                 probs = torch.softmax(pred_logits[0], dim=0).cpu().numpy().astype(np.float16)

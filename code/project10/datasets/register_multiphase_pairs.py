@@ -297,9 +297,23 @@ def register_pair(
         fixed_clipped, moving_clipped, affine_xfm, grid_spacing_mm=50.0
     )
 
+    # Deformation QA: Compute Jacobian determinant of the displacement field (Audit Finding 4)
+    jac_image = sitk.DisplacementFieldJacobianDeterminant(dvf_image)
+    jac_arr = sitk.GetArrayFromImage(jac_image)
+    neg_jac_count = int(np.sum(jac_arr <= 0))
+    pct_folding = round(float(neg_jac_count / jac_arr.size * 100.0), 4)
+    min_jac = round(float(np.min(jac_arr)), 4)
+    mean_jac = round(float(np.mean(jac_arr)), 4)
+    log.info(f"    Deformation QA: min det(J)={min_jac}, mean det(J)={mean_jac}, folding={pct_folding}%")
+
     log.info("    Resampling moving to fixed grid...")
     registered = resample_to_fixed(moving, fixed, bspline_xfm)
     warped_support = resample_support_to_fixed(moving, fixed, bspline_xfm)
+
+    # Also save rigid-only counterpart for rigid-vs-deformable ablation (Audit Finding 4)
+    rigid_reg = resample_to_fixed(moving, fixed, affine_xfm)
+    out_rigid_path = out_reg_path.replace(".nii.gz", "_rigid.nii.gz")
+    sitk.WriteImage(sitk.Cast(rigid_reg, sitk.sitkFloat32), out_rigid_path)
 
     # Save registered volume
     os.makedirs(os.path.dirname(out_reg_path), exist_ok=True)
@@ -320,6 +334,10 @@ def register_pair(
         "elapsed_sec":      round(elapsed, 1),
         "fixed_size":       list(fixed.GetSize()),
         "fixed_spacing_mm": [round(s, 3) for s in fixed.GetSpacing()],
+        "min_jacobian":     min_jac,
+        "mean_jacobian":    mean_jac,
+        "pct_folding":      pct_folding,
+        "rigid_path":       out_rigid_path,
     }
 
 

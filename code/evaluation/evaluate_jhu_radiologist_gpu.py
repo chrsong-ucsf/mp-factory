@@ -52,6 +52,21 @@ GT_ORGAN_MAP = {
 # Note: GT label 1 = esophagus — excluded since GI models were not trained on esophagus.
 # Rectum (label 6) is unified into colon (label 5) following standard abdominopelvic guidelines.
 
+# JHU Patient Clustering Map (5 distinct patients across the 11 multi-phase scans)
+JHU_SCAN_TO_PATIENT_MAP = {
+    "BDMAP_00242113": "PATIENT_1",
+    "BDMAP_00242114": "PATIENT_1",
+    "BDMAP_00242115": "PATIENT_1",
+    "BDMAP_00242116": "PATIENT_1",
+    "BDMAP_00242131": "PATIENT_2",
+    "BDMAP_00242132": "PATIENT_2",
+    "BDMAP_00242133": "PATIENT_2",
+    "BDMAP_00242134": "PATIENT_3",
+    "BDMAP_00242135": "PATIENT_4",
+    "BDMAP_00242136": "PATIENT_4",
+    "BDMAP_00394224": "PATIENT_5",
+}
+
 # Per-model label remapping: maps prediction label IDs -> GT label IDs
 # GI Models (MedNeXt, Swin-UNETR, Ensemble): 1=stomach, 2=duodenum, 3=small_bowel, 4=colon
 # TotalSegmentator v2 full-body labels: 6=stomach, 19=duodenum, 18=small_bowel, 20=colon
@@ -364,6 +379,7 @@ def run_gpu_evaluation(jhu_dir, pred_dirs, model_names, out_csv):
                 row = {
                     'model_name': model_name,
                     'subject_id': subject_id,
+                    'patient_id': JHU_SCAN_TO_PATIENT_MAP.get(subject_id, subject_id),
                     'source_nrrd': nrrd_file,
                     'pred_path': os.path.basename(pred_path)
                 }

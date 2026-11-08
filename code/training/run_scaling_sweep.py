@@ -632,52 +632,50 @@ def run_single_sweep(
         print(f"  [N={n_cases}] Only {len(all_cases)} cases available; using all.")
         n_cases = len(all_cases)
 
-    # Use gold-standard cases as the static validation set when available.
+    # Audit Finding 6: Decouple early-stopping validation from held-out gold-standard test cases
     # Strictly ensure training cohort does NOT include any gold standard validation cases or their sibling phases!
+    gold_patients = set()
+    test_cases = []
     if gold_standard_cases:
-        gold_patients = set()
         for g_case in gold_standard_cases:
             p_name = g_case.get("name", "")
             pid = extract_patient_id(p_name)
             gold_patients.add(pid)
             gold_patients.add(p_name)
+        test_cases = gold_standard_cases
 
-        eligible_train_cases = []
-        for c in all_cases:
-            c_name = c.get("name", "")
-            c_pid = extract_patient_id(c_name)
-            if c_pid not in gold_patients and c_name not in gold_patients:
-                eligible_train_cases.append(c)
+    eligible_dev_cases = []
+    for c in all_cases:
+        c_name = c.get("name", "")
+        c_pid = extract_patient_id(c_name)
+        if c_pid not in gold_patients and c_name not in gold_patients:
+            eligible_dev_cases.append(c)
 
-        actual_n = min(n_cases, len(eligible_train_cases))
-        train_cases = rng.sample(eligible_train_cases, actual_n)
-        val_cases   = gold_standard_cases
-        n_train     = len(train_cases)
-        n_val       = len(val_cases)
-        print(f"  Validation: static gold-standard ({n_val} cases; excluded {len(all_cases)-len(eligible_train_cases)} training overlap scans)")
-    else:
-        # Patient-grouped 80/20 train/val split
-        pt_map = {}
-        for c in all_cases:
-            c_name = c.get("name", "")
-            c_pid = extract_patient_id(c_name)
-            pt_map.setdefault(c_pid, []).append(c)
+    # Disjoint patient-grouped 80/20 train/val split of development cases
+    pt_map = {}
+    for c in eligible_dev_cases:
+        c_name = c.get("name", "")
+        c_pid = extract_patient_id(c_name)
+        pt_map.setdefault(c_pid, []).append(c)
 
-        pts = sorted(list(pt_map.keys()))
-        rng.shuffle(pts)
-        n_val_pt = max(1, int(0.2 * len(pts)))
-        val_pts = set(pts[:n_val_pt])
-        train_pts = set(pts[n_val_pt:])
-        if not train_pts and len(pts) > 1:
-            train_pts = {pts[-1]}
-            val_pts.remove(pts[-1])
+    pts = sorted(list(pt_map.keys()))
+    rng.shuffle(pts)
+    n_val_pt = max(1, int(0.2 * len(pts)))
+    val_pts = set(pts[:n_val_pt])
+    train_pts = set(pts[n_val_pt:])
+    if not train_pts and len(pts) > 1:
+        train_pts = {pts[-1]}
+        val_pts.remove(pts[-1])
 
-        all_train_cases = [c for p in train_pts for c in pt_map[p]]
-        val_cases       = [c for p in val_pts for c in pt_map[p]]
-        actual_n = min(n_cases, len(all_train_cases))
-        train_cases = rng.sample(all_train_cases, actual_n)
-        n_train     = len(train_cases)
-        n_val       = len(val_cases)
+    all_train_cases = [c for p in train_pts for c in pt_map[p]]
+    val_cases       = [c for p in val_pts for c in pt_map[p]]
+    actual_n = min(n_cases, len(all_train_cases))
+    train_cases = rng.sample(all_train_cases, actual_n)
+    n_train     = len(train_cases)
+    n_val       = len(val_cases)
+    print(f"  Development Cohort: {len(eligible_dev_cases)} scans across {len(pts)} patients (Train={n_train}, Val={n_val})")
+    if test_cases:
+        print(f"  Held-out Test Cohort: {len(test_cases)} static gold-standard scans reserved for post-training test")
         print(f"  Validation: patient-grouped 20%% split ({n_val} scans across {len(val_pts)} pts)")
 
     if n_train == 0 or n_val == 0:

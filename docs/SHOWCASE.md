@@ -132,6 +132,11 @@ Direct 4-panel comparison against expert JHU radiologist ground truth (Legacy Pi
 # PART II: Project 10 — Multi-Phase Contrast CT Synthesis & 4D Tumor Kinetics
 
 ### 1. Generative Multi-Phase Contrast CT & Anatomical Invariance Audit
+
+> [!NOTE]
+> **Scientific Target & Scope Specification (Audit Item 1):**
+> Following the scientific audit (`docs/RESEARCH_DESIGN_AUDIT_d2931d4_2026-11-08.txt`), Project 10 is formally evaluated under **Target A: Anatomically Plausible Synthetic Data Augmentation for Downstream Diagnostic Utility**. Reverse DDIM diffusion steps represent iterative numerical denoising indices, not physiological contrast transit time, and phase conditioning is categorical and discrete. The model is not claimed to recover unobserved individual patient-specific contrast enhancement dynamics or continuous-time pharmacokinetic differential equations. Downstream segmentation agreement (e.g. Clinical Turing Test) measures internal model consistency across conditions, not calibrated ground-truth diagnostic interchangeability.
+
 Project 10 synthesizes 3D contrast-enhanced CT volumes from non-contrast scans (NCCT) using an anatomy-conditioned **Latent Diffusion Model** operating on a deterministic continuous 3D autoencoder (`LightweightAutoEncoder3D`, as trained in Phase 1 and enforced by production `load_stage1_autoencoder` with `use_vq=False`), sampled via fast deterministic DDIM reverse diffusion.
 
 To audit whether synthetic contrast scans preserve visceral anatomical boundaries, the frozen MedNeXt-B backbone was evaluated on paired real vs. synthetic volumes across $N = 400$ patient cases.
@@ -226,6 +231,12 @@ To evaluate whether downstream segmentation models maintain stable anatomical bo
 ---
 
 ### Table 2: Johns Hopkins Radiologist Expert Ground-Truth Benchmark (N = 50 Pooled Evaluations)
+
+> [!IMPORTANT]
+> **Audit Findings on Historical Table 2 Performance & Failure Mechanisms:**
+> 1. **MedNeXt / Swin-UNETR Small Bowel 0.000 DSC**: Forensic inspection confirmed that in early training data subsets where small bowel was unannotated, standard cross-entropy treated unlabeled voxels ($Y=0$) as supervised background, imposing massive false-negative penalties whenever small bowel was predicted in the mesenteric space. This suppressed small bowel predictions to zero across all evaluation scans. This is resolved by the Shi et al. Marginal Loss formulation (`code/training/marginal_loss.py`).
+> 2. **EnsembleConsensus 0.061 DSC on JHU**: Traced to an affine coordinate mismatch in the prediction pipeline: MONAI `Spacingd` resampled CT volumes to $1.5 \times 1.5 \times 2.0\text{ mm}$ (e.g. from $512 \times 512 \times 489$ down to $290 \times 290 \times 367$) but saved the NIfTI using the native scanner voxel affine ($0.85 \times 0.85 \times 1.5\text{ mm}$). When SimpleITK resampled this physically shrunken mask onto JHU ground truth, the organs were shifted and compressed into a small corner, yielding 0 true positive overlap voxels. This is remediated in `predict_mednext.py` and `predict_swin_unetr.py` by strictly inverting predictions to the native CT physical acquisition grid.
+> 3. **Statistical Power & Clustered Generalization**: The 11 scans derive from 5 distinct patients (annotated across 6 expert NRRD volumes with multi-phase propagation). Single-scan ($N=1$) rows reflect exploratory single-case tests and should not be interpreted as cohort-level generalization evidence.
 
 | Architecture | N (Scans) | Patients | Stomach (DSC) | Duodenum (DSC) | Small Bowel (DSC) | Colon (DSC) | Global Mean (DSC) | Mean HD95 (mm) |
 | :--- | :---: | :---: | :--- | :--- | :--- | :--- | :--- | :--- |
