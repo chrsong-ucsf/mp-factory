@@ -425,6 +425,150 @@ def verify_ensemble_and_manifests():
     }
 
 
+def _trim_memory():
+    """Trims unused heap memory back to the OS."""
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
+def _verify_single_reg_vol(p):
+    """Verifies a single registered volume. Returns (success, stem, reg_dict)."""
+    if not os.path.exists(p) or os.path.getsize(p) < 18:
+        return False, None, None
+    try:
+        img = nib.load(p)
+        hdr = img.header
+        shp = hdr.get_data_shape()
+        if len(shp) < 3 or min(shp[:3]) < 4:
+            return False, None, None
+        if str(p).endswith(".gz"):
+            itemsize = hdr.get_data_dtype().itemsize
+            vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
+            expected_isize = (int(np.prod(shp)) * itemsize + vox_offset) % (2**32)
+            with open(p, "rb") as f:
+                f.seek(-8, 2)
+                crc, isize = struct.unpack("<II", f.read(8))
+            if isize != expected_isize:
+                return False, None, None
+            import gzip
+            with gzip.open(p, "rb") as gz:
+                while gz.read(1024 * 1024):
+                    pass
+        data = np.asanyarray(img.dataobj)
+        if not np.isfinite(data).all():
+            return False, None, None
+        stem = Path(p).name.replace("_reg.nii.gz", "").replace(".nii.gz", "")
+        info = {
+            "spatial_shape": shp[:3],
+            "affine": np.array(img.affine, copy=True),
+        }
+        del data, img
+        _trim_memory()
+        return True, stem, info
+    except Exception:
+        return False, None, None
+
+
+def _verify_single_synth_vol(p):
+    """Verifies a single synthetic volume. Returns success bool."""
+    if not os.path.exists(p) or os.path.getsize(p) < 18:
+        return False
+    try:
+        img = nib.load(p)
+        hdr = img.header
+        shp = hdr.get_data_shape()
+        if len(shp) < 3 or min(shp[:3]) < 4:
+            return False
+        if str(p).endswith(".gz"):
+            itemsize = hdr.get_data_dtype().itemsize
+            vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
+            expected_isize = (int(np.prod(shp)) * itemsize + vox_offset) % (2**32)
+            with open(p, "rb") as f:
+                f.seek(-8, 2)
+                crc, isize = struct.unpack("<II", f.read(8))
+            if isize != expected_isize:
+                return False
+            import gzip
+            with gzip.open(p, "rb") as gz:
+                while gz.read(1024 * 1024):
+                    pass
+        data = np.asanyarray(img.dataobj)
+        if not np.isfinite(data).all():
+            return False
+        del data, img
+        _trim_memory()
+        return True
+    except Exception:
+        return False
+
+
+def _verify_single_reg_dvf(args):
+    """Verifies a single displacement vector field and support mask. Returns success bool."""
+    p, reg_spatial, reg_aff = args
+    if not os.path.exists(p) or os.path.getsize(p) < 18:
+        return False
+    try:
+        stem = Path(p).name.replace("_dvf.nii.gz", "").replace(".nii.gz", "")
+        img = nib.load(p)
+        hdr = img.header
+        shp = hdr.get_data_shape()
+
+        # Allowed vector layouts: (X, Y, Z, 3) or (X, Y, Z, 1, 3) exactly
+        allowed_shapes = [
+            (reg_spatial[0], reg_spatial[1], reg_spatial[2], 3),
+            (reg_spatial[0], reg_spatial[1], reg_spatial[2], 1, 3),
+        ]
+        if shp not in allowed_shapes:
+            return False
+
+        # Spatial geometry / reference identity must match registered grid
+        if not np.allclose(img.affine, reg_aff, atol=1e-3):
+            return False
+
+        if str(p).endswith(".gz"):
+            itemsize = hdr.get_data_dtype().itemsize
+            vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
+            expected_isize = (int(np.prod(shp)) * itemsize + vox_offset) % (2**32)
+            with open(p, "rb") as f:
+                f.seek(-8, 2)
+                crc, isize = struct.unpack("<II", f.read(8))
+            if isize != expected_isize:
+                return False
+            import gzip
+            with gzip.open(p, "rb") as gz:
+                while gz.read(1024 * 1024):
+                    pass
+        data = np.asanyarray(img.dataobj)
+        if not np.isfinite(data).all():
+            return False
+        del data, img
+
+        # Check matching support mask if present
+        supp_p = Path(p).parent / f"{stem}_reg_support.nii.gz"
+        if not supp_p.exists():
+            supp_p = Path(p).parent / f"{stem}_support.nii.gz"
+        if supp_p.exists():
+            s_img = nib.load(supp_p)
+            s_shp = s_img.header.get_data_shape()
+            if s_shp[:3] != reg_spatial or not np.allclose(s_img.affine, reg_aff, atol=1e-3):
+                return False
+            if str(supp_p).endswith(".gz"):
+                import gzip
+                with gzip.open(supp_p, "rb") as gz:
+                    while gz.read(1024 * 1024):
+                        pass
+            if not np.isfinite(np.asanyarray(s_img.dataobj)).all():
+                return False
+            del s_img
+        _trim_memory()
+        return True
+    except Exception:
+        return False
+
+
 def verify_project10_synthesis_and_kinetics():
     """Verifies Project 10 contrast synthesis, deformable registration, and lesion kinetics."""
     print("\n[+] Auditing Project 10 Contrast Synthesis & Tumor Kinetics...")
@@ -480,159 +624,66 @@ def verify_project10_synthesis_and_kinetics():
 
     cohort_lineage_ok = True
 
+    workers = min(int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count() or 1)), 16)
+
     # 1. Output files must be non-empty and readable NIfTI volumes across all payloads (Findings 4, 7 & 8)
     files_readable = True
     reg_info = {}
-    for p in reg_vols:
-        if not os.path.exists(p) or os.path.getsize(p) < 18:
-            files_readable = False
-            break
-        try:
-            img = nib.load(p)
-            hdr = img.header
-            shp = hdr.get_data_shape()
-            if len(shp) < 3 or min(shp[:3]) < 4:
-                files_readable = False
-                break
-            # Stream payload validation via gzip trailer integrity & CRC checksum through EOF (Finding 4)
-            if str(p).endswith(".gz"):
-                itemsize = hdr.get_data_dtype().itemsize
-                vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
-                expected_isize = (int(np.prod(shp)) * itemsize + vox_offset) % (2**32)
-                with open(p, "rb") as f:
-                    f.seek(-8, 2)
-                    crc, isize = struct.unpack("<II", f.read(8))
-                if isize != expected_isize:
-                    files_readable = False
-                    break
-                import gzip
-                with gzip.open(p, "rb") as gz:
-                    while gz.read(1024 * 1024):
-                        pass
-            data = np.asanyarray(img.dataobj)
-            if not np.isfinite(data).all():
-                files_readable = False
-                break
-            stem = Path(p).name.replace("_reg.nii.gz", "").replace(".nii.gz", "")
-            reg_info[stem] = {
-                "spatial_shape": shp[:3],
-                "affine": np.array(img.affine, copy=True),
-            }
-        except Exception:
-            files_readable = False
-            break
 
-    for p in synth_vols:
-        if not files_readable:
-            break
-        if not os.path.exists(p) or os.path.getsize(p) < 18:
-            files_readable = False
-            break
-        try:
-            img = nib.load(p)
-            hdr = img.header
-            shp = hdr.get_data_shape()
-            if len(shp) < 3 or min(shp[:3]) < 4:
+    if len(reg_vols) <= 4 or workers <= 1:
+        for p in reg_vols:
+            ok, stem, info = _verify_single_reg_vol(p)
+            if not ok:
                 files_readable = False
                 break
-            if str(p).endswith(".gz"):
-                itemsize = hdr.get_data_dtype().itemsize
-                vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
-                expected_isize = (int(np.prod(shp)) * itemsize + vox_offset) % (2**32)
-                with open(p, "rb") as f:
-                    f.seek(-8, 2)
-                    crc, isize = struct.unpack("<II", f.read(8))
-                if isize != expected_isize:
+            reg_info[stem] = info
+    else:
+        import multiprocessing as mp
+        with mp.Pool(processes=workers, maxtasksperchild=32) as pool:
+            for ok, stem, info in pool.imap(_verify_single_reg_vol, reg_vols, chunksize=16):
+                if not ok:
                     files_readable = False
                     break
-                import gzip
-                with gzip.open(p, "rb") as gz:
-                    while gz.read(1024 * 1024):
-                        pass
-            # Read full voxel payload and verify finiteness (Finding 4)
-            data = np.asanyarray(img.dataobj)
-            if not np.isfinite(data).all():
-                files_readable = False
-                break
-        except Exception:
-            files_readable = False
-            break
+                reg_info[stem] = info
+
+    if files_readable:
+        if len(synth_vols) <= 4 or workers <= 1:
+            for p in synth_vols:
+                if not _verify_single_synth_vol(p):
+                    files_readable = False
+                    break
+        else:
+            import multiprocessing as mp
+            with mp.Pool(processes=workers, maxtasksperchild=32) as pool:
+                for ok in pool.imap(_verify_single_synth_vol, synth_vols, chunksize=16):
+                    if not ok:
+                        files_readable = False
+                        break
 
     # DVF validation: must be a 4D/5D deformation vector field with 3 displacement components
     # and strictly match registered volume spatial geometry and affine (Finding 3)
-    for p in reg_dvfs:
-        if not files_readable:
-            break
-        if not os.path.exists(p) or os.path.getsize(p) < 18:
-            files_readable = False
-            break
-        try:
+    if files_readable:
+        dvf_args = []
+        for p in reg_dvfs:
             stem = Path(p).name.replace("_dvf.nii.gz", "").replace(".nii.gz", "")
             if stem not in reg_info:
                 files_readable = False
                 break
-            reg_spatial = reg_info[stem]["spatial_shape"]
-            reg_aff = reg_info[stem]["affine"]
+            dvf_args.append((p, reg_info[stem]["spatial_shape"], reg_info[stem]["affine"]))
 
-            img = nib.load(p)
-            hdr = img.header
-            shp = hdr.get_data_shape()
-
-            # Allowed vector layouts: (X, Y, Z, 3) or (X, Y, Z, 1, 3) exactly
-            allowed_shapes = [
-                (reg_spatial[0], reg_spatial[1], reg_spatial[2], 3),
-                (reg_spatial[0], reg_spatial[1], reg_spatial[2], 1, 3),
-            ]
-            if shp not in allowed_shapes:
-                files_readable = False
-                break
-
-            # Spatial geometry / reference identity must match registered grid
-            if not np.allclose(img.affine, reg_aff, atol=1e-3):
-                files_readable = False
-                break
-
-            # Stream payload validation via gzip trailer integrity & CRC checksum through EOF (Finding 4)
-            if str(p).endswith(".gz"):
-                itemsize = hdr.get_data_dtype().itemsize
-                vox_offset = int(hdr.get_data_offset()) if hasattr(hdr, "get_data_offset") and hdr.get_data_offset() > 0 else 352
-                expected_isize = (int(np.prod(shp)) * itemsize + vox_offset) % (2**32)
-                with open(p, "rb") as f:
-                    f.seek(-8, 2)
-                    crc, isize = struct.unpack("<II", f.read(8))
-                if isize != expected_isize:
-                    files_readable = False
-                    break
-                import gzip
-                with gzip.open(p, "rb") as gz:
-                    while gz.read(1024 * 1024):
-                        pass
-            data = np.asanyarray(img.dataobj)
-            if not np.isfinite(data).all():
-                files_readable = False
-                break
-
-            # Check matching support mask if present
-            supp_p = Path(p).parent / f"{stem}_reg_support.nii.gz"
-            if not supp_p.exists():
-                supp_p = Path(p).parent / f"{stem}_support.nii.gz"
-            if supp_p.exists():
-                s_img = nib.load(supp_p)
-                s_shp = s_img.header.get_data_shape()
-                if s_shp[:3] != reg_spatial or not np.allclose(s_img.affine, reg_aff, atol=1e-3):
-                    files_readable = False
-                    break
-                if str(supp_p).endswith(".gz"):
-                    import gzip
-                    with gzip.open(supp_p, "rb") as gz:
-                        while gz.read(1024 * 1024):
-                            pass
-                if not np.isfinite(np.asanyarray(s_img.dataobj)).all():
-                    files_readable = False
-                    break
-        except Exception:
-            files_readable = False
-            break
+        if files_readable:
+            if len(dvf_args) <= 4 or workers <= 1:
+                for arg in dvf_args:
+                    if not _verify_single_reg_dvf(arg):
+                        files_readable = False
+                        break
+            else:
+                import multiprocessing as mp
+                with mp.Pool(processes=workers, maxtasksperchild=32) as pool:
+                    for ok in pool.imap(_verify_single_reg_dvf, dvf_args, chunksize=16):
+                        if not ok:
+                            files_readable = False
+                            break
 
     if not files_readable:
         cohort_lineage_ok = False

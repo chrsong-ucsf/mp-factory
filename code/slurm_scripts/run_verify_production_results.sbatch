@@ -3,7 +3,7 @@
 #SBATCH --partition=community,community_short,cpu
 #SBATCH --qos=hpc_core
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
+#SBATCH --mem=128G
 #SBATCH --time=04:00:00
 #SBATCH --output=/mnt/scratch/user/chrsong/mp-factory/logs/verify_prod_results_%j.out
 #SBATCH --error=/mnt/scratch/user/chrsong/mp-factory/logs/verify_prod_results_%j.err
