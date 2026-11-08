@@ -1,0 +1,99 @@
+RESEARCH IMPLEMENTATION RE-AUDIT — 2026-11-08
+Audited source: b3ff51260c85604efe16d4869a7aa6ad2f8c0d32 (finished reaudit)
+Baseline: 1c3a833; corrected remediation plan and final methodological amendments.
+
+VERDICT
+The revised plan is partially implemented. Important engineering components exist, but several required data flows are missing or broken. The supplied changes and inspected artifacts do not establish completion of any of the independent scientific studies. Corrected source is not retrospective validation of historical results.
+
+SCOPE AND EVIDENCE
+Fresh source/diff review, graphify orientation, three specialized reviews, lightweight isolated controls and tracked CSV recounts. Syntax checks passed for 97 tracked Python files and 85 shell/Slurm files. These are not runtime integration tests. No full pytest suite, training, inference, Slurm jobs or fresh clinical measurements ran. Production/remote artifacts not supplied locally remain unverified; local absence is not proof of remote absence. Evidence and reproducible controls accompany this report under docs/research_implementation_evidence_b3ff512_2026-11-08/.
+
+WHAT ACTUALLY CHANGED
+1. MarginalDiceCELoss accepts per-case (B,C) reviewed masks; all five trainers have a selectable marginal-loss call. This is an interface repair, not complete metadata integration.
+2. Both inference writers now resample probability channels into native CT coordinates, normalize them, derive the hard mask from those probabilities, save affine/shape/channel/support metadata, and select float32 if float16 changes argmax. New-output source contract is substantially improved; end-to-end nontrivial-affine execution remains unverified.
+3. Missing independent/lesion inputs now produce DATA_UNAVAILABLE instead of the prior fixed AUC/significance constants. The lesion benchmark performs actual forest fitting and exports predictions on a disjoint real-patient subset when admitted inputs permit execution.
+4. Discovery consults accession/date evidence; registration distinguishes rigid and affine products and persists Jacobian/QA fields with provisional status.
+5. A P9 review-sheet/study entry point, patient-aware statistical helpers, preferred-family scaling bootstrap, and post-training held-out evaluation/NRRD-loading branches were added.
+6. SHOWCASE lines 237-238 correctly make partial-label causality and historical geometry explanations provisional, pending empirical validation.
+
+UNFIXED IMPLEMENTATION FINDINGS AND REQUIRED CLOSURE
+
+F01 [P1] Partial-label supervision still defaults unknown cases to full supervision.
+Sources: code/training/marginal_loss.py:72-93; train_mednext.py:525-529; train_swin_unetr.py:453-457; train_mednext_phase2.py:740-744; train_swin_unetr_phase2.py:525-529; run_scaling_sweep.py:793-797.
+The loops read batch.get('reviewed_classes'), but built-in discovery/datasets do not ingest and emit verified reviewed-class metadata. Missing masks reach the all-classes-reviewed fallback. An optional API alone therefore does not fix false-negative supervision in actual built-in cohorts.
+Fix: ingest validated case-level annotation provenance, preserve it through crops/collation, exclude unknown-completeness cases as planned, and demonstrate a heterogeneous forward/backward training step through each actual trainer. Include reviewed-but-absent crop controls. No such integration execution was demonstrated by this audit.
+
+F02 [P1] Swin Phase1 marginal-loss construction is invalid.
+Source: code/training/train_swin_unetr.py:396; marginal_loss.py:155.
+alpha={args.alpha}, beta={args.beta} creates sets, not numeric coefficients. Loss arithmetic cannot use those values. AST and bounded arithmetic controls confirm this defect; the expensive training path was not executed.
+Fix: pass numeric arguments and run the real marginal training-step acceptance check.
+
+F03 [P2] Annotation completeness still conflates visible labels with review.
+Source: code/evaluation/audit_dataset_completeness.py:116-179,190-214.
+Visible labels become reviewed_classes when metadata are missing; all four visible labels can still certify completeness. Conversely a genuinely reviewed but absent organ prevents completeness. Individual mask filenames alone can certify completeness. The shared JHU/BDMAP branch also marks JHU label 5 as both small bowel and colon, contradicting the declared JHU mapping.
+Controls: all four foreground labels/no metadata => complete=True; explicit all-reviewed metadata/no small-bowel voxels => complete=False; JHU label5 => both bowel and colon present.
+Fix: explicit schema-specific mapping and independently sourced review metadata; separate annotation completeness, presence and field-of-view. Unknown metadata must remain unknown/excluded. Reject every ambiguous schema, not just the special {2,4} case.
+
+F04 [P1] The lesion benchmark does not use trustworthy synthetic feature/label pairs.
+Source: code/project10/evaluation/benchmark_lesion_augmentation_utility.py:282-317.
+Both synthetic arms assign y_syn=y_train_real, ignoring each synthetic lesion's pathology and ordering. Missing synthetic features silently become real training features plus Gaussian noise (SD5 or8). Such an output compares arbitrary jitter and/or mislabelled lesions, not generator utility. Missing real features are added to real_df after train/test copies, so the fallback can also raise KeyError rather than extract measurements. Short synthetic arms can mismatch X/y lengths.
+Fix: require provenance-bearing measured features or actual volume loading, synthetic-specific validated labels, hepatic eligibility and matched arm instance IDs. Reject unavailable features rather than fabricate constants/noise. Validate count/label alignment before training.
+
+F05 [P1] Synthetic-parent leakage prevention is not implemented.
+Source: same benchmark:255-275,304-317.
+Real train/test patients are disjoint, but synthetic manifests are not checked against held-out parent patients, source backgrounds or generator-training exposure. Bootstrap cannot correct leakage.
+Fix: lock independent real patients before generation; require and verify parent-patient and generator-development membership/checkpoint lineage; exclude held-out exposure in every arm and persist the actual memberships.
+
+F06 [P2] The planned controlled utility experiment was replaced by an unmatched feature study.
+Source: same benchmark:266-317,320-365.
+The plan's 3D ROI classifier/fixed optimizer-step protocol is not implemented; code uses a random forest on regional features. That simpler feasibility study could be legitimate if explicitly scoped. However baseline fits N real rows while augmented arms fit up to2N; ordinary baseline augmentation and matched synthetic geometry/pathology/background are absent. Arm3 versus Arm2 therefore does not isolate kinetics. The split is a random patient shuffle, not class-stratified; post-filter independent-patient/class sufficiency gates are missing. Only one training seed is represented.
+Fix: choose and accurately document a coherent feature or volumetric protocol, match the interventions/budgets required for its endpoint, prespecify class/center splits, lesion versus patient weighting, training variability, and primary Arm3-versus-Arm2 inference. Do not interpret patient bootstrap as between-training uncertainty.
+
+F07 [P1] Registration producer and training consumer no longer agree.
+Sources: code/project10/datasets/register_multiphase_pairs.py:380-387,436-480; multiphase_paired_dataset.py:91-104.
+New registration logs have15 named fields and PROVISIONAL_PASS_QA_SCREEN status. Dataset loading still supplies the old nine field names with header=None and retains only OK rows. New QA-screened registrations can be misparsed/rejected; appending to old logs can mix schemas. Persisting QA therefore does not establish that training uses it correctly.
+Fix: version/migrate the CSV contract, read named columns, enforce explicit eligibility/approval semantics, and test a produced row through the real dataset loader. Fail visibly when no eligible targets remain. Provisional automated QA must not be relabelled independent anatomical approval.
+
+F08 [P2] Session verification and anatomical QA remain insufficient.
+Source: code/project10/datasets/discover_multiphase_cohort.py:208-233; registration QA fields/status.
+Same-date fallback promotes pairs to verified_same_session even when known accessions differ. Calendar date alone cannot establish the planned clinical-session identity. Positive Jacobians establish absence of detected folding, not lesion-level alignment or anatomical accuracy.
+Fix: separate verified same-session, same-day-only, longitudinal and unknown cohorts; resolve conflicting accession evidence before primary inclusion. Validate registration against independent landmarks/reference anatomy with empirically justified acceptance thresholds and representative blinded review. Retain provisional QA until this evidence exists.
+
+F09 [P1] Independent P9 evaluation is still a placeholder with a false success path.
+Source: code/evaluation/benchmark_p9_independent_study.py:177-232.
+With any matching GT filename the function returns SUCCESS/n_cases without reading GT, loading any of the four arms, checking patient independence or computing/writing the matched study. A temporary empty .nii.gz filename plus four missing arm directories reproduced SUCCESS and no output artifact.
+Fix: implement the actual teacher/majority/weighted/student evaluation on locked expert masks, verified registration/spacing, patient IDs and overlap checks. Missing/unreadable GT, absent arms or unimplemented study must not return SUCCESS. Obtain the planned independent rater reviews and untouched external annotations; a generated review template is not a completed study.
+
+F10 [P2] New P9 significance and HD95 helpers are methodologically wrong.
+Source: same P9 script:64-72,103-108.
+HD95 samples all foreground voxels against the other filled mask rather than boundary-to-boundary surface distances; overlapping interiors can hide boundary errors. A shifted solid-cube control yields0 versus1mm with the surface reference. Bootstrap groups patients, but the permutation flips individual scan/organ rows rather than whole patients. One patient with20 correlated pairs yielded p=0.0 and a degenerate CI; it supplies no population-level replication.
+Fix: validate physical surface HD95 against a trusted reference, prespecify empty/false-negative handling, flip paired arms per patient cluster, include finite Monte Carlo correction and minimum independent-patient gates, and declare endpoint weighting/multiplicity.
+
+F11 [P2] Scaling/annotation-budget inference remains incomplete.
+Sources: code/evaluation/compute_scaling_law.py:78-88,192-205; code/training/run_scaling_sweep.py:917-975.
+The x-axis still preferentially uses train_scan_count rather than patients or actual annotation effort. One patient can fall back to independent row resampling; a bounded control reported8 resampling entities for8 observations from one patient. Preferred-family bootstrap selection is repaired, but its intervals are conditional on that selected family, not proof of a scaling law.
+Post-training held-out evaluation and NRRD loading are now present in source (previously absent), so those findings are partially repaired. The added export is still wide per scan, annotation_organ_count is hardcoded4 rather than measured budget, checkpoint_step is 'best_epoch' rather than the actual epoch/step, and it does not supply the requested long-form organ record contract.
+Fix: export actual patient/scan/organ/seed/checkpoint identities and annotation effort, choose a prespecified patient/budget axis, refuse pseudo-replication with insufficient patients, separate patient uncertainty from seed variability, and complete the locked independent sweep. Presence of an evaluation branch is not evidence it ran successfully.
+
+F12 [P2] Probability support and legacy geometry are not enforced downstream.
+Sources: code/prediction/predict_mednext.py:165-202; predict_swin_unetr.py:205-242; code/evaluation/evaluate_multi_model_ensemble.py:479-527.
+New writers record support_mask=0 outside coverage while storing background probability1. The ensemble never consumes support_mask/channel_order, so unsupported regions can contribute confident background votes and misleading uncertainty. Equal-shape legacy archives still inherit segmentation affines without proof; equal shapes do not prove physical alignment.
+Fix: validate channel/geometry metadata, resample support masks and normalize supported model weights per voxel, keep no-support voxels unobserved in uncertainty/triage/training, and explicitly quarantine or re-export unverified legacy files. Execute nontrivial-affine probability/mask round-trip and overlapping-coverage integration controls before cohort claims.
+
+F13 [P2] Evidence quarantine, cohort reconciliation and scientific framing remain open.
+No quarantine implementation/registry change appears in the reviewed commit; actual invalid remote report/log preservation and hashes were not verified here. Do not copy the plan's asserted hashes as established facts. Old audit files are historical records, not quarantine completion.
+Fresh recount of tracked ensemble_phase3_audit_summary.csv:1,632 rows =0 CLEAN,34 WEAK,1,598 REJECT. This does not support plan claims of1,765/1,731 unless a separately versioned source cohort is supplied. Tracked multiphase_pairs.csv still has1,545 rows with both source and target dates blank; newly added discovery code does not retroactively verify that archive.
+SHOWCASE237-238 is improved, but308 still asserts 'authentic contrast dynamics' from an L1-selected subgroup and309 describes prescribed procedural kinetics. Selected reconstruction correlations and simulator-specified curves are not independent physiological fidelity, diagnostic utility or proof that air clamping resolves synthesis failure.
+Fix: inventory actual invalid outputs/logs with independently checked hashes and links; preserve their invalid status and remove dependent claims. Version all new cohorts and status/evidence registries. Distinguish reconstruction, biological realism, clinical utility and teacher agreement. Do not promise re-ensembling will create CLEAN cases.
+
+SCIENTIFIC VALIDATION STILL NOT ESTABLISHED BY THE REVIEWED EVIDENCE
+- Independent blinded expert assessment of consensus usability/triage and matched teacher/majority/weighted/student accuracy on untouched patients.
+- Causal evidence that partial-label supervision explains historical failures or that marginal retraining improves performance without harming fully reviewed cases.
+- Independent clinical-session correctness and anatomical/lesion registration accuracy; validation of QA acceptance thresholds and downstream enforcement.
+- Real held-out hepatic diagnostic benefit from generated lesions, and incremental kinetics value with matched composition, provenance and budgets.
+- External/center-generalization performance, patient-level uncertainty and training-seed stability; actual annotation-budget scaling rather than scan-count curve fits.
+- Cohort-wide inference/ensemble reruns with trustworthy probability support and geometry. Engineering fixes do not validate pre-fix outputs.
+- Independent physiological/clinical validation of generated enhancement. Prescribing wash-in/wash-out and recovering those curves is simulator consistency, not external validation.
+
+PRIORITY FOR THE IMPLEMENTING AGENT
+First repair F01/F02/F04/F05/F07/F09 so admitted runs can implement the intended studies and cannot falsely report completion. Then correct completeness, support, session and statistical contracts (F03/F08/F10/F11/F12), with meaningful producer-to-consumer controls. Reconcile quarantine and claims (F13). Only afterward run and report the prespecified independent studies. Mark code implemented, runtime verified and scientific validated separately, with linked evidence for each transition. No positive efficacy outcome is required or assumed for a study to be honestly completed.

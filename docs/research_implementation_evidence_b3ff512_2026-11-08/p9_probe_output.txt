@@ -1,0 +1,10 @@
+{"labels": [0, 1, 2, 3, 4], "metadata": null, "result": {"schema": "canonical_5class", "schema_verified": true, "reviewed_classes": ["stomach", "duodenum", "small_bowel", "colon"], "small_bowel_present": true, "colon_present": true, "is_complete_gi": true, "status": "OK"}}
+{"labels": [0, 1, 2, 4], "metadata": {"schema": "canonical_5class", "reviewed_classes": ["stomach", "duodenum", "small_bowel", "colon"]}, "result": {"schema": "canonical_5class", "schema_verified": true, "reviewed_classes": ["stomach", "duodenum", "small_bowel", "colon"], "small_bowel_present": false, "colon_present": true, "is_complete_gi": false, "status": "OK"}}
+{"labels": [0, 5], "metadata": {"schema": "jhu", "reviewed_classes": ["colon"]}, "result": {"schema": "jhu", "schema_verified": true, "reviewed_classes": ["colon"], "small_bowel_present": true, "colon_present": true, "is_complete_gi": false, "status": "OK"}}
+train_mednext.py case_metadata.json tokens= 0 reviewed_classes tokens= 1
+train_swin_unetr.py case_metadata.json tokens= 0 reviewed_classes tokens= 1
+Swin marginal arguments AST [('num_classes', 'Constant'), ('alpha', 'Set'), ('beta', 'Set')]
+train_mednext_phase2.py case_metadata.json tokens= 0 reviewed_classes tokens= 1
+train_swin_unetr_phase2.py case_metadata.json tokens= 0 reviewed_classes tokens= 1
+run_scaling_sweep.py case_metadata.json tokens= 0 reviewed_classes tokens= 1
+Swin configured weight arithmetic: TypeError unsupported operand type(s) for *: 'set' and 'float'

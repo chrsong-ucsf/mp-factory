@@ -1,0 +1,15 @@
+{
+  "source": "Tracked historical manifests, not a current production regeneration",
+  "triage_rows": 1632,
+  "triage_counts": {
+    "NOISE_REJECT": 1598,
+    "WEAK_COARSE": 34
+  },
+  "pair_rows": 1545,
+  "source_dates_missing": 1545,
+  "target_dates_missing": 1545,
+  "source_sha256": {
+    "docs/manifests/ensemble_phase3_audit_summary.csv": "6a2f3341ba43692028cc631295cf0728ba6db9a0a1a3ac3495f9069643556465",
+    "docs/manifests/multiphase_pairs.csv": "0c33d574c981ecce826f44c36837670e92bb4d910111151f3c7cd56a115e5a7c"
+  }
+}

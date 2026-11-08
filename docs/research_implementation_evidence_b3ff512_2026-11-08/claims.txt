@@ -1,0 +1,59 @@
+{
+  "head": "b3ff512",
+  "scope": "lightweight temporary synthetic probes, no model imports/training/cluster actions",
+  "empty_GT_file_missing_all_four_arms": {
+    "returned": {
+      "status": "SUCCESS",
+      "n_cases": 1
+    },
+    "output_files": []
+  },
+  "one_patient_cluster_inference": {
+    "arm_a": "student",
+    "arm_b": "teacher",
+    "metric": "dice",
+    "observed_delta": 0.2,
+    "ci_lower_2.5": 0.2,
+    "ci_upper_97.5": 0.2,
+    "p_value": 0.0
+  },
+  "one_voxel_cube_shift_hd95": {
+    "implemented": 0.0,
+    "surface_reference": 1.0
+  },
+  "one_patient_scaling": {
+    "Ns": [
+      5,
+      10,
+      20,
+      40
+    ],
+    "bootstrap_mode": "observation_resample",
+    "entity_count": 8
+  }
+}
+
+Tracked cohort metadata (not fresh production regeneration):
+{
+  "tracked_audit_rows": 1632,
+  "tracked_triage_counts": {
+    "NOISE_REJECT": 1598,
+    "WEAK_COARSE": 34
+  },
+  "tracked_manifest_rows": 34,
+  "quarantine_changed_files_since_1c3a833": []
+}
+
+Source findings and current scientific completion boundaries:
+- P9 benchmark run_benchmark197-232 validates only existence/listing ofGTfile names; found cases returnSUCCESS placeholder, no evaluation of four prediction arms and no results serialization. Actual zero-byteGT and absentallarms probe returnedSUCCESSn_cases1 with empty outputdir.
+- P9 paired inference103-108 flips scan-organ rows independently, not patients; actual onepatient20rows producedp0 and degenerateCI. pairedclusterbootstrap89-100 does not decline fewerthan2patients.
+- P9 HD95 helper64-72 evaluates all foreground voxels, not surfaces. Actual30cube shifted1mm gives0 vs boundaryHD95=1.
+- Scaling compute_scaling_law79-82 prioritizes scan count, not independent trainingpatients or annotationeffort. Lines111-116 acceptscan_id aspatientcluster;198-205 fall back to rowresampling ifone/no patient. Actual onepatient8rows returnedobservation_resample with8entities. Alternative modelselection/bootstrap family matching is improved but independent inference remains unverified.
+- SHOWCASE237-238 now qualifies marginal/geometry remedies as pending prospective retraining/re-evaluation; these causaloverclaims are repaired.
+- SHOWCASE15 and308 still describe strictpharmacokinetic dynamics/authenticcontrastdynamics/outcome-selectedtop30.1percent utility;262 still labels highfidelity;229/compiletable1 retain hardcodedunverified literaturevalues. Newwarning is not independentclinicalvalidation.
+- No quarantine registry/status/hash manifest or removal of historical lesionutility outputs was added in changedfilelist; absence of localnewartifacts is not proofremotedataabsent. Empiricalutility/independentreader/annotationstudies remainplanned or evidence_unavailable until actualmeasurements and prespecifiedindependenttests are supplied.
+
+Verified future-protocol repair, distinct from historical evidence:
+- run_scaling_sweep.py917-970 now reloads best checkpoint, evaluates reserved gold cases and serializes test records after training. Former unused-test-cases implementation defect is repaired. Historical JHU cases already reused for development remain historically exposed; code labels alone cannot establish a newly untouched cohort.
+- New test records include train_patient_count (line956) and train_scan_count (957). compute_scaling_law79-90 ignores train_patient_count and prioritizes train_scan_count, so the promised patient/annotation-budget x-axis is still not implemented.
+- Reproducer saved /tmp/mp_factory_audit_b3ff512_claims_probe.py; no heavy tests/model imports/cluster access occurred.

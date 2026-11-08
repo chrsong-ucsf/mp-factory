@@ -1,0 +1,9 @@
+{
+  "audited_commit": "b3ff51260c85604efe16d4869a7aa6ad2f8c0d32",
+  "checks": {
+    "python_ast": 97,
+    "shell_syntax": 85
+  },
+  "failures": [],
+  "scope": "Syntax only; no pytest, model imports, training, cluster execution or empirical validation."
+}

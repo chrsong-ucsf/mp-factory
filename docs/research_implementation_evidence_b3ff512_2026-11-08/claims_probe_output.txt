@@ -1,0 +1,5 @@
+Found 1 ground truth cases in /var/folders/6w/3s6s5qg97cx2g1ktdf2k_zqc0000gn/T/tmpwr691b4u/gt
+Invalid GT and missing arms: {'status': 'SUCCESS', 'n_cases': 1} files []
+One-patient inference: {'arm_a': 'student', 'arm_b': 'teacher', 'metric': 'dice', 'observed_delta': 0.2, 'ci_lower_2.5': 0.2, 'ci_upper_97.5': 0.2, 'p_value': 0.0}
+HD95 implemented/surface: 0.0 1.0
+Scaling N/cluster mode/entities: [5, 10, 20, 40] observation_resample 8
